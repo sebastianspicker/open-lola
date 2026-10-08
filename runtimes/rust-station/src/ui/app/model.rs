@@ -1,4 +1,4 @@
-use super::StationApp;
+use super::{PreviewSource, StationApp};
 use crate::station::session::VideoPreviewUpdate;
 use crate::ui::controller::{DeskSection, StationUIController};
 use crate::video::{generate_smpte_bars, SoftwareCamera};
@@ -65,8 +65,8 @@ impl StationApp {
             rx_audio,
             preview_tex: None,
             preview_is_live: false,
+            preview_source: PreviewSource::Synthetic { test_signal: false },
             preview_generation: None,
-            preview_frame: 0,
             preview_w: 320,
             preview_h: 180,
             process_priority,
@@ -101,53 +101,70 @@ impl StationApp {
         }
     }
 
-    /// Refresh the synthetic software/SMPTE preview texture.
+    /// Refresh the preview texture: received video first, then the local
+    /// capture, then a cached synthetic placeholder.
     pub(super) fn update_preview(&mut self, context: &egui::Context) {
-        let width = self.preview_w;
-        let height = self.preview_h;
-        let test_signal_active = self.controller.get_state().test_signal_active;
-        if !test_signal_active {
-            match self.controller.live_preview_update(self.preview_generation) {
-                VideoPreviewUpdate::Changed(preview) => {
-                    self.preview_is_live = true;
-                    self.preview_generation = Some(preview.generation);
-                    let image = ColorImage::from_rgb(
-                        [preview.width as usize, preview.height as usize],
-                        &preview.rgb,
-                    );
-                    self.set_preview_texture(context, image);
-                    if self.controller.live_running() {
-                        self.preview_frame = self.preview_frame.wrapping_add(1);
-                    }
-                    return;
-                }
-                VideoPreviewUpdate::Unchanged => {
-                    self.preview_is_live = true;
-                    return;
-                }
-                VideoPreviewUpdate::Empty => {}
-            }
+        let test_signal = self.controller.get_state().test_signal_active;
+        if !test_signal && self.controller.live_running() && self.refresh_live_preview(context) {
+            return;
         }
         self.preview_is_live = false;
         self.preview_generation = None;
-        let (width, height, rgb) = if test_signal_active {
-            (
-                width,
-                height,
-                generate_smpte_bars(width, height, false)
-                    .unwrap_or_else(|_| vec![40; (width * height * 3) as usize]),
-            )
+        let source = PreviewSource::Synthetic { test_signal };
+        if self.preview_source == source && self.preview_tex.is_some() {
+            return;
+        }
+        self.preview_source = source;
+        let (width, height) = (self.preview_w, self.preview_h);
+        let rgb = if test_signal {
+            generate_smpte_bars(width, height, false)
+                .unwrap_or_else(|_| vec![40; (width * height * 3) as usize])
         } else {
             let mut camera = SoftwareCamera::default();
             camera.open_dims(width, height, "RGB24");
-            camera.frame = self.preview_frame as u32;
-            (width, height, camera.grab().0)
+            camera.grab().0
         };
         let image = ColorImage::from_rgb([width as usize, height as usize], &rgb);
         self.set_preview_texture(context, image);
-        if self.controller.live_running() || test_signal_active {
-            self.preview_frame = self.preview_frame.wrapping_add(1);
+    }
+
+    /// Shows received video when present, else the local capture. Returns
+    /// whether a live frame is on display.
+    fn refresh_live_preview(&mut self, context: &egui::Context) -> bool {
+        let known = |app: &Self, source| {
+            (app.preview_source == source && app.preview_tex.is_some())
+                .then_some(app.preview_generation)
+                .flatten()
+        };
+        let remote = self
+            .controller
+            .live_preview_update(known(self, PreviewSource::Remote));
+        let (source, update) = match remote {
+            VideoPreviewUpdate::Empty => {
+                let local = self
+                    .controller
+                    .live_local_preview_update(known(self, PreviewSource::Local));
+                (PreviewSource::Local, local)
+            }
+            other => (PreviewSource::Remote, other),
+        };
+        match update {
+            VideoPreviewUpdate::Changed(preview) => {
+                let image = ColorImage::from_rgb(
+                    [preview.width as usize, preview.height as usize],
+                    &preview.rgb,
+                );
+                self.set_preview_texture(context, image);
+                self.preview_generation = Some(preview.generation);
+                // Poll quickly while frames flow; the 100 ms timer is the fallback.
+                context.request_repaint_after(std::time::Duration::from_millis(33));
+            }
+            VideoPreviewUpdate::Unchanged => {}
+            VideoPreviewUpdate::Empty => return false,
         }
+        self.preview_source = source;
+        self.preview_is_live = true;
+        true
     }
 
     fn set_preview_texture(&mut self, context: &egui::Context, image: ColorImage) {

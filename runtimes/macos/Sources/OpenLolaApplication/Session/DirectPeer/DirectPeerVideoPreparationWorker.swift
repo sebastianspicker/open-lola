@@ -55,8 +55,12 @@ final class DirectPeerVideoPreparationWorker: @unchecked Sendable {
         guard let completion else {
             return nil
         }
+        guard case let .success(preparedFrame) = completion.result else {
+            worker.recordDroppedFrame()
+            return nil
+        }
         return DirectPeerPreparedVideoTransmit(
-            preparedFrame: try completion.result.get(),
+            preparedFrame: preparedFrame,
             frameSequenceNumber: completion.request.frame.metadata.sequenceNumber,
             timestampNanoseconds: completion.request.frame.metadata.timestampNanoseconds
         )

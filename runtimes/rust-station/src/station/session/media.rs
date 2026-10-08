@@ -1,6 +1,6 @@
 use super::{SessionOptions, SessionRuntimeControl};
 use crate::net::{
-    MediaKind, MediaTransport, NpcapMediaTransport, ReceivedDatagram, TransportError,
+    DatagramPoll, MediaKind, MediaTransport, NpcapMediaTransport, ReceivedDatagram, TransportError,
     TransportStats, Udp, UdpMediaTransport,
 };
 use crate::protocol::{
@@ -31,6 +31,16 @@ pub(super) enum SessionMediaTransport {
 pub(super) enum VideoSendDisposition {
     Sent,
     WouldBlock,
+}
+
+/// Outcome of polling one media socket. `Discarded` (wrong peer, wrong port,
+/// empty) is distinct from `Empty` so a drain keeps reading past rejected
+/// datagrams instead of ending early.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ReceiveOutcome {
+    Datagram(ReceivedDatagram),
+    Discarded,
+    Empty,
 }
 
 impl SessionMediaTransport {
@@ -70,14 +80,19 @@ impl SessionMediaTransport {
         }
     }
 
+    /// Returns `Ok(false)` when the datagram was dropped for a transient
+    /// reason (`WouldBlock` or a transient OS fault) rather than failing.
     pub(super) fn send(
         &mut self,
         kind: MediaKind,
         payload: &[u8],
         destination: SocketAddr,
-    ) -> Result<(), SessionError> {
-        self.send_transport(kind, payload, destination)
-            .map_err(transport_session_error)
+    ) -> Result<bool, SessionError> {
+        match self.send_transport(kind, payload, destination) {
+            Ok(()) => Ok(true),
+            Err(TransportError::WouldBlock | TransportError::Transient(_)) => Ok(false),
+            Err(error) => Err(transport_session_error(error)),
+        }
     }
 
     fn send_transport(
@@ -116,17 +131,16 @@ impl SessionMediaTransport {
     ) -> Result<VideoSendDisposition, SessionError> {
         match self.send_transport(MediaKind::Video, payload, destination) {
             Ok(()) => Ok(VideoSendDisposition::Sent),
-            Err(TransportError::WouldBlock | TransportError::Backpressure(_)) => {
-                Ok(VideoSendDisposition::WouldBlock)
-            }
+            Err(
+                TransportError::WouldBlock
+                | TransportError::Backpressure(_)
+                | TransportError::Transient(_),
+            ) => Ok(VideoSendDisposition::WouldBlock),
             Err(error) => Err(transport_session_error(error)),
         }
     }
 
-    pub(super) fn receive_kind(
-        &mut self,
-        kind: MediaKind,
-    ) -> Result<Option<ReceivedDatagram>, SessionError> {
+    pub(super) fn receive_kind(&mut self, kind: MediaKind) -> Result<ReceiveOutcome, SessionError> {
         match self {
             Self::DiagnosticUdp { .. } => match self.socket(kind).try_recv_vec() {
                 Ok(Some((payload, peer))) => {
@@ -134,22 +148,27 @@ impl SessionMediaTransport {
                         stats.received_datagrams += 1;
                         stats.received_bytes += payload.len() as u64;
                     }
-                    Ok(Some(ReceivedDatagram {
+                    Ok(ReceiveOutcome::Datagram(ReceivedDatagram {
                         kind,
                         peer,
                         source_port: peer.port(),
-                        received_at: std::time::SystemTime::now(),
                         payload,
                     }))
                 }
-                Ok(None) => Ok(None),
+                Ok(None) => Ok(ReceiveOutcome::Empty),
                 Err(error) => Err(SessionError::Transport(error.to_string())),
             },
             Self::Udp(transport) => transport
                 .receive_kind(kind)
+                .map(|poll| match poll {
+                    DatagramPoll::Datagram(datagram) => ReceiveOutcome::Datagram(datagram),
+                    DatagramPoll::Discarded => ReceiveOutcome::Discarded,
+                    DatagramPoll::Empty => ReceiveOutcome::Empty,
+                })
                 .map_err(transport_session_error),
             Self::Npcap(transport) => transport
                 .receive_kind(kind)
+                .map(|datagram| datagram.map_or(ReceiveOutcome::Empty, ReceiveOutcome::Datagram))
                 .map_err(transport_session_error),
         }
     }
@@ -187,13 +206,26 @@ fn transport_session_error(error: TransportError) -> SessionError {
     SessionError::Transport(error.to_string())
 }
 
+/// Bounded presentation queue shared by audio blocks and video frames.
+///
+/// Every admitted unit is stored (replacing the oldest when the depth bound is
+/// reached), and at most one unit leaves per presentation deadline. The depth
+/// bound therefore caps the latency a jitter burst can add, while `prefill`
+/// decides how many units must be queued before the first one is presented.
 pub(super) struct ReceivePrefillQueue<T> {
     queue: VecDeque<T>,
     depth: usize,
     prefill: usize,
     started: bool,
     latest_sequence: Option<u32>,
+    consecutive_rejected: u32,
+    resyncs: u64,
+    excess_deadlines: u32,
 }
+
+/// Consecutive non-newer sequences after which the sender is assumed to have
+/// restarted its sequence counter and the queue resynchronises to it.
+const SEQUENCE_RESYNC_REJECTIONS: u32 = 16;
 
 impl<T> ReceivePrefillQueue<T> {
     pub(super) fn new(depth: u32, prefill: u32) -> Self {
@@ -204,21 +236,42 @@ impl<T> ReceivePrefillQueue<T> {
             prefill: (prefill as usize).min(depth),
             started: prefill == 0,
             latest_sequence: None,
+            consecutive_rejected: 0,
+            resyncs: 0,
+            excess_deadlines: 0,
         }
     }
 
+    /// Admits only strictly newer sequences. A sender that restarted (or a
+    /// jump beyond the serial window) would otherwise be rejected forever, so
+    /// after `SEQUENCE_RESYNC_REJECTIONS` consecutive rejections the queue
+    /// resets to the new sequence, drops stale queued units and admits it.
     pub(super) fn admit_sequence(&mut self, sequence: u32) -> bool {
         if self
             .latest_sequence
             .is_some_and(|last| !crate::protocol::serial_u32_is_newer(sequence, last))
         {
-            return false;
+            self.consecutive_rejected += 1;
+            if self.consecutive_rejected < SEQUENCE_RESYNC_REJECTIONS {
+                return false;
+            }
+            self.resyncs += 1;
+            self.queue.clear();
+            self.started = self.prefill == 0;
         }
+        self.consecutive_rejected = 0;
         self.latest_sequence = Some(sequence);
         true
     }
 
-    pub(super) fn push(&mut self, item: T) -> (Option<T>, bool) {
+    /// Returns and clears the number of sequence resynchronisations.
+    pub(super) fn take_resyncs(&mut self) -> u64 {
+        std::mem::take(&mut self.resyncs)
+    }
+
+    /// Stores one unit. Returns whether the oldest queued unit was discarded
+    /// to respect the depth bound.
+    pub(super) fn enqueue(&mut self, item: T) -> bool {
         let replaced = if self.queue.len() >= self.depth {
             self.queue.pop_front().is_some()
         } else {
@@ -228,10 +281,43 @@ impl<T> ReceivePrefillQueue<T> {
         if !self.started && self.queue.len() >= self.prefill {
             self.started = true;
         }
-        (
-            self.started.then(|| self.queue.pop_front()).flatten(),
-            replaced,
-        )
+        replaced
+    }
+
+    /// Takes the next unit for presentation once the prefill target was met.
+    pub(super) fn dequeue(&mut self) -> Option<T> {
+        if !self.started {
+            return None;
+        }
+        self.queue.pop_front()
+    }
+
+    /// Stores one unit and immediately offers the next presentable unit.
+    pub(super) fn push(&mut self, item: T) -> (Option<T>, bool) {
+        let replaced = self.enqueue(item);
+        (self.dequeue(), replaced)
+    }
+
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    /// Call once per presentation deadline after `dequeue`. A queue that stays
+    /// above its prefill target for `patience` consecutive deadlines has
+    /// permanently absorbed a late burst; one unit is discarded so the added
+    /// latency is returned instead of being kept for the rest of the session.
+    pub(super) fn realign(&mut self, patience: u32) -> bool {
+        if self.queue.len() <= self.prefill {
+            self.excess_deadlines = 0;
+            return false;
+        }
+        self.excess_deadlines += 1;
+        if self.excess_deadlines < patience.max(1) {
+            return false;
+        }
+        self.excess_deadlines = 0;
+        self.queue.pop_front().is_some()
     }
 }
 pub(super) fn send_video_media(
@@ -246,6 +332,8 @@ pub(super) fn send_video_media(
         .serialize()
         .map_err(|error| SessionError::Protocol(error.to_string()))?;
     for datagram in build_video_payloads(frame.sequence, &frame.payload, None, packet_size) {
+        // A transiently dropped fragment leaves the frame incomplete at the
+        // receiver, which already tolerates partial frames.
         transport.send(MediaKind::Video, &datagram, addr)?;
     }
     Ok(())
@@ -257,15 +345,14 @@ pub(super) fn send_audio_media(
     pcm: &[u8],
     addr: SocketAddr,
     writer: &mut AudioDatagramWriter,
-) -> Result<(), SessionError> {
+) -> Result<bool, SessionError> {
     if pcm.is_empty() {
         return Err(SessionError::Protocol(MediaError::EmptyPcm.to_string()));
     }
     let datagram = writer
         .write(sequence, pcm, None)
         .map_err(|error| SessionError::Protocol(error.to_string()))?;
-    transport.send(MediaKind::Audio, datagram, addr)?;
-    Ok(())
+    transport.send(MediaKind::Audio, datagram, addr)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -302,7 +389,7 @@ pub(super) fn recv_media(
         } else {
             MediaKind::Video
         };
-        let Some(datagram) = transport.receive_kind(expected_kind)? else {
+        let ReceiveOutcome::Datagram(datagram) = transport.receive_kind(expected_kind)? else {
             if !require_audio_size {
                 if let (Some(frame), Some(peer)) = (
                     reasm.take_expired_partial(incomplete_frame_threshold_pct),
@@ -366,4 +453,74 @@ pub(super) fn should_stream_more(
         return t0.elapsed().as_secs_f64() < d;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sequence_resyncs_after_consecutive_rejections() {
+        let mut queue = ReceivePrefillQueue::<u8>::new(4, 2);
+        assert!(queue.admit_sequence(1000));
+        queue.enqueue(1);
+        // A restarted sender repeats low sequences that are never "newer".
+        for sequence in 0..SEQUENCE_RESYNC_REJECTIONS - 1 {
+            assert!(!queue.admit_sequence(sequence));
+        }
+        assert_eq!(queue.take_resyncs(), 0);
+        assert_eq!(queue.len(), 1);
+        assert!(queue.admit_sequence(5));
+        assert_eq!(queue.take_resyncs(), 1);
+        assert_eq!(queue.take_resyncs(), 0);
+        assert_eq!(queue.len(), 0);
+        // The new numbering is now authoritative.
+        assert!(queue.admit_sequence(6));
+        assert!(!queue.admit_sequence(5));
+    }
+
+    #[test]
+    fn an_accepted_sequence_restarts_the_rejection_count() {
+        let mut queue = ReceivePrefillQueue::<u8>::new(4, 0);
+        assert!(queue.admit_sequence(10));
+        for _ in 0..SEQUENCE_RESYNC_REJECTIONS - 1 {
+            assert!(!queue.admit_sequence(3));
+        }
+        assert!(queue.admit_sequence(11));
+        for _ in 0..SEQUENCE_RESYNC_REJECTIONS - 1 {
+            assert!(!queue.admit_sequence(3));
+        }
+        assert_eq!(queue.take_resyncs(), 0);
+    }
+
+    #[test]
+    fn receive_kind_distinguishes_a_datagram_from_an_empty_socket() {
+        let audio = Udp::bind("127.0.0.1", 0).unwrap();
+        let video = Udp::bind("127.0.0.1", 0).unwrap();
+        let destination = audio.local_addr().unwrap();
+        let mut transport = SessionMediaTransport::diagnostic_udp(audio, video);
+        assert_eq!(
+            transport.receive_kind(MediaKind::Audio).unwrap(),
+            ReceiveOutcome::Empty
+        );
+        assert!(transport
+            .send(MediaKind::Audio, b"block", destination)
+            .unwrap());
+        let mut outcome = ReceiveOutcome::Empty;
+        for _ in 0..1000 {
+            outcome = transport.receive_kind(MediaKind::Audio).unwrap();
+            if outcome != ReceiveOutcome::Empty {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(matches!(
+            outcome,
+            ReceiveOutcome::Datagram(datagram) if datagram.payload == b"block"
+        ));
+        assert_eq!(
+            transport.receive_kind(MediaKind::Audio).unwrap(),
+            ReceiveOutcome::Empty
+        );
+    }
 }

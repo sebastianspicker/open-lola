@@ -64,7 +64,7 @@ fn diagnostic_backend_names_remain_synthetic_evidence() {
 fn status_snapshot_omits_pixels_while_public_preview_boundary_materializes_them() {
     let runtime = SessionRuntime::new();
     let control = SessionRuntimeControl::default();
-    control.publish_video(1, 1, &[1, 2, 3], "RGB24");
+    control.publish_remote_video(1, 1, &[1, 2, 3], "RGB24");
     let (lock, _) = &*runtime.inner;
     lock_unpoison(lock).session_control = Some(control);
 

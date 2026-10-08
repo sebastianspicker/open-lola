@@ -256,3 +256,81 @@ fn maximum_fragment_count_reassembles_in_reverse_offset_order() {
     assert_eq!(frame[10_000], (10_000 % 251) as u8);
     assert_eq!(frame[count as usize - 1], ((count - 1) % 251) as u8);
 }
+
+fn half_fragment(frame_id: u32, index: u32) -> Fragment {
+    Fragment {
+        frame_id,
+        fragment_count: 2,
+        fragment_index: index,
+        original_offset: index * 2,
+        fragment_length: 2,
+        flags: 0,
+        data: vec![index as u8; 2],
+    }
+}
+
+#[test]
+fn newer_frames_evict_older_incomplete_frames_instead_of_filling_slots() {
+    let mut reassembler = MediaReassembler::with_limits(2, Duration::from_secs(60));
+    for frame_id in [1, 2, 3] {
+        reassembler.begin(frame_id, 4, 2).unwrap();
+        assert_eq!(reassembler.add(half_fragment(frame_id, 0)).unwrap(), None);
+    }
+    assert_eq!(reassembler.active_frames(), 1);
+    assert_eq!(reassembler.take_evicted_older_frames(), 2);
+    assert_eq!(reassembler.take_evicted_older_frames(), 0);
+    assert_eq!(
+        reassembler.add(half_fragment(3, 1)).unwrap(),
+        Some(vec![0, 0, 1, 1])
+    );
+}
+
+#[test]
+fn late_fragment_for_an_evicted_frame_is_rejected_without_state_damage() {
+    let mut reassembler = MediaReassembler::strict();
+    reassembler.begin(1, 4, 2).unwrap();
+    reassembler.add(half_fragment(1, 0)).unwrap();
+    reassembler.begin(2, 4, 2).unwrap();
+    assert_eq!(reassembler.active_frames(), 1);
+    assert_eq!(reassembler.add(half_fragment(1, 1)).unwrap(), None);
+    assert_eq!(reassembler.active_frames(), 1);
+    assert_eq!(reassembler.buffered_bytes, 0);
+}
+
+#[test]
+fn completing_a_frame_evicts_older_incomplete_frames() {
+    let mut reassembler = MediaReassembler::new();
+    reassembler.begin(7, 4, 2).unwrap();
+    reassembler.begin(5, 4, 2).unwrap();
+    reassembler.add(half_fragment(5, 0)).unwrap();
+    reassembler.add(half_fragment(7, 0)).unwrap();
+    assert!(reassembler.add(half_fragment(7, 1)).unwrap().is_some());
+    assert_eq!(reassembler.active_frames(), 0);
+    assert_eq!(reassembler.buffered_bytes, 0);
+    assert_eq!(reassembler.take_evicted_older_frames(), 1);
+}
+
+#[test]
+fn incoming_frame_older_than_every_active_frame_is_rejected_at_the_limit() {
+    let mut reassembler = MediaReassembler::with_limits(1, Duration::from_secs(60));
+    reassembler.begin(10, 4, 2).unwrap();
+    assert_eq!(
+        reassembler.begin(9, 4, 2).unwrap_err(),
+        MediaError::TooManyActiveFrames
+    );
+    assert_eq!(reassembler.active_frames(), 1);
+    assert_eq!(reassembler.take_evicted_older_frames(), 0);
+}
+
+#[test]
+fn eviction_direction_survives_frame_id_wraparound() {
+    let mut reassembler = MediaReassembler::with_limits(2, Duration::from_secs(60));
+    reassembler.begin(u32::MAX, 4, 2).unwrap();
+    reassembler.begin(0, 4, 2).unwrap();
+    assert_eq!(reassembler.active_frames(), 1);
+    assert_eq!(reassembler.take_evicted_older_frames(), 1);
+    // The wrapped-around older id must not evict the newer frame 0.
+    reassembler.begin(u32::MAX, 4, 2).unwrap();
+    assert_eq!(reassembler.active_frames(), 2);
+    assert_eq!(reassembler.take_evicted_older_frames(), 0);
+}

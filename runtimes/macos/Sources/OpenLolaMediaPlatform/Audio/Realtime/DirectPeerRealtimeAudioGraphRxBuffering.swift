@@ -8,6 +8,11 @@ extension DirectPeerRealtimeAudioGraph {
         return rxBufferSnapshot
     }
 
+    /// Current playout target that `queuePlayoutPayload` adds to every start frame.
+    public func playoutTargetFramesSnapshot() -> Int {
+        currentPlayoutTargetFrames()
+    }
+
     func currentPlayoutTargetFrames() -> Int {
         // Called from queuePlayoutPayload on the network receive path, not from renderPlayout.
         rxBufferAdaptationLock.lock()
@@ -26,15 +31,15 @@ extension DirectPeerRealtimeAudioGraph {
             return
         }
         let previousEventCount = controller.targetChangeEvents.count
-        let now = DispatchTime.now().uptimeNanoseconds
-        let ageMicroseconds = hostTimeNanoseconds <= now
-            ? Double(now - hostTimeNanoseconds) / 1_000
-            : 0
+        let jitterMicroseconds = updateInterarrivalJitterLocked(
+            senderHostTimeNanoseconds: hostTimeNanoseconds,
+            arrivalNanoseconds: DispatchTime.now().uptimeNanoseconds
+        )
         let sequenceNumber = startFrame / UInt64(max(1, configuration.framesPerBuffer))
         let decision = controller.observe(
             RxBufferAdaptationSample(
                 sequenceNumber: sequenceNumber,
-                jitterP99Microseconds: ageMicroseconds,
+                jitterP99Microseconds: jitterMicroseconds,
                 latePackets: pressure ? 1 : 0
             )
         )
@@ -46,5 +51,24 @@ extension DirectPeerRealtimeAudioGraph {
         for event in controller.targetChangeEvents.dropFirst(previousEventCount) {
             rxBufferSnapshot?.targetChangeEvents.append(event)
         }
+    }
+
+    /// RFC 3550 interarrival jitter. The sender host time and the local arrival time come from
+    /// different clocks, so only the change in transit between packets is meaningful; the constant
+    /// clock offset cancels out. Caller holds `rxBufferAdaptationLock`.
+    private func updateInterarrivalJitterLocked(
+        senderHostTimeNanoseconds: UInt64,
+        arrivalNanoseconds: UInt64
+    ) -> Double {
+        let transit = Int64(truncatingIfNeeded: arrivalNanoseconds)
+            &- Int64(truncatingIfNeeded: senderHostTimeNanoseconds)
+        defer { rxInterarrivalPreviousTransitNanoseconds = transit }
+        guard let previousTransit = rxInterarrivalPreviousTransitNanoseconds else {
+            rxInterarrivalJitterMicroseconds = 0
+            return 0
+        }
+        let differenceMicroseconds = Double(transit &- previousTransit).magnitude / 1_000
+        rxInterarrivalJitterMicroseconds += (differenceMicroseconds - rxInterarrivalJitterMicroseconds) / 16
+        return rxInterarrivalJitterMicroseconds
     }
 }

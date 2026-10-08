@@ -11,20 +11,44 @@ import OpenLolaSessionDomain
 struct LoLaAudioReceiveFreshnessSnapshot: Equatable, Sendable {
     var coalescedStaleAudioDatagrams: Int
     var rejectedAudioSourceDatagrams: Int
+    var receivedDatagrams = 0
+    var retainedEvidenceDatagrams = 0
+    var playoutRejectedDatagrams = 0
 }
 
 final class LoLaAudioReceiveFreshnessCounters: @unchecked Sendable {
     private let lock = NSLock()
     private var coalescedStaleAudioDatagrams = 0
     private var rejectedAudioSourceDatagrams = 0
+    private var receivedDatagrams = 0
+    private var retainedEvidenceDatagrams = 0
+    private var playoutRejectedDatagrams = 0
 
     var snapshot: LoLaAudioReceiveFreshnessSnapshot {
         lock.lock()
         defer { lock.unlock() }
         return LoLaAudioReceiveFreshnessSnapshot(
             coalescedStaleAudioDatagrams: coalescedStaleAudioDatagrams,
-            rejectedAudioSourceDatagrams: rejectedAudioSourceDatagrams
+            rejectedAudioSourceDatagrams: rejectedAudioSourceDatagrams,
+            receivedDatagrams: receivedDatagrams,
+            retainedEvidenceDatagrams: retainedEvidenceDatagrams,
+            playoutRejectedDatagrams: playoutRejectedDatagrams
         )
+    }
+
+    func noteReceived(retainedAsEvidence: Bool) {
+        lock.lock()
+        receivedDatagrams += 1
+        if retainedAsEvidence {
+            retainedEvidenceDatagrams += 1
+        }
+        lock.unlock()
+    }
+
+    func notePlayoutRejected() {
+        lock.lock()
+        playoutRejectedDatagrams += 1
+        lock.unlock()
     }
 
     func addCoalescedStaleAudioDatagrams(_ count: Int) {
@@ -90,9 +114,20 @@ private struct LoLaUdpMediaReceiveContext {
         self.onDatagram = onDatagram
     }
 
-    mutating func append(_ datagram: LoLaUdpMediaDatagram) throws {
-        try onDatagram(datagram)
-        datagrams.append(datagram)
+    /// Hands every datagram to the live consumer and retains the first
+    /// `evidenceLimit` of them for the report. A consumer failure for one
+    /// datagram (for example an unexpected block size) is counted, not fatal.
+    mutating func admit(_ datagram: LoLaUdpMediaDatagram, evidenceLimit: Int) {
+        do {
+            try onDatagram(datagram)
+        } catch {
+            audioFreshnessCounters?.notePlayoutRejected()
+        }
+        let retain = datagrams.count < evidenceLimit
+        if retain {
+            datagrams.append(datagram)
+        }
+        audioFreshnessCounters?.noteReceived(retainedAsEvidence: retain)
     }
 }
 
@@ -156,6 +191,7 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
         afterBind: (LoLaUdpMediaReceiveSockets) throws -> Void,
         coalesceReadableAudioToNewest: Bool = false,
         audioFreshnessCounters: LoLaAudioReceiveFreshnessCounters? = nil,
+        cancellation: LoLaSessionCancellation? = nil,
         onDatagram: @escaping (LoLaUdpMediaDatagram) throws -> Void = { _ in }
     ) throws -> [LoLaUdpMediaDatagram] {
         let sockets = try LoLaUdpMediaReceiveSockets(bindHost: request.localHost, ports: request.ports)
@@ -168,15 +204,25 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
         )
         let deadline = request.deadlineNanoseconds.map(MonotonicDeadline.init(uptimeNanoseconds:))
             ?? MonotonicDeadline(seconds: TimeInterval(max(1, timeoutSeconds)))
-        while context.datagrams.count < request.maxDatagrams, deadline.hasTimeRemaining {
-            let readableStreams = try sockets.readableStreams(timeoutSeconds: deadline.remainingSeconds)
+        // A live session keeps receiving until its deadline so playout never
+        // stops at an evidence count; a bounded diagnostic run stops once the
+        // requested datagram count has been retained.
+        // A peer-initiated end (/MESG_DISCONNECT) stops the loop at its next
+        // wake-up, so the socket wait is bounded while a cancellation exists.
+        while deadline.hasTimeRemaining, !(cancellation?.isCancelled ?? false),
+              request.runUntilDeadline || context.datagrams.count < request.maxDatagrams {
+            let waitSeconds = cancellation == nil
+                ? deadline.remainingSeconds
+                : min(deadline.remainingSeconds, lolaSessionCancellationPollSeconds)
+            let readableStreams = try sockets.readableStreams(timeoutSeconds: waitSeconds)
             try appendReadableDatagrams(
                 readableStreams,
                 request: request,
                 context: &context
             )
         }
-        guard context.datagrams.count >= request.maxDatagrams else {
+        let required = request.runUntilDeadline ? 1 : request.maxDatagrams
+        guard context.datagrams.count >= required else {
             throw ExternalConnectorSessionError.receiveTimedOut
         }
         return Array(context.datagrams.prefix(request.maxDatagrams))
@@ -187,7 +233,8 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
         request: LoLaUdpMediaReceiveRequest,
         context: inout LoLaUdpMediaReceiveContext
     ) throws {
-        for target in readableStreams where context.datagrams.count < request.maxDatagrams {
+        for target in readableStreams
+        where request.runUntilDeadline || context.datagrams.count < request.maxDatagrams {
             if target.stream == .audio, context.coalesceReadableAudioToNewest {
                 try drainReadableAudioDatagrams(
                     target: target,
@@ -206,7 +253,7 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
                     )
                 }
                 if case let .accepted(datagram) = attempt {
-                    try context.append(datagram)
+                    context.admit(datagram, evidenceLimit: request.maxDatagrams)
                 }
             }
         }
@@ -233,8 +280,8 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
             case .empty:
                 context.audioFreshnessCounters?.addCoalescedStaleAudioDatagrams(accumulator.coalescedStaleAudioDatagrams)
                 context.audioFreshnessCounters?.addRejectedAudioSourceDatagrams(accumulator.rejectedAudioSourceDatagrams)
-                try accumulator.deliverNewest { datagram in
-                    try context.append(datagram)
+                accumulator.deliverNewest { datagram in
+                    context.admit(datagram, evidenceLimit: request.maxDatagrams)
                 }
                 return
             }
@@ -253,28 +300,38 @@ struct LoLaUdpMediaReceiveRequest: Sendable {
     var peer: String
     var ports: LoLaUdpMediaReceivePorts
     var deadlineNanoseconds: UInt64?
+    /// Live sessions receive until the deadline and retain `maxDatagrams`
+    /// datagrams as evidence; bounded runs stop at `maxDatagrams`.
+    var runUntilDeadline: Bool
 
     init(
         maxDatagrams: Int,
         localHost: String,
         peer: String,
         ports: LoLaUdpMediaReceivePorts,
-        deadlineNanoseconds: UInt64? = nil
+        deadlineNanoseconds: UInt64? = nil,
+        runUntilDeadline: Bool = false
     ) {
         self.maxDatagrams = maxDatagrams
         self.localHost = localHost
         self.peer = peer
         self.ports = ports
         self.deadlineNanoseconds = deadlineNanoseconds
+        self.runUntilDeadline = runUntilDeadline
     }
 
-    init(configuration: LoLaUdpMediaReceiveRunConfiguration, deadlineNanoseconds: UInt64? = nil) {
+    init(
+        configuration: LoLaUdpMediaReceiveRunConfiguration,
+        deadlineNanoseconds: UInt64? = nil,
+        runUntilDeadline: Bool = false
+    ) {
         self.init(
             maxDatagrams: configuration.maxDatagrams,
             localHost: configuration.localHost,
             peer: configuration.peer,
             ports: LoLaUdpMediaReceivePorts(audio: configuration.audioPort, video: configuration.videoPort),
-            deadlineNanoseconds: deadlineNanoseconds
+            deadlineNanoseconds: deadlineNanoseconds,
+            runUntilDeadline: runUntilDeadline
         )
     }
 }

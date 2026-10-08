@@ -137,18 +137,34 @@ public enum LoLaCompatibilityMediaCodec {
         return try audioFragments(sequenceNumber: sequenceNumber, channels: channels, payload: audio)
     }
 
+    /// Largest PCM body one padded 1066-byte audio datagram can carry.
+    public static let maxAudioPayloadByteCount = LoLaCompatibilityMediaModel.audioUdpPayloadByteCount
+        - LoLaCompatibilityMediaModel.fragmentPayloadOffset
+        - 8
+
+    /// Validates a PCM body for one audio datagram. LoLa negotiates rate, depth,
+    /// and channels but not frames per packet: 32- and 64-frame peers share one
+    /// wire, so any whole number of 16-bit frames that fits the padded datagram
+    /// is accepted instead of exactly 64 frames.
+    public static func validateAudioPayloadByteCount(_ byteCount: Int, channels: Int) throws {
+        _ = try LoLaCompatibilityMediaModel.audioPayloadByteCount(channels: channels)
+        let frameByteCount = channels * 2
+        guard byteCount > 0,
+              byteCount <= maxAudioPayloadByteCount,
+              byteCount.isMultiple(of: frameByteCount) else {
+            throw LoLaCompatibilityMediaCodecError.serializedSizeMismatch(
+                expected: try LoLaCompatibilityMediaModel.audioPayloadByteCount(channels: channels),
+                actual: byteCount
+            )
+        }
+    }
+
     public static func audioFragments(
         sequenceNumber: UInt32,
         channels: Int,
         payload: Data
     ) throws -> [LoLaCompatibilityMediaPacket] {
-        let byteCount = try LoLaCompatibilityMediaModel.audioPayloadByteCount(channels: channels)
-        guard payload.count == byteCount else {
-            throw LoLaCompatibilityMediaCodecError.serializedSizeMismatch(
-                expected: byteCount,
-                actual: payload.count
-            )
-        }
+        try validateAudioPayloadByteCount(payload.count, channels: channels)
         let body = serializedBody(sequence: sequenceNumber, payload: payload)
         return [
             normalPacket(

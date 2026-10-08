@@ -12,7 +12,9 @@ Open LoLa contains two independent runtime implementations:
   backends, explicit diagnostic media, and optional egui presentation.
 
 The runtimes share the versioned synthetic regression corpus in `interop/lola2`,
-which is not original packet-capture or current reference-peer evidence.
+which is not original packet-capture or current reference-peer evidence. The
+Rust station replays it in `cargo test --test lola2_compatibility`; the macOS
+connector does not consume it yet.
 Vendored codecs remain under `third_party`, repository automation under `tools`,
 and the fixture-backed browser walkthrough under `web/demo`.
 

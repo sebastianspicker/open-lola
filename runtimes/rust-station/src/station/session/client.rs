@@ -11,7 +11,7 @@ use super::lifecycle::{record_cached_transport_stats, record_transport_monitor};
 use super::media::{should_stream_more, ReceivePrefillQueue, SessionMediaTransport};
 use super::stream::run_interleaved_stream;
 use super::types::{now_us, session_cancelled, stream_dims};
-use super::video::{send_recv_video_frame, ReceivedVideoFrame};
+use super::video::{send_recv_video_frame, VideoReceiveQueue};
 use super::{SessionOptions, SessionPhase, SessionResult};
 use crate::config::{load_ximea_colors, ColorSettings, MediaTransportKind, StationSettings};
 use crate::net::Udp;
@@ -276,10 +276,13 @@ fn run_client_stream(
         settings.network.audio_receive_queue_depth,
         settings.network.audio_receive_prefill,
     );
-    let mut video_queue = ReceivePrefillQueue::new(
+    let mut video_queue = VideoReceiveQueue::new(
         settings.network.video_receive_queue_depth,
         settings.network.video_receive_prefill,
     );
+    if scheduled && use_jpeg {
+        video_queue = video_queue.with_decoder(stream_w, stream_h, remote_video_bpp);
+    }
     let started = Instant::now();
     if scheduled {
         run_interleaved_stream(
@@ -309,6 +312,7 @@ fn run_client_stream(
             &mut audio_queue,
             &mut video_reassembler,
             &mut video_queue,
+            None,
         )?;
     } else {
         run_sequential_client_stream(
@@ -487,7 +491,7 @@ fn run_sequential_client_stream(
     audio_reassembler: &mut FrameReassembler,
     audio_queue: &mut ReceivePrefillQueue<Vec<u8>>,
     video_reassembler: &mut FrameReassembler,
-    video_queue: &mut ReceivePrefillQueue<ReceivedVideoFrame>,
+    video_queue: &mut VideoReceiveQueue,
     previews: &mut Vec<String>,
 ) -> Result<(), SessionError> {
     let mut audio_writer = crate::protocol::AudioDatagramWriter::new();
@@ -580,5 +584,6 @@ fn client_control_disconnect(
         settings,
         result,
         options.runtime_control.as_ref(),
+        None,
     )
 }

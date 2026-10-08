@@ -2,6 +2,7 @@
 use super::*;
 use crate::net::MediaKind;
 use crate::protocol::{parse_audio_datagram, StreamingVideoFragments};
+use crate::station::session::media::ReceiveOutcome;
 use crate::station::session::scheduler::{PreparedVideoFrame, VideoTxCursor};
 use std::time::Duration;
 
@@ -85,7 +86,7 @@ fn poll_audio(
     transport: &mut SessionMediaTransport,
     writer: &mut AudioDatagramWriter,
 ) -> Result<bool, SessionError> {
-    let Some(datagram) = transport.receive_kind(MediaKind::Audio)? else {
+    let ReceiveOutcome::Datagram(datagram) = transport.receive_kind(MediaKind::Audio)? else {
         return Ok(false);
     };
     if relay
@@ -114,7 +115,7 @@ fn poll_video(
     reassembler: &mut FrameReassembler,
     pending: &mut Option<PendingVideo>,
 ) -> Result<bool, SessionError> {
-    let Some(datagram) = transport.receive_kind(MediaKind::Video)? else {
+    let ReceiveOutcome::Datagram(datagram) = transport.receive_kind(MediaKind::Video)? else {
         return Ok(false);
     };
     if relay

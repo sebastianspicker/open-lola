@@ -227,4 +227,5 @@ Desktop.ini
 /RELEASE_STATUS.md
 /web/demo/DESIGN_BRIEF.md
 /runtimes/macos/Tests/
-/runtimes/rust-station/tests/
+/runtimes/rust-station/tests/*
+!/runtimes/rust-station/tests/lola2_compatibility.rs

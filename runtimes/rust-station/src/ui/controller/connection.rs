@@ -364,6 +364,11 @@ impl StationUIController {
     }
 
     #[cfg(feature = "gui")]
+    pub(crate) fn live_local_preview_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
+        self.live.latest_local_video_update(generation)
+    }
+
+    #[cfg(feature = "gui")]
     pub(crate) fn live_preview_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
         self.live.latest_video_update(generation)
     }

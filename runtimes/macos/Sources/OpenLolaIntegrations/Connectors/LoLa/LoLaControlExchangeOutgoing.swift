@@ -237,12 +237,21 @@ private func completeLoLaStatusCheckPhase(
     )
 
     let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
-    let statusAck = try receiveLoLaOutgoingHandshakeMessage(
+    let statusAck = try receiveLoLaOutgoingHandshakeMessageWithRetries(
         transport: transport,
         state: &state,
         destinationPort: configuration.controlPort,
         deadline: deadline,
-        discardedDatagrams: &discardedDatagrams
+        discardedDatagrams: &discardedDatagrams,
+        resend: { state in
+            try sendLoLaStatusCheck(
+                configuration: configuration,
+                transport: transport,
+                state: &state,
+                advertisedSourceIP: advertisedSourceIP,
+                sessionID: sessionID
+            )
+        }
     ) { parsed, received, state in
         validateLoLaStatusAck(
             parsed,
@@ -287,14 +296,24 @@ private func completeLoLaQuickConnectPhase(
         sourceIP: advertisedSourceIP
     )
     let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
-    return try receiveLoLaOutgoingHandshakeMessage(
+    return try receiveLoLaOutgoingHandshakeMessageWithRetries(
         transport: transport,
         state: &state,
         destinationPort: configuration.controlPort,
         deadline: deadline,
         discardedDatagrams: &discardedDatagrams,
         parsedMessageName: parsedStatusAck.parsed.name,
-        fields: parsedStatusAck.parsed.fields
+        fields: parsedStatusAck.parsed.fields,
+        peerReject: try lolaQuickConnectPeerRejectExpectation(
+            configuration: configuration, sourceIP: advertisedSourceIP),
+        resend: { state in
+            try sendLoLaQuickConnect(
+                configuration: configuration,
+                transport: transport,
+                state: &state,
+                sourceIP: advertisedSourceIP
+            )
+        }
     ) { parsed, received, state in
         try validateLoLaQuickConnectAck(
             parsed,
@@ -327,7 +346,9 @@ private func sendLoLaQuickConnectFallback(
         state: &state,
         destinationPort: configuration.controlPort,
         deadline: deadline,
-        discardedDatagrams: &discardedDatagrams
+        discardedDatagrams: &discardedDatagrams,
+        peerReject: try lolaQuickConnectPeerRejectExpectation(
+            configuration: configuration, sourceIP: advertisedSourceIP)
     ) { parsed, received, state in
         try validateLoLaQuickConnectAck(
             parsed,
@@ -398,7 +419,7 @@ private func sendLoLaQuickConnect(
     state.recordSent(quickConnect, byteCount: byteCount)
 }
 
-private func receiveLoLaOutgoingHandshakeMessage(
+func receiveLoLaOutgoingHandshakeMessage(
     transport: LoLaOutgoingControlTransport,
     state: inout LoLaExchangeState,
     destinationPort: UInt16,
@@ -406,6 +427,7 @@ private func receiveLoLaOutgoingHandshakeMessage(
     discardedDatagrams: inout Int,
     parsedMessageName: String? = nil,
     fields: [String: String] = [:],
+    peerReject: LoLaPeerRejectExpectation? = nil,
     validate: (LoLaParsedControlMessage, LoLaReceivedControlMessage, LoLaExchangeState) throws
         -> LoLaControlExchangeAttempt?
 ) throws -> LoLaParsedControlMessage {
@@ -432,6 +454,10 @@ private func receiveLoLaOutgoingHandshakeMessage(
                 parsed: try decodeLoLaReceivedControlDatagram(received),
                 failure: nil
             )
+            if let rejected = lolaTerminalPeerReject(
+                candidate, received: received, state: &state, expectation: peerReject,
+                parsedMessageName: parsedMessageName, fields: fields
+            ) { return rejected }
             if try validate(candidate, received, state) == nil {
                 return parseLoLaExchangeControlMessage(
                     received,

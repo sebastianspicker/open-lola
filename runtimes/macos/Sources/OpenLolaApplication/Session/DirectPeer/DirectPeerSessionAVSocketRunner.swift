@@ -25,44 +25,54 @@ public extension DirectPeerSessionSocketRunner {
         onReady: (() -> Void)?
     ) throws -> DirectPeerSessionReport {
         try validateAVConfiguration(configuration)
-        let control = try DirectPeerSessionControlSocket.bindIPv4(
-            host: configuration.manual.localHost,
-            port: configuration.manual.controlPort,
-            receiveTimeoutSeconds: configuration.manual.timeoutSeconds
-        )
-        defer { control.close() }
-
-        var runner = try makeManualAVPeerSessionRunner(configuration: configuration, control: control)
-        defer { runner.shutdown(reason: "manual-address audio-video run complete") }
-        onReady?()
-
-        let remoteControl = manualAVRemoteControlEndpoint(configuration)
-        let avRuntime: DirectPeerSessionAVRuntimeResult
-        switch configuration.manual.role {
-        case .initiator:
-            avRuntime = try runManualAVInitiator(
-                runner: &runner,
-                control: control,
-                remoteControl: remoteControl,
-                configuration: configuration
-            )
-        case .responder:
-            avRuntime = try runManualAVResponder(
-                runner: &runner,
-                control: control,
-                remoteControl: remoteControl,
-                configuration: configuration
-            )
+        let readyCallback = DirectPeerAVSessionCallbackBox(onReady)
+        return try runDirectPeerAVSessionOnDedicatedThread(previewMode: configuration.preview) {
+            try runManualAddressAudioVideoSession(configuration: configuration, onReady: readyCallback)
         }
-        try validateUsefulMediaMoved(runtime: avRuntime, policy: configuration.qualityPolicy)
+    }
+}
 
-        return try buildAVReport(
-            configuration: configuration,
-            runner: runner,
+private func runManualAddressAudioVideoSession(
+    configuration: DirectPeerSessionAVRunConfiguration,
+    onReady: DirectPeerAVSessionCallbackBox
+) throws -> DirectPeerSessionReport {
+    let control = try DirectPeerSessionControlSocket.bindIPv4(
+        host: configuration.manual.localHost,
+        port: configuration.manual.controlPort,
+        receiveTimeoutSeconds: configuration.manual.timeoutSeconds
+    )
+    defer { control.close() }
+
+    var runner = try makeManualAVPeerSessionRunner(configuration: configuration, control: control)
+    defer { runner.shutdown(reason: "manual-address audio-video run complete") }
+    onReady.invoke()
+
+    let remoteControl = manualAVRemoteControlEndpoint(configuration)
+    let avRuntime: DirectPeerSessionAVRuntimeResult
+    switch configuration.manual.role {
+    case .initiator:
+        avRuntime = try runManualAVInitiator(
+            runner: &runner,
             control: control,
-            runtime: avRuntime
+            remoteControl: remoteControl,
+            configuration: configuration
+        )
+    case .responder:
+        avRuntime = try runManualAVResponder(
+            runner: &runner,
+            control: control,
+            remoteControl: remoteControl,
+            configuration: configuration
         )
     }
+    try validateUsefulMediaMoved(runtime: avRuntime, policy: configuration.qualityPolicy)
+
+    return try buildAVReport(
+        configuration: configuration,
+        runner: runner,
+        control: control,
+        runtime: avRuntime
+    )
 }
 
 func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguration) throws {

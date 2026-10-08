@@ -24,7 +24,6 @@ public final class UdpMediaTransport: @unchecked Sendable {
     private var recentSequencesByStream: [UdpMediaSequenceKey: UdpMediaRecentSequences] = [:]
     private var receiveStreamOrder: [UdpMediaSequenceKey] = []
     private var receiveScratch: [UInt8] = []
-    private var receivePeekScratch: [UInt8] = []
     private var sendScratch = Data()
     private var jitterState = UdpMediaJitterState()
     var isClosed = false
@@ -221,6 +220,9 @@ public final class UdpMediaTransport: @unchecked Sendable {
             )
             if result == .sent {
                 metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
+            } else {
+                // The caller keeps and retries the frame; the refused fragment must not be skipped.
+                cursor.rewindOne()
             }
             return result
         }
@@ -264,10 +266,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     public func tryReceiveDecoded(maxByteCount: Int) throws -> UdpMediaDecodedPacket? {
         let data = try withOpenSocketLock {
-            guard try datagramAvailable(socket: descriptor, buffer: &receivePeekScratch) else {
-                return Data?.none
-            }
-            return try receiveDatagramIfAvailable(
+            try receiveDatagramIfAvailable(
                 socket: descriptor,
                 byteCount: maxByteCount,
                 buffer: &receiveScratch
@@ -282,9 +281,6 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     public func tryReceiveRawDatagram(maxByteCount: Int) throws -> Data? {
         try withOpenSocketLock {
-            guard try datagramAvailable(socket: descriptor, buffer: &receivePeekScratch) else {
-                return nil
-            }
             let data = try receiveDatagramIfAvailable(
                 socket: descriptor,
                 byteCount: maxByteCount,
@@ -325,7 +321,6 @@ public final class UdpMediaTransport: @unchecked Sendable {
             }
             var drained = 0
             while drained < drainLimit,
-                  try datagramAvailable(socket: descriptor, buffer: &receivePeekScratch),
                   try receiveDatagramIfAvailable(
                       socket: descriptor,
                       byteCount: maxByteCount,
@@ -551,21 +546,4 @@ private func udpMediaForwardSequenceGap(expected: UInt64, actual: UInt64) -> Int
         return 0
     }
     return Int(forwardDistance)
-}
-
-private func datagramAvailable(socket: Int32, buffer: inout [UInt8]) throws -> Bool {
-    if buffer.isEmpty {
-        buffer = [0]
-    }
-    let received = buffer.withUnsafeMutableBytes {
-        recv(socket, $0.baseAddress, 1, MSG_DONTWAIT | MSG_PEEK)
-    }
-    let savedErrno = errno
-    if received < 0 {
-        if savedErrno == EAGAIN || savedErrno == EWOULDBLOCK {
-            return false
-        }
-        throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
-    }
-    return true
 }

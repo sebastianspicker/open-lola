@@ -4,6 +4,11 @@ use super::devices::*;
 use super::ffi::*;
 use super::*;
 use std::time::{Duration, Instant};
+/// `yield_now` attempts before a capture wait starts sleeping between polls.
+const CAPTURE_YIELD_ATTEMPTS: u32 = 64;
+/// Sleep between capture polls once the yield attempts are exhausted.
+const CAPTURE_WAIT_SLEEP: Duration = Duration::from_micros(100);
+
 /// Strict native duplex stream. It never invokes `SoftwareAudio`; every native
 /// lifecycle and I/O failure is returned to the caller.
 pub struct StrictPortAudio {
@@ -166,14 +171,35 @@ impl StrictPortAudio {
             return self.read_pcm_into(pcm);
         }
         let deadline = Instant::now() + timeout;
+        let mut attempts = 0u32;
         loop {
             match self.read_pcm_into(pcm) {
                 Err(PortAudioError::CaptureUnavailable) if Instant::now() < deadline => {
-                    std::thread::yield_now();
+                    // Yield briefly for the common near-ready case, then sleep
+                    // so a stalled device does not pin a core.
+                    if attempts < CAPTURE_YIELD_ATTEMPTS {
+                        attempts += 1;
+                        std::thread::yield_now();
+                    } else {
+                        std::thread::sleep(CAPTURE_WAIT_SLEEP);
+                    }
                 }
                 result => return result,
             }
         }
+    }
+
+    /// Drops the oldest queued capture blocks until at most `keep` remain and
+    /// returns how many were dropped. Blocking-mode streams have no backlog.
+    pub fn discard_capture_backlog(&self, keep: usize) -> usize {
+        let Some(callback) = self.stream.callback.as_ref() else {
+            return 0;
+        };
+        let mut dropped = 0;
+        while callback.capture.queued_blocks() > keep && callback.capture.discard_oldest() {
+            dropped += 1;
+        }
+        dropped
     }
 
     pub fn write_pcm(&mut self, pcm: &[u8]) -> PortAudioResult<()> {

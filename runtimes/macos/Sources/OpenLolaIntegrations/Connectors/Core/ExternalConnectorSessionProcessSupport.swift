@@ -95,7 +95,8 @@ func lolaMediaRuntimeError(_ report: LoLaCompatibilityMediaSessionReport?) -> St
 
 func makeLoLaMediaSessionEvidence(
     _ configuration: ExternalConnectorSessionConfiguration,
-    allowRealMedia: Bool
+    allowRealMedia: Bool,
+    cancellation: LoLaSessionCancellation? = nil
 ) throws -> LoLaCompatibilityMediaSessionReport? {
     guard configuration.connector == .lola else {
         return nil
@@ -105,7 +106,7 @@ func makeLoLaMediaSessionEvidence(
         case .tx:
             return try LoLaUdpMediaTransmitRunner.run(sessionConfiguration: configuration)
         case .rx:
-            return try receiveLoLaLiveSocketMedia(configuration: configuration)
+            return try receiveLoLaLiveSocketMedia(configuration: configuration, cancellation: cancellation)
         case .txRx:
             return try LoLaUdpMediaBidirectionalRunner.run(
                 configuration: configuration,

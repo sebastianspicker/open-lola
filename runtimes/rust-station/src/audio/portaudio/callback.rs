@@ -44,11 +44,14 @@ impl CallbackRing {
         })
     }
 
-    /// Returns whether an already complete oldest block was discarded. The
+    /// Returns whether a block was dropped: the already complete oldest block
+    /// was discarded, or (consumer holding it) this new block was skipped. The
     /// producer may discard only a slot it claims first, so it never races a
     /// session read that has already claimed the same block.
     pub(super) fn push_from_ptr(&self, src: *const u8) -> bool {
-        let (slot, position, discarded) = self.claim_producer_slot();
+        let Some((slot, position, discarded)) = self.claim_producer_slot() else {
+            return true;
+        };
         // SAFETY: enqueue CAS grants exclusive ownership of this slot until
         // the release store in `publish_producer_slot` publishes it. The
         // surrounding PortAudio ownership and pointer checks establish the
@@ -73,7 +76,9 @@ impl CallbackRing {
     ) -> bool {
         debug_assert!(frames > 0);
         debug_assert_eq!(self.block_bytes % frames, 0);
-        let (slot, position, discarded) = self.claim_producer_slot();
+        let Some((slot, position, discarded)) = self.claim_producer_slot() else {
+            return true;
+        };
         // SAFETY: enqueue CAS grants exclusive ownership until publication.
         // The input and slot are valid for their respective complete callback
         // blocks under the surrounding PortAudio pointer checks.
@@ -128,7 +133,11 @@ impl CallbackRing {
         true
     }
 
-    fn claim_producer_slot(&self) -> (&CallbackSlot, usize, bool) {
+    /// Claims the next producer slot without ever waiting. A full ring has its
+    /// oldest block discarded at most once; if the consumer currently holds
+    /// that block, or the slot is otherwise not ready, the new block is
+    /// dropped (`None`) so the audio callback can never spin.
+    fn claim_producer_slot(&self) -> Option<(&CallbackSlot, usize, bool)> {
         let mut discarded = false;
         loop {
             let position = self.enqueue.load(Ordering::Relaxed);
@@ -146,14 +155,12 @@ impl CallbackRing {
                     )
                     .is_ok()
                 {
-                    return (slot, position, discarded);
+                    return Some((slot, position, discarded));
                 }
-            } else if difference < 0 {
-                if self.discard_oldest() {
-                    discarded = true;
-                }
+            } else if difference < 0 && !discarded && self.discard_oldest() {
+                discarded = true;
             } else {
-                spin_loop();
+                return None;
             }
         }
     }

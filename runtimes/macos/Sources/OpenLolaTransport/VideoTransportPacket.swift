@@ -451,6 +451,12 @@ package struct UdpMediaPreparedVideoCursor: Sendable {
     package var isComplete: Bool { nextFragmentIndex >= fragmentCount }
     package var remainingFragmentCount: Int { max(0, fragmentCount - nextFragmentIndex) }
 
+    /// Steps back one fragment after a datagram was encoded but the socket refused it,
+    /// so a retried frame sends that fragment instead of skipping it.
+    package mutating func rewindOne() {
+        nextFragmentIndex = max(0, nextFragmentIndex - 1)
+    }
+
     @discardableResult
     package mutating func encodeNext(into data: inout Data) -> Bool {
         guard !isComplete else {

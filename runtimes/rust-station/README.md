@@ -34,8 +34,11 @@ From the repository root, use the full Rust lane:
 make test-rust
 ```
 
-The compatibility test consumes `../../interop/lola2/manifest.json`, a synthetic
-regression corpus rather than original Windows capture evidence.
+`tests/lola2_compatibility.rs` replays every case of
+`../../interop/lola2/manifest.json` (control and media encode/parse, reject
+categories, 1024-byte NUL padding) and the 110 ASCII/OSC15 observations of
+`migration-control-oracle.json` against the public `rusty_lola::protocol` API.
+The corpus is synthetic regression evidence, not original Windows capture.
 
 The default `gui` feature includes the interactive egui application. For a
 CLI-only build without `eframe`, use:
@@ -79,6 +82,16 @@ JSON session profiles use the Open LoLa format. `.ssn` input accepts tagged Open
 LoLa JSON or the documented subset of Windows LastSsn INI fields.
 `session-profile --out name.ssn` writes tagged Open LoLa JSON and never writes a
 proprietary Windows session file.
+
+`network.audio_receive_queue_depth` (default 4) bounds how many remote audio
+blocks the receiver may hold; every readable block is admitted and one block
+is presented per audio deadline, so the bound is the most latency a jitter
+burst can add. `network.audio_receive_prefill` (default 0) withholds playout
+until that many blocks are queued. A queue that stays above its prefill target
+for about 0.7 s discards one block and reports it as a realigned buffer. Remote
+blocks whose frames-per-packet differ from the local device are re-blocked
+before playout. `network.video_receive_queue_depth` defaults to 1 (newest
+frame).
 
 `RUSTY_LOLA_LOCAL_MAC` and `RUSTY_LOLA_PEER_MAC` provide explicit MAC addresses
 for controlled Npcap diagnostics when automatic resolution is unsuitable. Use

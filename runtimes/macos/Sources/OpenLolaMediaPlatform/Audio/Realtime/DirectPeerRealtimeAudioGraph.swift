@@ -55,6 +55,9 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     let captureReadinessSignal: DirectPeerCaptureReadinessSignal?
     var rxBufferSnapshot: RxBufferRuntimeSnapshot?
     var adaptiveRxBufferController: RxBufferAdaptiveController?
+    /// RFC 3550 interarrival-jitter state; guarded by `rxBufferAdaptationLock`.
+    var rxInterarrivalPreviousTransitNanoseconds: Int64?
+    var rxInterarrivalJitterMicroseconds: Double = 0
     #if DEBUG
     var stopDeviceForTesting: (AudioObjectID, AudioDeviceIOProcID) -> OSStatus = AudioDeviceStop
     var destroyIOProcForTesting: (AudioObjectID, AudioDeviceIOProcID) -> OSStatus = AudioDeviceDestroyIOProcID

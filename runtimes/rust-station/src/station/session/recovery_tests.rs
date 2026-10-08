@@ -56,6 +56,83 @@ fn malformed_audio_then_valid_and_reordered_packets_preserve_session() {
 }
 
 #[test]
+fn audio_arrival_burst_is_absorbed_by_the_bounded_queue() {
+    let socket = Udp::bind("127.0.0.1", 0).unwrap();
+    let destination = socket.local_addr().unwrap();
+    let video = Udp::bind("127.0.0.1", 0).unwrap();
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let peer = sender.local_addr().unwrap();
+    let mut transport = SessionMediaTransport::diagnostic_udp(socket, video);
+    let mut audio =
+        SessionAudioBackend::open(&default_settings(), &SessionOptions::demo()).unwrap();
+    let mut result = SessionResult::default();
+    let mut monitor = NetworkMonitor::new();
+    let mut reassembler = FrameReassembler::new();
+    let mut queue = ReceivePrefillQueue::new(4, 0);
+    let mut record = None;
+    // Three blocks clustered into one scheduler quantum, as network jitter
+    // produces routinely. Every block must survive admission; one block per
+    // deadline is presented afterwards.
+    for sequence in 1..=3 {
+        sender
+            .send_to(
+                &build_audio_payload(sequence, &[sequence as u8; 256], None).unwrap(),
+                destination,
+            )
+            .unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while result.audio_frames_received < 3 && Instant::now() < deadline {
+        super::audio::receive_audio_datagram_step(
+            &mut audio,
+            &mut transport,
+            peer,
+            &mut reassembler,
+            &mut result,
+            &mut record,
+            &mut monitor,
+            &mut queue,
+        )
+        .unwrap();
+    }
+    assert_eq!(result.audio_frames_received, 3);
+    assert_eq!(result.audio_malformed_drops, 0);
+    assert_eq!(monitor.drops, 0, "a clustered arrival must not become loss");
+    assert!(queue.len() <= 2, "one block is presented per deadline");
+    audio.stop().unwrap();
+}
+
+#[test]
+fn receive_queue_bounds_depth_and_returns_borrowed_latency() {
+    let mut queue = ReceivePrefillQueue::new(2, 0);
+    assert!(!queue.enqueue(1));
+    assert!(!queue.enqueue(2));
+    assert!(queue.enqueue(3), "depth two keeps the two newest units");
+    assert_eq!(queue.dequeue(), Some(2));
+    // One unit still queued after a deadline means the burst left latency
+    // behind. Patience of two deadlines returns it on the second deadline.
+    assert!(!queue.realign(2));
+    assert!(queue.realign(2));
+    assert_eq!(queue.len(), 0);
+    assert_eq!(queue.dequeue(), None);
+    assert!(!queue.realign(2));
+
+    let mut prefilled = ReceivePrefillQueue::new(4, 2);
+    assert!(!prefilled.enqueue(1));
+    assert_eq!(
+        prefilled.dequeue(),
+        None,
+        "prefill withholds the first unit"
+    );
+    assert!(!prefilled.enqueue(2));
+    assert_eq!(prefilled.dequeue(), Some(1));
+    assert!(
+        !prefilled.realign(1),
+        "one unit queued is the prefill target"
+    );
+}
+
+#[test]
 fn audio_freshness_wraps_and_configuration_queue_remains_bounded() {
     let mut queue = ReceivePrefillQueue::new(2, 2);
     assert!(queue.admit_sequence(u32::MAX));
@@ -159,6 +236,7 @@ fn mismatched_claimed_control_source_cannot_enable_audio_signal() {
             peer.local_addr().unwrap(),
             &settings,
             &mut result,
+            None,
             None
         )
         .unwrap());
@@ -196,4 +274,59 @@ fn video_only_session_does_not_open_an_audio_device() {
     assert!(result.video_frames_received > 0);
     assert_eq!(result.audio_frames_sent, 0);
     assert_eq!(result.audio_lateness_p95_upper_us, None);
+}
+
+#[test]
+fn repeated_quickconn_during_stream_is_re_acknowledged_once_per_interval() {
+    let socket = Udp::bind("127.0.0.1", 0).unwrap();
+    let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+    peer.set_nonblocking(true).unwrap();
+    let mut settings = default_settings();
+    settings.network.local_ip = "127.0.0.1".into();
+    settings.network.remote_ip = "127.0.0.1".into();
+    let quickconn = crate::protocol::build_control_datagram(
+        "MESG_QUICKCONN",
+        "127.0.0.1",
+        "127.0.0.1",
+        settings.network.session_id.try_into().unwrap(),
+        Some(&crate::protocol::MediaSettings::default()),
+        "",
+    )
+    .unwrap();
+    for _ in 0..2 {
+        peer.send_to(&quickconn, socket.local_addr().unwrap())
+            .unwrap();
+    }
+    let ack = super::control::QuickconnAckCache::new(b"cached-ack".to_vec());
+    let mut result = SessionResult::default();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while result.messages_sent.is_empty() && Instant::now() < deadline {
+        assert!(!super::control::pump_control(
+            &socket,
+            peer.local_addr().unwrap(),
+            &settings,
+            &mut result,
+            None,
+            Some(&ack),
+        )
+        .unwrap());
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    // Both repeats arrived inside one resend interval: exactly one answer.
+    assert_eq!(
+        result.messages_sent,
+        vec!["/MESG_QUICKCONN_ACK".to_string()]
+    );
+    let mut buffer = [0u8; 64];
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let answer = loop {
+        match peer.recv_from(&mut buffer) {
+            Ok((length, _)) => break buffer[..length].to_vec(),
+            Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(1)),
+            Err(error) => panic!("no re-sent acknowledgement: {error}"),
+        }
+    };
+    assert_eq!(answer, b"cached-ack");
+    assert!(peer.recv_from(&mut buffer).is_err());
+    assert!(result.messages_received.is_empty());
 }

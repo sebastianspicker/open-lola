@@ -135,7 +135,7 @@ impl NpcapMediaTransport {
     fn receive_parsed(
         contract: ReceiveContract,
         packet: BorrowedUdpPacket<'_>,
-        timestamp: SystemTime,
+        _timestamp: SystemTime,
         observed: &mut TransportStats,
     ) -> Option<ReceivedDatagram> {
         if packet.source_port == 0 || packet.destination_port == 0 {
@@ -169,7 +169,6 @@ impl NpcapMediaTransport {
             kind,
             peer: SocketAddr::new(IpAddr::V4(packet.source_ip), packet.source_port),
             source_port: packet.source_port,
-            received_at: timestamp,
             payload: packet.payload.to_vec(),
         })
     }

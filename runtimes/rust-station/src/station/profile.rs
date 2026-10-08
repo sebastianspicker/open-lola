@@ -51,7 +51,7 @@ pub struct SessionProfile {
     pub bind_ip: String,
     #[serde(default)]
     pub nic_name: String,
-    #[serde(default = "default_queue_depth", alias = "audio_buffers")]
+    #[serde(default = "default_audio_queue_depth", alias = "audio_buffers")]
     pub audio_receive_queue_depth: u32,
     #[serde(default)]
     pub audio_receive_prefill: u32,
@@ -103,6 +103,11 @@ fn default_bind() -> String {
 fn default_queue_depth() -> u32 {
     1
 }
+/// Matches `StationSettings`: four audio blocks bound the latency a jitter
+/// burst can add while every clustered block is still admitted.
+fn default_audio_queue_depth() -> u32 {
+    4
+}
 
 impl Default for SessionProfile {
     fn default() -> Self {
@@ -120,7 +125,7 @@ impl Default for SessionProfile {
             channels: 2,
             bind_ip: "0.0.0.0".into(),
             nic_name: String::new(),
-            audio_receive_queue_depth: 1,
+            audio_receive_queue_depth: default_audio_queue_depth(),
             audio_receive_prefill: 0,
             video_receive_queue_depth: 1,
             video_receive_prefill: 0,

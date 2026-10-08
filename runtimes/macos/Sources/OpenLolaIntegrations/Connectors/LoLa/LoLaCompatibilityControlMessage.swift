@@ -232,7 +232,7 @@ public enum LoLaCompatibilityControlMessage {
                 destinationIP: destinationIP,
                 sessionID: sessionID
             ),
-            hasTrailingSemicolon: false
+            hasTrailingSemicolon: true
         )
     }
 
@@ -248,7 +248,7 @@ public enum LoLaCompatibilityControlMessage {
                 destinationIP: destinationIP,
                 sessionID: sessionID
             ),
-            hasTrailingSemicolon: false
+            hasTrailingSemicolon: true
         )
     }
 

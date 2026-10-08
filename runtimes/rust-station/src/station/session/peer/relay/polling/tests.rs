@@ -32,11 +32,13 @@ fn finite_one_frame_relay_finishes_every_video_fragment() {
         sender.send_to(packet, video.local_addr().unwrap()).unwrap();
     }
     let mut transport = SessionMediaTransport::diagnostic_udp(audio, video);
+    let ack = QuickconnAckCache::new(Vec::new());
     let relay = PeerRelay {
         settings: &settings,
         options: &options,
         shared: &shared,
         control_socket: &control,
+        ack: &ack,
         peer: destination,
         packet_size: 512,
         video_compressed: false,
@@ -90,11 +92,15 @@ fn control_flood_yields_with_packets_still_queued() {
     let options = SessionOptions::demo();
     let shared = Arc::new(Mutex::new(SessionResult::default()));
     let sender = "127.0.0.1:5000".parse().unwrap();
+    let socket = Udp::bind("127.0.0.1", 0).unwrap();
+    let ack = QuickconnAckCache::new(Vec::new());
     let mut queued = std::collections::VecDeque::from(vec![(b"invalid".to_vec(), sender); 65]);
     // UDP can drop or defer localhost packets. Inject an exact queue so the
     // assertion measures the control quantum independently of OS delivery.
     assert!(!super::super::super::pump_peer_control_from(
         || Ok(queued.pop_front()),
+        &socket,
+        &ack,
         sender,
         &settings,
         &options,

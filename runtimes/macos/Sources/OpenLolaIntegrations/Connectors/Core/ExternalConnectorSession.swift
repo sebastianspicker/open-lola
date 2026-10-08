@@ -39,6 +39,7 @@ public enum ExternalConnectorSessionError: Error, Equatable, Sendable {
     case socketFailed(String)
     case receiveTimedOut
     case malformedLoLaControlMessage(String)
+    case peerRejected(reason: String)
     case unsupportedRuntimeMode(String)
     case placeholderValue(String), inconsistentShellCommand(String)
 }

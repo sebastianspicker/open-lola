@@ -2,6 +2,7 @@ use super::backends::SessionCameraBackend;
 use super::control::pump_control;
 use super::media::{recv_media, ReceivePrefillQueue, SessionMediaTransport};
 use super::scheduler::PreparedVideoFrame;
+use super::video_decode::{decode_compressed, VideoDecodeWorker};
 use super::{SessionOptions, SessionResult, SessionRuntimeControl};
 use crate::config::{ColorSettings, StationSettings};
 use crate::net::{MediaKind, Udp};
@@ -11,8 +12,8 @@ use crate::station::monitor::NetworkMonitor;
 use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::SessionError;
 use crate::video::{
-    apply_colors, decode_jpeg, demosaic_mono8, encode_frame_jpeg, generate_smpte_bars, resize_nn,
-    BayerPattern, DecodedImage,
+    apply_colors, demosaic_mono8, encode_frame_jpeg, generate_smpte_bars, resize_nn, BayerPattern,
+    DecodedImage,
 };
 use std::net::SocketAddr;
 
@@ -42,10 +43,62 @@ pub(super) enum ReceivedVideoFrame {
 }
 
 impl ReceivedVideoFrame {
-    fn sequence(&self) -> u32 {
+    pub(super) fn sequence(&self) -> u32 {
         match self {
             Self::Raw(frame) | Self::Jpeg { frame, .. } => frame.sequence,
         }
+    }
+}
+
+/// Ordered receive path for video: a depth-bounded presentation queue plus an
+/// optional worker that keeps JPEG decoding off the session thread. Without a
+/// worker (diagnostic sequential path) compressed frames decode synchronously.
+pub(super) struct VideoReceiveQueue {
+    queue: ReceivePrefillQueue<ReceivedVideoFrame>,
+    decoder: Option<VideoDecodeWorker>,
+}
+
+impl VideoReceiveQueue {
+    pub(super) fn new(depth: u32, prefill: u32) -> Self {
+        Self {
+            queue: ReceivePrefillQueue::new(depth, prefill),
+            decoder: None,
+        }
+    }
+
+    /// Decodes compressed frames on a worker thread; results are collected
+    /// with `poll_decoded`.
+    pub(super) fn with_decoder(mut self, stream_w: u32, stream_h: u32, raw_bpp: u32) -> Self {
+        self.decoder = Some(VideoDecodeWorker::start(stream_w, stream_h, raw_bpp));
+        self
+    }
+
+    fn note_decoder_drops(&mut self, monitor: &mut NetworkMonitor) {
+        if let Some(decoder) = self.decoder.as_mut() {
+            let dropped = decoder.take_dropped().min(u64::from(u32::MAX)) as u32;
+            monitor.note_drop(dropped);
+        }
+    }
+
+    /// Presents the newest finished decode, if the worker has one.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn poll_decoded(
+        &mut self,
+        stream_w: u32,
+        stream_h: u32,
+        raw_bpp: u32,
+        options: &SessionOptions,
+        result: &mut SessionResult,
+        dual: &mut Option<DualStreamRecorder>,
+        monitor: &mut NetworkMonitor,
+    ) {
+        self.note_decoder_drops(monitor);
+        let Some(outcome) = self.decoder.as_mut().and_then(VideoDecodeWorker::take) else {
+            return;
+        };
+        accept_video(
+            outcome, stream_w, stream_h, raw_bpp, options, result, dual, monitor, self,
+        );
     }
 }
 
@@ -147,7 +200,7 @@ pub(super) fn prepare_video_capture(
         &stream_fmt,
         jpeg_quality,
         use_jpeg,
-        frame_i + 1,
+        frame_i.wrapping_add(1),
     )?;
     Ok(PreparedCapture {
         transport: PreparedVideoFrame::new(
@@ -179,7 +232,7 @@ pub(super) fn consume_prepared_capture(
     result.bayer_applied |= capture.bayer_applied;
     result.color_applied |= capture.color_applied;
     if let Some(control) = options.runtime_control.as_ref() {
-        control.publish_video(
+        control.publish_local_video(
             capture.width,
             capture.height,
             &capture.pixels,
@@ -196,6 +249,8 @@ pub(super) fn consume_prepared_capture(
     capture.transport
 }
 
+/// Consumes at most one video datagram. Returns whether a datagram was read,
+/// so the scheduler can keep draining a burst instead of sleeping on it.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn receive_video_datagram_step(
     transport: &mut SessionMediaTransport,
@@ -209,21 +264,25 @@ pub(super) fn receive_video_datagram_step(
     monitor: &mut NetworkMonitor,
     compressed: bool,
     raw_bpp: u32,
-    queue: &mut ReceivePrefillQueue<ReceivedVideoFrame>,
-) -> Result<(), SessionError> {
-    let Some(datagram) = transport.receive_kind(MediaKind::Video)? else {
-        return Ok(());
+    queue: &mut VideoReceiveQueue,
+) -> Result<bool, SessionError> {
+    use super::media::ReceiveOutcome;
+    // A rejected datagram is progress, not an empty socket: keep draining.
+    let datagram = match transport.receive_kind(MediaKind::Video)? {
+        ReceiveOutcome::Datagram(datagram) => datagram,
+        ReceiveOutcome::Discarded => return Ok(true),
+        ReceiveOutcome::Empty => return Ok(false),
     };
     if datagram.peer != peer {
-        return Ok(());
+        return Ok(true);
     }
     let frame = match reassembler.feed(&datagram.payload) {
         Ok(Some(frame)) => frame,
-        Ok(None) => return Ok(()),
+        Ok(None) => return Ok(true),
         Err(_) => {
             result.video_malformed_drops += 1;
             monitor.note_drop(1);
-            return Ok(());
+            return Ok(true);
         }
     };
     let frame = match parse_video_frame(&frame, compressed) {
@@ -231,12 +290,13 @@ pub(super) fn receive_video_datagram_step(
         Err(_) => {
             result.video_malformed_drops += 1;
             monitor.note_drop(1);
-            return Ok(());
+            return Ok(true);
         }
     };
     present_received_video(
         frame, stream_w, stream_h, raw_bpp, options, result, dual, monitor, queue,
-    )
+    )?;
+    Ok(true)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -249,27 +309,55 @@ fn present_received_video(
     result: &mut SessionResult,
     dual: &mut Option<DualStreamRecorder>,
     monitor: &mut NetworkMonitor,
-    queue: &mut ReceivePrefillQueue<ReceivedVideoFrame>,
+    queue: &mut VideoReceiveQueue,
 ) -> Result<(), SessionError> {
-    let frame = match validate_received_video(frame, stream_w, stream_h, raw_bpp) {
-        Ok(frame) => frame,
-        Err(()) => {
-            result.video_malformed_drops += 1;
-            monitor.note_drop(1);
+    if !queue.queue.admit_sequence(frame.sequence) {
+        result.video_out_of_order_drops += 1;
+        monitor.note_drop(1);
+        return Ok(());
+    }
+    if frame.compressed {
+        if let Some(decoder) = queue.decoder.as_ref() {
+            decoder.submit(frame);
+            queue.note_decoder_drops(monitor);
             return Ok(());
         }
+    }
+    let outcome = validate_received_video(frame, stream_w, stream_h, raw_bpp);
+    accept_video(
+        outcome, stream_w, stream_h, raw_bpp, options, result, dual, monitor, queue,
+    );
+    Ok(())
+}
+
+/// Counts a validated frame and runs it through the presentation queue.
+#[allow(clippy::too_many_arguments)]
+fn accept_video(
+    outcome: Result<ReceivedVideoFrame, ()>,
+    stream_w: u32,
+    stream_h: u32,
+    raw_bpp: u32,
+    options: &SessionOptions,
+    result: &mut SessionResult,
+    dual: &mut Option<DualStreamRecorder>,
+    monitor: &mut NetworkMonitor,
+    queue: &mut VideoReceiveQueue,
+) {
+    let Ok(frame) = outcome else {
+        result.video_malformed_drops += 1;
+        monitor.note_drop(1);
+        return;
     };
     result.video_frames_received += 1;
     result.media_frames_received += 1;
     monitor.note_recv(MediaKind::Video, Some(frame.sequence()));
-    let (display, replaced) = queue.push(frame);
+    let (display, replaced) = queue.queue.push(frame);
     if replaced {
         monitor.note_drop(1);
     }
     if let Some(frame) = display {
         present_display_frame(frame, stream_w, stream_h, raw_bpp, options, result, dual);
     }
-    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -286,7 +374,7 @@ fn present_display_frame(
         ReceivedVideoFrame::Jpeg { frame, decoded } => {
             result.jpeg_decoded_ok = true;
             if let Some(control) = options.runtime_control.as_ref() {
-                control.publish_video(
+                control.publish_remote_video(
                     decoded.width,
                     decoded.height,
                     &decoded.pixels,
@@ -297,7 +385,7 @@ fn present_display_frame(
         }
         ReceivedVideoFrame::Raw(frame) => {
             if let Some(control) = options.runtime_control.as_ref() {
-                control.publish_video(
+                control.publish_remote_video(
                     stream_w,
                     stream_h,
                     &frame.payload,
@@ -335,25 +423,7 @@ pub(super) fn validate_received_video(
     raw_bpp: u32,
 ) -> Result<ReceivedVideoFrame, ()> {
     if frame.compressed {
-        let decoded = decode_jpeg(&frame.payload).map_err(|_| ())?;
-        let channels = match decoded.mode.as_str() {
-            "L" => 1,
-            "RGB" => 3,
-            _ => return Err(()),
-        };
-        let expected = width
-            .checked_mul(height)
-            .and_then(|pixels| pixels.checked_mul(channels))
-            .and_then(|bytes| usize::try_from(bytes).ok())
-            .ok_or(())?;
-        if decoded.width != width
-            || decoded.height != height
-            || raw_bpp != channels * 8
-            || decoded.pixels.len() != expected
-        {
-            return Err(());
-        }
-        return Ok(ReceivedVideoFrame::Jpeg { frame, decoded });
+        return decode_compressed(frame, width, height, raw_bpp);
     }
     if width == 0 || height == 0 || !matches!(raw_bpp, 8 | 24) {
         return Err(());
@@ -426,7 +496,7 @@ pub(super) fn send_recv_video_frame(
     control_socket: &Udp,
     control_peer: SocketAddr,
     control_settings: &StationSettings,
-    receive_queue: &mut ReceivePrefillQueue<ReceivedVideoFrame>,
+    receive_queue: &mut VideoReceiveQueue,
 ) -> Result<(), SessionError> {
     if options.stream_tx_video && !options.audio_only {
         let camera = camera.ok_or_else(|| {
@@ -469,6 +539,7 @@ pub(super) fn send_recv_video_frame(
                     control_settings,
                     result,
                     options.runtime_control.as_ref(),
+                    None,
                 )
             };
             recv_media(

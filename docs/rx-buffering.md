@@ -40,6 +40,17 @@ bounds and are included in the report.
 - Reset or reconnect without presenting stale media as current.
 - Never use an adaptive increase to claim Direct Audio First performance.
 
+The Rust station implements the audio side of this policy as a bounded
+receive queue: every readable datagram is admitted (the oldest is replaced at
+the depth bound), one block is presented per audio deadline, and a queue that
+stays above its prefill target for about 0.7 s discards one block so a late
+burst does not leave its latency behind for the rest of the session. When the
+PortAudio capture ring has a block ready, that block paces the audio deadline
+ahead of the wall clock, so capture, playout and the device share one clock;
+the wall clock remains the fallback for receive-only sessions. A capture
+backlog above two blocks is trimmed to one so a stalled session thread does
+not add its stall to the capture latency.
+
 The source includes localhost and report-level exercises of these modes. A buffer
 profile passes only after repeated measurement on the claimed devices, route,
 stream set, and duration. See [latency profiles](latency-profiles.md) and

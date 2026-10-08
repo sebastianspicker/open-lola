@@ -49,6 +49,11 @@ pub struct MediaReassembler {
     max_buffered_bytes: usize,
     buffered_bytes: usize,
     expiry: Duration,
+    evicted_older_frames: u64,
+    /// The newest incomplete frame a later frame superseded, kept for
+    /// `take_expired_partial` so the diagnostic incomplete-frame threshold
+    /// still sees superseded frames. At most one frame is retained.
+    superseded_partial: Option<ActiveFrame>,
 }
 
 impl Default for MediaReassembler {
@@ -65,6 +70,8 @@ impl MediaReassembler {
             max_buffered_bytes: buffered_capacity(32),
             buffered_bytes: 0,
             expiry: REASSEMBLY_EXPIRY,
+            evicted_older_frames: 0,
+            superseded_partial: None,
         }
     }
     pub fn strict() -> Self {
@@ -90,6 +97,7 @@ impl MediaReassembler {
     ) -> Result<(), MediaError> {
         self.expire();
         validate_reassembly_shape(expected_size, fragment_count)?;
+        self.evict_older_than(frame_id);
         if !self.active.contains_key(&frame_id) && self.active.len() >= self.max_active_frames {
             return Err(MediaError::TooManyActiveFrames);
         }
@@ -146,6 +154,7 @@ impl MediaReassembler {
             .collect::<Vec<_>>();
         let expired_bytes = expired.iter().map(|frame| frame.buffered_bytes).sum();
         self.buffered_bytes = self.buffered_bytes.saturating_sub(expired_bytes);
+        expired.extend(self.superseded_partial.take());
         expired.sort_by_key(|frame| std::cmp::Reverse(frame.touched));
         let required_coverage_pct = 100.0 - threshold_pct.clamp(0.0, 100.0);
         expired.into_iter().find_map(|frame| {
@@ -170,8 +179,39 @@ impl MediaReassembler {
         self.active.len()
     }
     pub fn reset(&mut self) {
+        self.superseded_partial = None;
         self.active.clear();
         self.buffered_bytes = 0;
+    }
+    /// Returns how many incomplete frames were dropped because a newer frame
+    /// began or completed, and resets the counter.
+    pub fn take_evicted_older_frames(&mut self) -> u64 {
+        std::mem::take(&mut self.evicted_older_frames)
+    }
+    /// Drops every active frame that is serial-older than `frame_id`; a newer
+    /// frame superseding them means their missing fragments are not coming.
+    fn evict_older_than(&mut self, frame_id: u32) {
+        let stale = self
+            .active
+            .keys()
+            .copied()
+            .filter(|id| serial_u32_is_newer(frame_id, *id))
+            .collect::<Vec<_>>();
+        for id in stale {
+            let Some(frame) = self.active.remove(&id) else {
+                continue;
+            };
+            self.buffered_bytes = self.buffered_bytes.saturating_sub(frame.buffered_bytes);
+            self.evicted_older_frames += 1;
+            if frame.buffered_bytes > 0
+                && self
+                    .superseded_partial
+                    .as_ref()
+                    .is_none_or(|kept| frame.touched >= kept.touched)
+            {
+                self.superseded_partial = Some(frame);
+            }
+        }
     }
     fn remove_active(&mut self, frame_id: u32) {
         if let Some(frame) = self.active.remove(&frame_id) {
@@ -201,6 +241,7 @@ impl MediaReassembler {
         if fragment.fragment_count == 0 || fragment.fragment_count > MAX_MEDIA_FRAGMENT_COUNT {
             return Err(MediaError::InvalidFragmentCount(fragment.fragment_count));
         }
+        self.evict_older_than(fragment.frame_id);
         if self.active.len() >= self.max_active_frames {
             return Err(MediaError::TooManyActiveFrames);
         }
@@ -264,6 +305,7 @@ impl MediaReassembler {
     fn complete_frame(&mut self, frame_id: u32) -> Result<Vec<u8>, MediaError> {
         let frame = self.active.remove(&frame_id).expect("active frame");
         self.buffered_bytes = self.buffered_bytes.saturating_sub(frame.buffered_bytes);
+        self.evict_older_than(frame_id);
         let expected = resolved_expected_size(&frame);
         validate_reassembly_shape(expected, frame.fragment_count)?;
         assemble_frame(frame, expected)
@@ -388,6 +430,9 @@ impl FrameReassembler {
     }
     pub fn expire(&mut self) -> usize {
         self.inner.expire()
+    }
+    pub fn take_evicted_older_frames(&mut self) -> u64 {
+        self.inner.take_evicted_older_frames()
     }
     pub fn take_expired_partial(&mut self, threshold_pct: f64) -> Option<Vec<u8>> {
         self.inner.take_expired_partial(threshold_pct)

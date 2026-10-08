@@ -166,7 +166,7 @@ impl Default for StationUIState {
             record_mode: "av".into(),
             record_video_format: "jpg".into(),
             estimated_tx_mbps: 0.0,
-            audio_receive_queue_depth: 1,
+            audio_receive_queue_depth: 4,
             audio_receive_prefill: 0,
             video_receive_queue_depth: 1,
             video_receive_prefill: 0,

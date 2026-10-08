@@ -5,13 +5,20 @@ import OpenLolaContracts
 import Dispatch
 import Foundation
 
+private let directPeerControlDatagramByteCount = 16_384
+private let directPeerControlPollDatagramLimit = 64
+
 package final class DirectPeerSessionControlSocket: @unchecked Sendable {
     package let endpoint: SessionNetworkEndpoint
     private let descriptor: Int32
     private let receiveTimeoutNanoseconds: UInt64
     private let stateLock = NSLock()
+    /// Serialises use of `pollScratch` so the non-blocking poll reuses one receive buffer.
+    private let pollLock = NSLock()
+    private var pollScratch = [UInt8](repeating: 0, count: directPeerControlDatagramByteCount)
     private var sentDatagramsStorage = 0
     private var receivedDatagramsStorage = 0
+    private var droppedDatagramsStorage = 0
     private var isClosed = false
 
     package var sentDatagrams: Int {
@@ -24,6 +31,13 @@ package final class DirectPeerSessionControlSocket: @unchecked Sendable {
         stateLock.lock()
         defer { stateLock.unlock() }
         return receivedDatagramsStorage
+    }
+
+    /// Control datagrams from the expected peer that failed to decode during non-blocking polls.
+    package var droppedDatagrams: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return droppedDatagramsStorage
     }
 
     private init(
@@ -146,15 +160,30 @@ package final class DirectPeerSessionControlSocket: @unchecked Sendable {
         throw DirectPeerSessionSocketRunnerError.timedOutWaitingForControlMessage(label)
     }
 
+    /// Polls at most `directPeerControlPollDatagramLimit` datagrams without blocking. Foreign-source
+    /// datagrams are skipped and undecodable ones are counted as dropped instead of failing the caller.
     package func receiveMessageIfAvailable(
         expectedSource: SessionNetworkEndpoint
     ) throws -> SessionControlMessage? {
-        while let datagram = try receiveDatagramWithSourceIfAvailable(socket: descriptor, byteCount: 16_384) {
+        pollLock.lock()
+        defer { pollLock.unlock() }
+        for _ in 0..<directPeerControlPollDatagramLimit {
+            guard let datagram = try receiveDatagramWithSourceIfAvailable(
+                socket: descriptor,
+                byteCount: directPeerControlDatagramByteCount,
+                buffer: &pollScratch
+            ) else {
+                return nil
+            }
             guard controlSourceMatches(datagram, expectedSource: expectedSource) else {
                 continue
             }
             incrementReceivedDatagrams()
-            return try SessionControlCodec.decode(datagram.data)
+            do {
+                return try SessionControlCodec.decode(datagram.data)
+            } catch {
+                incrementDroppedDatagrams()
+            }
         }
         return nil
     }
@@ -175,6 +204,12 @@ package final class DirectPeerSessionControlSocket: @unchecked Sendable {
     private func incrementReceivedDatagrams() {
         stateLock.lock()
         receivedDatagramsStorage += 1
+        stateLock.unlock()
+    }
+
+    private func incrementDroppedDatagrams() {
+        stateLock.lock()
+        droppedDatagramsStorage += 1
         stateLock.unlock()
     }
 

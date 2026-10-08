@@ -107,7 +107,16 @@ private func transmitPendingDirectPeerAVVideo(
     )
     let sendAttempt = try runner.trySendPreparedVideoPackets(&pending.cursor, limit: limit)
     state.metrics.videoFragmentsSent += sendAttempt.packetsSent
-    if sendAttempt.wouldBlock {
+    let stalled = pending.noteSendAttempt(
+        wouldBlock: sendAttempt.wouldBlock,
+        packetsSent: sendAttempt.packetsSent,
+        nowNanoseconds: context.now,
+        backpressureLimitNanoseconds: max(
+            context.timing.videoFrameIntervalNanoseconds,
+            directPeerMinimumVideoBackpressureLimitNanoseconds
+        )
+    )
+    if stalled {
         state.metrics.videoFramesDroppedBeforeSend += 1
         state.pendingVideoTransmit = nil
     } else if pending.isComplete {
@@ -117,3 +126,7 @@ private func transmitPendingDirectPeerAVVideo(
         state.pendingVideoTransmit = pending
     }
 }
+
+/// Shortest stall that abandons a backpressured frame, so very high frame
+/// rates still get a few kernel drain opportunities before giving up.
+let directPeerMinimumVideoBackpressureLimitNanoseconds: UInt64 = 20_000_000

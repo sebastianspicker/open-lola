@@ -111,7 +111,8 @@ pub struct SessionRuntimeControl {
     commands: Arc<Mutex<VecDeque<String>>>,
     phase: Arc<std::sync::atomic::AtomicU8>,
     active: Arc<Mutex<RuntimeActivity>>,
-    latest_video: Arc<Mutex<Option<SharedVideoPreview>>>,
+    latest_local_video: Arc<Mutex<Option<SharedVideoPreview>>>,
+    latest_remote_video: Arc<Mutex<Option<SharedVideoPreview>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,7 +126,7 @@ pub struct VideoPreview {
 pub(crate) struct SharedVideoPreview {
     pub(crate) width: u32,
     pub(crate) height: u32,
-    pub(crate) rgb: Arc<[u8]>,
+    pub(crate) rgb: Arc<Vec<u8>>,
     #[cfg(any(feature = "gui", test))]
     pub(crate) generation: u64,
 }
@@ -218,8 +219,9 @@ impl SessionRuntimeControl {
         *lock_unpoison(&self.active)
     }
 
+    /// Latest video received from the peer (the remote slot).
     pub fn latest_video(&self) -> Option<VideoPreview> {
-        lock_unpoison(&self.latest_video)
+        lock_unpoison(&self.latest_remote_video)
             .as_ref()
             .map(|preview| VideoPreview {
                 width: preview.width,
@@ -228,43 +230,36 @@ impl SessionRuntimeControl {
             })
     }
 
+    /// Versioned view of the video received from the peer.
     #[cfg(any(feature = "gui", test))]
     pub(crate) fn latest_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
-        let latest = lock_unpoison(&self.latest_video);
-        match latest.as_ref() {
-            None => VideoPreviewUpdate::Empty,
-            Some(preview) if generation == Some(preview.generation) => {
-                VideoPreviewUpdate::Unchanged
-            }
-            Some(preview) => VideoPreviewUpdate::Changed(preview.clone()),
-        }
+        preview_update(&self.latest_remote_video, generation)
     }
 
-    pub(crate) fn publish_video(&self, width: u32, height: u32, pixels: &[u8], format: &str) {
-        let pixel_count = (width as usize).saturating_mul(height as usize);
-        let rgb = if format.eq_ignore_ascii_case("RGB") || format.eq_ignore_ascii_case("RGB24") {
-            let expected = pixel_count.saturating_mul(3);
-            (pixels.len() >= expected).then(|| pixels[..expected].to_vec())
-        } else {
-            (pixels.len() >= pixel_count).then(|| {
-                pixels[..pixel_count]
-                    .iter()
-                    .flat_map(|value| [*value; 3])
-                    .collect()
-            })
-        };
-        if let Some(rgb) = rgb {
-            let mut latest = lock_unpoison(&self.latest_video);
-            #[cfg(any(feature = "gui", test))]
-            let generation = NEXT_PREVIEW_GENERATION.fetch_add(1, Ordering::Relaxed);
-            *latest = Some(SharedVideoPreview {
-                width,
-                height,
-                rgb: Arc::from(rgb),
-                #[cfg(any(feature = "gui", test))]
-                generation,
-            });
-        }
+    /// Versioned view of the local capture preview.
+    #[cfg(any(feature = "gui", test))]
+    pub(crate) fn latest_local_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
+        preview_update(&self.latest_local_video, generation)
+    }
+
+    pub(crate) fn publish_local_video(&self, width: u32, height: u32, pixels: &[u8], format: &str) {
+        publish_preview(&self.latest_local_video, width, height, pixels, format);
+    }
+
+    pub(crate) fn publish_remote_video(
+        &self,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+        format: &str,
+    ) {
+        publish_preview(&self.latest_remote_video, width, height, pixels, format);
+    }
+
+    /// Drops both previews so a finished session never shows a frozen frame.
+    pub fn clear_video(&self) {
+        *lock_unpoison(&self.latest_local_video) = None;
+        *lock_unpoison(&self.latest_remote_video) = None;
     }
 
     pub(super) fn set_activity(&self, result: &SessionResult) {
@@ -280,6 +275,53 @@ impl SessionRuntimeControl {
             SessionPhase::Stopping => 4,
         };
         self.phase.store(value, Ordering::Release);
+    }
+}
+
+#[cfg(any(feature = "gui", test))]
+fn preview_update(
+    slot: &Mutex<Option<SharedVideoPreview>>,
+    generation: Option<u64>,
+) -> VideoPreviewUpdate {
+    let latest = lock_unpoison(slot);
+    match latest.as_ref() {
+        None => VideoPreviewUpdate::Empty,
+        Some(preview) if generation == Some(preview.generation) => VideoPreviewUpdate::Unchanged,
+        Some(preview) => VideoPreviewUpdate::Changed(preview.clone()),
+    }
+}
+
+/// Expands the frame to RGB24 with a single allocation and stores it.
+fn publish_preview(
+    slot: &Mutex<Option<SharedVideoPreview>>,
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+    format: &str,
+) {
+    let pixel_count = (width as usize).saturating_mul(height as usize);
+    let rgb = if format.eq_ignore_ascii_case("RGB") || format.eq_ignore_ascii_case("RGB24") {
+        let expected = pixel_count.saturating_mul(3);
+        (pixels.len() >= expected).then(|| pixels[..expected].to_vec())
+    } else {
+        (pixels.len() >= pixel_count).then(|| {
+            let mut rgb = vec![0u8; pixel_count * 3];
+            for (index, value) in pixels[..pixel_count].iter().enumerate() {
+                rgb[index * 3..index * 3 + 3].fill(*value);
+            }
+            rgb
+        })
+    };
+    if let Some(rgb) = rgb {
+        #[cfg(any(feature = "gui", test))]
+        let generation = NEXT_PREVIEW_GENERATION.fetch_add(1, Ordering::Relaxed);
+        *lock_unpoison(slot) = Some(SharedVideoPreview {
+            width,
+            height,
+            rgb: Arc::new(rgb),
+            #[cfg(any(feature = "gui", test))]
+            generation,
+        });
     }
 }
 
@@ -425,7 +467,23 @@ pub struct SessionResult {
     pub video_deadline_drops: u64,
     /// Completed video frames rejected before presentation or accounting.
     pub video_malformed_drops: u64,
+    /// Received video frames discarded because a newer frame was already admitted.
+    pub video_out_of_order_drops: u64,
+    /// Incomplete received frames dropped because a newer frame superseded them.
+    pub video_superseded_incomplete_frames: u64,
     pub audio_malformed_drops: u64,
+    /// Audio blocks serviced ahead of the wall clock by the capture device.
+    pub audio_device_paced_services: u64,
+    /// Capture blocks discarded to keep the device queue shallow.
+    pub audio_capture_backlog_drops: u64,
+    /// Capture waits that expired without a block.
+    pub audio_capture_timeouts: u64,
+    /// Audio datagrams dropped for a transient send fault or full buffer.
+    pub audio_send_drops: u64,
+    /// Receive sequence resynchronisations after a sender restart.
+    pub audio_sequence_resyncs: u64,
+    /// Media thread priority outcome, or why it was unavailable.
+    pub realtime_priority: Option<String>,
     /// Cleanup failures retained alongside a primary session failure.
     pub cleanup_warnings: Vec<String>,
 }

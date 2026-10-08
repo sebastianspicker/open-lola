@@ -4,7 +4,7 @@ use crate::test_alloc::{measure_allocations, samples, timing_json};
 #[test]
 fn preview_generation_reuses_shared_pixels_and_public_boundary_owns_bytes() {
     let control = SessionRuntimeControl::default();
-    control.publish_video(2, 1, &[1, 2, 3, 4, 5, 6], "RGB24");
+    control.publish_remote_video(2, 1, &[1, 2, 3, 4, 5, 6], "RGB24");
     let VideoPreviewUpdate::Changed(first) = control.latest_video_update(None) else {
         panic!("first preview must be new");
     };
@@ -33,12 +33,12 @@ fn grayscale_publish_expands_exactly_and_invalid_input_does_not_advance() {
         control.latest_video_update(None),
         VideoPreviewUpdate::Empty
     ));
-    control.publish_video(2, 1, &[7], "Mono8");
+    control.publish_remote_video(2, 1, &[7], "Mono8");
     assert!(matches!(
         control.latest_video_update(None),
         VideoPreviewUpdate::Empty
     ));
-    control.publish_video(2, 1, &[7, 8], "Mono8");
+    control.publish_remote_video(2, 1, &[7, 8], "Mono8");
     let VideoPreviewUpdate::Changed(frame) = control.latest_video_update(None) else {
         panic!("valid grayscale preview");
     };
@@ -48,12 +48,12 @@ fn grayscale_publish_expands_exactly_and_invalid_input_does_not_advance() {
 #[test]
 fn preview_generation_is_unique_across_session_controls() {
     let first = SessionRuntimeControl::default();
-    first.publish_video(1, 1, &[1, 2, 3], "RGB24");
+    first.publish_remote_video(1, 1, &[1, 2, 3], "RGB24");
     let VideoPreviewUpdate::Changed(first_frame) = first.latest_video_update(None) else {
         panic!("first session frame");
     };
     let second = SessionRuntimeControl::default();
-    second.publish_video(1, 1, &[4, 5, 6], "RGB24");
+    second.publish_remote_video(1, 1, &[4, 5, 6], "RGB24");
     assert!(matches!(
         second.latest_video_update(Some(first_frame.generation)),
         VideoPreviewUpdate::Changed(_)
@@ -68,7 +68,7 @@ fn preview_generation_benchmark() {
         .expect("set an external benchmark output path");
     let control = SessionRuntimeControl::default();
     let pixels = vec![0x5a; 128 * 72 * 3];
-    control.publish_video(128, 72, &pixels, "RGB24");
+    control.publish_remote_video(128, 72, &pixels, "RGB24");
     let VideoPreviewUpdate::Changed(frame) = control.latest_video_update(None) else {
         panic!("published frame");
     };
@@ -141,4 +141,30 @@ fn preview_generation_benchmark() {
         serde_json::to_vec_pretty(&report).expect("serialize benchmark"),
     )
     .expect("write benchmark output");
+}
+
+#[test]
+fn local_and_remote_previews_are_independent_and_cleared_together() {
+    let control = SessionRuntimeControl::default();
+    control.publish_local_video(1, 1, &[1, 2, 3], "RGB24");
+    assert!(matches!(
+        control.latest_video_update(None),
+        VideoPreviewUpdate::Empty
+    ));
+    assert!(control.latest_video().is_none());
+    let VideoPreviewUpdate::Changed(local) = control.latest_local_video_update(None) else {
+        panic!("local preview published");
+    };
+    control.publish_remote_video(1, 1, &[9], "Mono8");
+    assert_eq!(control.latest_video().expect("remote").rgb, [9, 9, 9]);
+    assert!(matches!(
+        control.latest_local_video_update(Some(local.generation)),
+        VideoPreviewUpdate::Unchanged
+    ));
+    control.clear_video();
+    assert!(control.latest_video().is_none());
+    assert!(matches!(
+        control.latest_local_video_update(None),
+        VideoPreviewUpdate::Empty
+    ));
 }

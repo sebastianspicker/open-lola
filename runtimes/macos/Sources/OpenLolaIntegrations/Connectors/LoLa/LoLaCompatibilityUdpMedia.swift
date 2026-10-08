@@ -321,7 +321,8 @@ public enum LoLaUdpMediaBidirectionalRunner {
             let datagrams = try exchange.receiver.receive(
                 request: LoLaUdpMediaReceiveRequest(
                     configuration: exchange.receiveConfiguration,
-                    deadlineNanoseconds: exchange.deadline.uptimeNanoseconds
+                    deadlineNanoseconds: exchange.deadline.uptimeNanoseconds,
+                    runUntilDeadline: true
                 ),
                 afterBind: { sockets in
                     DispatchQueue.global(qos: .userInitiated).async {
@@ -338,7 +339,7 @@ public enum LoLaUdpMediaBidirectionalRunner {
                         txDone.signal()
                     }
                 },
-                coalesceReadableAudioToNewest: true,
+                coalesceReadableAudioToNewest: false,
                 audioFreshnessCounters: exchange.audioFreshnessCounters,
                 onDatagram: { datagram in
                     try enqueueLoLaLiveAudioIfNeeded(datagram, audioBridge: audioBridge)

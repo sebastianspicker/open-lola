@@ -94,6 +94,8 @@ pub(super) struct SchedulerCounters {
     pub(super) video_stale_drops: u64,
     pub(super) video_backpressure_drops: u64,
     pub(super) video_deadline_drops: u64,
+    /// Audio blocks serviced early because the capture device had one ready.
+    pub(super) audio_device_paced_services: u64,
 }
 
 #[derive(Debug)]
@@ -143,6 +145,19 @@ impl DeadlineScheduler {
         self.next_audio_deadline = now
             .checked_add(self.audio_period - remainder)
             .expect("validated audio period fits the monotonic clock");
+        true
+    }
+
+    /// Lets a ready capture block pace the audio clock. Serviced before the
+    /// wall-clock deadline, the next deadline is re-anchored one period after
+    /// `now`, so the device clock rather than the wall clock drives audio.
+    /// At or past the deadline this declines and `audio_due` handles it.
+    pub(super) fn service_device_block(&mut self, now: Instant) -> bool {
+        if now >= self.next_audio_deadline {
+            return false;
+        }
+        self.next_audio_deadline = now + self.audio_period;
+        self.counters.audio_device_paced_services += 1;
         true
     }
 
@@ -229,6 +244,25 @@ mod tests {
             origin + Duration::from_millis(100)
         );
         assert_eq!(scheduler.counters.audio_skipped_deadlines, 0);
+    }
+
+    #[test]
+    fn device_block_paces_audio_ahead_of_the_wall_clock() {
+        let mut scheduler = DeadlineScheduler::new(Duration::from_millis(10));
+        let origin = scheduler.next_audio_deadline;
+        // Past the deadline the wall clock keeps ownership.
+        assert!(!scheduler.service_device_block(origin));
+        assert_eq!(scheduler.counters.audio_device_paced_services, 0);
+
+        assert!(scheduler.audio_due(origin));
+        let early = origin + Duration::from_millis(4);
+        assert!(scheduler.service_device_block(early));
+        assert_eq!(scheduler.counters.audio_device_paced_services, 1);
+        assert_eq!(
+            scheduler.next_audio_deadline,
+            early + Duration::from_millis(10)
+        );
+        assert!(!scheduler.audio_due(early));
     }
 
     #[test]

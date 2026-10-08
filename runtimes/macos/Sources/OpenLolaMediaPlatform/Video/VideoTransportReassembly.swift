@@ -176,17 +176,17 @@ private extension VideoFrameReassembler {
         _ fragment: VideoTransportFragment,
         key: VideoFrameReassemblyKey
     ) throws -> Bool {
-        guard var bucket = activeFrames[key] else {
+        guard let index = activeFrames.index(forKey: key) else {
             return false
         }
-        let inserted = try bucket.insert(fragment)
+        // Mutate the stored bucket in place so its fragment table is not copied per fragment.
+        let inserted = try activeFrames.values[index].insert(fragment)
         if !inserted {
             metricsStorage.duplicateFragments = saturatingOpenLolaCounterSum(
                 metricsStorage.duplicateFragments,
                 1
             )
         }
-        activeFrames[key] = bucket
         return true
     }
 

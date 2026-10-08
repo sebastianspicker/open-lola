@@ -32,6 +32,17 @@ pub fn run_interactive_ui() -> Result<(), String> {
     .map_err(|e| format!("GUI error: {e}"))
 }
 
+/// Where the displayed preview texture came from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PreviewSource {
+    /// Video received from the peer.
+    Remote,
+    /// Local capture; the peer's video has not been received.
+    Local,
+    /// Locally generated placeholder or SMPTE test signal.
+    Synthetic { test_signal: bool },
+}
+
 struct StationApp {
     controller: StationUIController,
     remote_ip: String,
@@ -56,8 +67,8 @@ struct StationApp {
     // Preview texture (software / SMPTE when test signals active)
     preview_tex: Option<TextureHandle>,
     preview_is_live: bool,
+    preview_source: PreviewSource,
     preview_generation: Option<u64>,
-    preview_frame: u64,
     preview_w: u32,
     preview_h: u32,
     process_priority: String,

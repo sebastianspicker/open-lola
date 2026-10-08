@@ -34,7 +34,7 @@ fn malformed_compressed_geometry_drops_before_valid_frame_recovers() {
     let mut result = SessionResult::default();
     let mut recorder = None;
     let mut monitor = NetworkMonitor::new();
-    let mut queue = ReceivePrefillQueue::new(1, 0);
+    let mut queue = VideoReceiveQueue::new(1, 0);
     present_received_video(
         jpeg_frame(1, 1, "RGB24", 1),
         2,
@@ -71,4 +71,35 @@ fn malformed_compressed_geometry_drops_before_valid_frame_recovers() {
 fn raw_presentation_format_follows_negotiated_byte_count() {
     assert_eq!(raw_video_format(8), "Mono8");
     assert_eq!(raw_video_format(24), "RGB24");
+}
+
+#[test]
+fn older_video_sequence_is_dropped_before_presentation() {
+    let options = SessionOptions::demo();
+    let mut result = SessionResult::default();
+    let mut recorder = None;
+    let mut monitor = NetworkMonitor::new();
+    let mut queue = VideoReceiveQueue::new(1, 0);
+    for sequence in [5, 4, 6] {
+        let frame = VideoFrame {
+            sequence,
+            payload: vec![0; 12],
+            compressed: false,
+        };
+        present_received_video(
+            frame,
+            2,
+            2,
+            24,
+            &options,
+            &mut result,
+            &mut recorder,
+            &mut monitor,
+            &mut queue,
+        )
+        .unwrap();
+    }
+    assert_eq!(result.video_out_of_order_drops, 1);
+    assert_eq!(result.video_frames_received, 2);
+    assert_eq!(result.video_malformed_drops, 0);
 }

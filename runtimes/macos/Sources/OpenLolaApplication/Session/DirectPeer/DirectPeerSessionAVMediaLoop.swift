@@ -33,10 +33,12 @@ struct DirectPeerAVMediaLoopTiming {
     var videoFrameIntervalNanoseconds: UInt64
     var audioPollIntervalMicroseconds: UInt64
     var audioPacketIntervalNanoseconds: UInt64
-    var videoReceiveDrainPacketLimit = 32
-    /// One datagram is the maximum video quantum. Audio gets another service
-    /// opportunity before a second fragment, including at a capture deadline.
-    var videoTransmitPacketLimit = 1
+    var videoReceiveDrainPacketLimit = 64
+    /// Video fragments sent per loop turn. A burst of this size costs well
+    /// under one audio packet period in `sendto` calls, so audio keeps its
+    /// service opportunity while a fragmented frame still leaves within a
+    /// frame interval instead of one datagram per audio poll.
+    var videoTransmitPacketLimit = 16
     var audioTransmitDrainPacketLimit = 32
 
     init(configuration: DirectPeerSessionAVRunConfiguration) throws {
@@ -68,6 +70,10 @@ struct DirectPeerPendingVideoTransmit {
     var cursor: UdpMediaPreparedVideoCursor
     var frameSequenceNumber: UInt64
     var timestampNanoseconds: UInt64
+    /// Host time at which the socket last refused a fragment of this frame
+    /// without any fragment of the same attempt getting through. Cleared by
+    /// any attempt that sends at least one fragment.
+    var blockedSinceNanoseconds: UInt64?
 
     init(
         preparedFrame: UdpMediaPreparedVideoFrame,
@@ -81,6 +87,25 @@ struct DirectPeerPendingVideoTransmit {
 
     var isComplete: Bool { cursor.isComplete }
     var remainingPacketCount: Int { cursor.remainingFragmentCount }
+
+    /// Socket backpressure is ordinary for a frame larger than the kernel send
+    /// buffer. The frame is kept and retried; it is abandoned only once the
+    /// stall outlasts the limit without any progress, because by then the next
+    /// frame is due. A partial burst that sent some fragments is progress.
+    mutating func noteSendAttempt(
+        wouldBlock: Bool,
+        packetsSent: Int,
+        nowNanoseconds: UInt64,
+        backpressureLimitNanoseconds: UInt64
+    ) -> Bool {
+        guard wouldBlock, packetsSent == 0 else {
+            blockedSinceNanoseconds = nil
+            return false
+        }
+        let since = blockedSinceNanoseconds ?? nowNanoseconds
+        blockedSinceNanoseconds = since
+        return nowNanoseconds &- since > backpressureLimitNanoseconds
+    }
 }
 
 @discardableResult
