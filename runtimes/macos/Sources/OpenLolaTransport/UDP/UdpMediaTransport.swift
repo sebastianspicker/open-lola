@@ -269,7 +269,8 @@ public final class UdpMediaTransport: @unchecked Sendable {
             try receiveDatagramIfAvailable(
                 socket: descriptor,
                 byteCount: maxByteCount,
-                buffer: &receiveScratch
+                buffer: &receiveScratch,
+                includingEmptyDatagrams: true
             )
         }
         guard let data else {
@@ -324,7 +325,8 @@ public final class UdpMediaTransport: @unchecked Sendable {
                   try receiveDatagramIfAvailable(
                       socket: descriptor,
                       byteCount: maxByteCount,
-                      buffer: &receiveScratch
+                      buffer: &receiveScratch,
+                      includingEmptyDatagrams: true
                   ) != nil {
                 drained += 1
             }
@@ -389,18 +391,11 @@ public final class UdpMediaTransport: @unchecked Sendable {
             nextSequenceByStream[key] = sequenceNumber &+ 1
         }
 
-        guard receivedAt >= packet.header.timestampNanoseconds else {
-            metricsState.clockSkewEventCount = saturatingOpenLolaCounterSum(
-                metricsState.clockSkewEventCount,
-                1
-            )
-            return
-        }
-        let transit = Double(receivedAt - packet.header.timestampNanoseconds) / 1_000
         metricsState.jitterMicroseconds = jitterState.record(
             payloadType: packet.header.payloadType,
             streamID: packet.header.streamID,
-            transitMicroseconds: transit
+            senderNanoseconds: packet.header.timestampNanoseconds,
+            arrivalNanoseconds: receivedAt
         )
     }
 
@@ -444,64 +439,11 @@ private func mediaTransportElapsedMicroseconds(since startNanoseconds: UInt64) -
     return Double(end >= startNanoseconds ? end - startNanoseconds : 0) / 1_000
 }
 
-private struct UdpMediaSequenceKey: Hashable {
+struct UdpMediaSequenceKey: Hashable {
     var payloadType: SessionPayloadType
     var streamID: UInt32
 }
 
-struct UdpMediaJitterState {
-    private var previousTransitByStream: [UdpMediaSequenceKey: Double] = [:]
-    private var transitSampleCountByStream: [UdpMediaSequenceKey: Int] = [:]
-    private var jitterByStream: [UdpMediaSequenceKey: Double] = [:]
-    private var streamOrder: [UdpMediaSequenceKey] = []
-
-    static let maximumTrackedStreams = 256
-
-    var trackedStreamCount: Int {
-        previousTransitByStream.count
-    }
-
-    mutating func record(
-        payloadType: SessionPayloadType,
-        streamID: UInt32,
-        transitMicroseconds: Double
-    ) -> Double {
-        let key = UdpMediaSequenceKey(payloadType: payloadType, streamID: streamID)
-        track(key)
-        let sampleCount = saturatingOpenLolaCounterSum(transitSampleCountByStream[key] ?? 0, 1)
-        transitSampleCountByStream[key] = sampleCount
-
-        if let previousTransit = previousTransitByStream[key] {
-            let delta = abs(transitMicroseconds - previousTransit)
-            if sampleCount >= minimumUdpMediaJitterSampleCount {
-                let previousJitter = jitterByStream[key] ?? 0
-                jitterByStream[key] = previousJitter + (delta - previousJitter) / 16
-            }
-        }
-        previousTransitByStream[key] = transitMicroseconds
-        return jitterByStream.values.max() ?? 0
-    }
-
-    fileprivate mutating func remove(_ key: UdpMediaSequenceKey) {
-        previousTransitByStream.removeValue(forKey: key)
-        transitSampleCountByStream.removeValue(forKey: key)
-        jitterByStream.removeValue(forKey: key)
-        streamOrder.removeAll { $0 == key }
-    }
-
-    private mutating func track(_ key: UdpMediaSequenceKey) {
-        guard previousTransitByStream[key] == nil else {
-            return
-        }
-        while previousTransitByStream.count >= Self.maximumTrackedStreams,
-              let evicted = streamOrder.first {
-            remove(evicted)
-        }
-        streamOrder.append(key)
-    }
-}
-
-private let minimumUdpMediaJitterSampleCount = 16
 private let udpMediaSequenceHalfWindowThreshold = UInt64.max / 2
 
 package struct UdpMediaRecentSequences {

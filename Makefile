@@ -5,7 +5,7 @@ DEVELOPER_DIR ?= $(if $(wildcard /Applications/Xcode-26.6.0.app/Contents/Develop
 SWIFT_BUILD_PATH ?= /private/tmp/open-lola-swiftpm-build
 PYTHON_RUN := $(UV) run --locked --extra dev
 
-.PHONY: architecture architecture-self-test code-quality code-quality-self-test test-python test-rust lint shellcheck swift-lint web-lint workflow-lint verify swift-build rust-fmt rust-clippy rust-test rust-cli-test python-ruff python-mypy python-tool-tests python rust all
+.PHONY: architecture architecture-self-test code-quality code-quality-self-test test-python test-rust lint shellcheck swift-lint web-lint workflow-lint verify swift-build swift-test rust-fmt rust-clippy rust-test rust-cli-test python-ruff python-mypy python-tool-tests python rust all
 
 architecture: architecture-self-test
 	$(PYTHON_RUN) python tools/verify_architecture.py
@@ -52,6 +52,9 @@ swift-lint: swift-build
 
 swift-build:
 	DEVELOPER_DIR="$(DEVELOPER_DIR)" swift build --disable-sandbox --scratch-path "$(SWIFT_BUILD_PATH)" -Xswiftc -warnings-as-errors
+
+swift-test:
+	DEVELOPER_DIR="$(DEVELOPER_DIR)" swift test --disable-sandbox --scratch-path "$(SWIFT_BUILD_PATH)" -Xswiftc -warnings-as-errors
 
 web-lint:
 	node --check web/demo/app.js

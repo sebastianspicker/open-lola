@@ -34,7 +34,7 @@ func lolaExpectedQuickConnectFields(
         configuration: configuration,
         sourceIP: sourceIP
     )
-    if configuration.role != .txRx {
+    if configuration.mediaMode.hasVideo {
         fields.merge(lolaExpectedQuickConnectVideoFields(configuration)) { _, new in new }
     }
     return fields

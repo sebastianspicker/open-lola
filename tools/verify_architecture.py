@@ -34,6 +34,10 @@ LEGACY_ROOT_DIRECTORIES = (
 )
 PACKAGE_TARGETS = frozenset(
     {
+        "OpenLolaTransportTests",
+        "OpenLolaApplicationTests",
+        "OpenLolaMediaPlatformTests",
+        "OpenLolaIntegrationsTests",
         "OpenLolaContracts",
         "OpenLolaCore",
         "OpenLolaSessionDomain",
@@ -51,6 +55,10 @@ PACKAGE_TARGETS = frozenset(
     }
 )
 PACKAGE_TARGET_GRAPH = {
+    "OpenLolaTransportTests": frozenset({"OpenLolaTransport"}),
+    "OpenLolaApplicationTests": frozenset({"OpenLolaApplication", "OpenLolaTransport"}),
+    "OpenLolaMediaPlatformTests": frozenset({"OpenLolaMediaPlatform"}),
+    "OpenLolaIntegrationsTests": frozenset({"OpenLolaIntegrations"}),
     "OpenLolaContracts": frozenset(),
     "OpenLolaCore": frozenset(
         {
@@ -109,6 +117,10 @@ PACKAGE_TARGET_GRAPH = {
     "open-lola-app": frozenset({"OpenLolaAppSupport"}),
 }
 PACKAGE_TARGET_PATHS = {
+    "OpenLolaTransportTests": "runtimes/macos/Tests/OpenLolaTransportTests",
+    "OpenLolaApplicationTests": "runtimes/macos/Tests/OpenLolaApplicationTests",
+    "OpenLolaMediaPlatformTests": "runtimes/macos/Tests/OpenLolaMediaPlatformTests",
+    "OpenLolaIntegrationsTests": "runtimes/macos/Tests/OpenLolaIntegrationsTests",
     "OpenLolaContracts": "runtimes/macos/Sources/OpenLolaContracts",
     "OpenLolaCore": "runtimes/macos/Sources/OpenLolaCore",
     "OpenLolaSessionDomain": "runtimes/macos/Sources/OpenLolaSessionDomain",

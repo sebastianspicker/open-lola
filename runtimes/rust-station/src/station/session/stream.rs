@@ -1,10 +1,12 @@
 //! Deadline-first interleaved stream execution.
 
+use super::audio_receive::AudioReceiveQueue;
+
 use super::audio::send_recv_audio_frame;
 use super::backends::SessionAudioBackend;
 use super::capture::CaptureWorker;
 use super::control::{pump_control, send_queued_controls, QuickconnAckCache};
-use super::media::{ReceivePrefillQueue, SessionMediaTransport, VideoSendDisposition};
+use super::media::{SessionMediaTransport, VideoSendDisposition};
 use super::scheduler::{DeadlineScheduler, PreparedVideoMailbox, VideoTxCursor};
 use super::stream_support::{note_realtime_priority, record_audio_backend_counters};
 use super::video::{consume_prepared_capture, receive_video_datagram_step, VideoReceiveQueue};
@@ -44,7 +46,7 @@ pub(super) fn run_interleaved_stream(
     previews: &mut Vec<String>,
     monitor: &mut NetworkMonitor,
     audio_reassembler: &mut FrameReassembler,
-    audio_queue: &mut ReceivePrefillQueue<Vec<u8>>,
+    audio_queue: &mut AudioReceiveQueue,
     video_reassembler: &mut FrameReassembler,
     video_queue: &mut VideoReceiveQueue,
     quickconn_ack: Option<&QuickconnAckCache>,
@@ -388,7 +390,7 @@ fn process_audio_deadline(
     dual: &mut Option<DualStreamRecorder>,
     monitor: &mut NetworkMonitor,
     reassembler: &mut FrameReassembler,
-    queue: &mut ReceivePrefillQueue<Vec<u8>>,
+    queue: &mut AudioReceiveQueue,
     audio_writer: &mut AudioDatagramWriter,
     phase: &mut StreamPhase<'_>,
 ) -> Result<(), SessionError> {
@@ -472,8 +474,8 @@ fn send_video_step(
         )? {
             VideoSendDisposition::Sent => {
                 let complete = cursor.sent_one();
-                monitor.note_send(MediaKind::Video);
                 if complete {
+                    monitor.note_send(MediaKind::Video);
                     result.video_frames_sent += 1;
                     result.media_frames_sent += 1;
                     phase.cursor = None;

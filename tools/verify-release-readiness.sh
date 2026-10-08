@@ -275,6 +275,12 @@ main() {
     --disable-sandbox \
     --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
     -Xswiftc -warnings-as-errors
+  run_timed_step \
+    "$SWIFT_BUILD_TIMEOUT_SECONDS" \
+    swift test \
+    --disable-sandbox \
+    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
+    -Xswiftc -warnings-as-errors
   OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(open_lola_default_cli_binary)"
   export OPEN_LOLA_TEST_OPEN_LOLA_CLI
   manual_hardware_signing_gate

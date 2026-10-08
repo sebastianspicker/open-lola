@@ -126,3 +126,51 @@ fn callback_ring_has_zero_steady_state_allocations() {
     )
     .expect("write benchmark output");
 }
+
+#[test]
+fn one_slot_ring_distinguishes_unread_and_consumer_owned_blocks() {
+    let ring = CallbackRing::new(1, 2).unwrap();
+    assert!(!ring.push_from_ptr([1, 2].as_ptr()));
+    assert!(
+        ring.push_from_ptr([3, 4].as_ptr()),
+        "unread block is replaced"
+    );
+    assert_eq!(ring.queued_blocks(), 1);
+    let held = ring.claim_consumer_slot().unwrap();
+    assert!(
+        ring.push_from_ptr([5, 6].as_ptr()),
+        "held block is never overwritten"
+    );
+    let mut output = [0; 2];
+    // SAFETY: this test owns the claimed slot until the explicit release below.
+    unsafe {
+        std::ptr::copy_nonoverlapping(held.0.data.as_ptr().cast::<u8>(), output.as_mut_ptr(), 2);
+    }
+    assert_eq!(output, [3, 4]);
+    ring.release_consumer_slot(held.0, held.1);
+    assert!(!ring.push_from_ptr([7, 8].as_ptr()));
+    assert!(ring.pop_into(&mut output).unwrap());
+    assert_eq!(output, [7, 8]);
+}
+
+#[test]
+fn callback_ring_sequence_arithmetic_wraps_without_overflow() {
+    let ring = CallbackRing::new(2, 1).unwrap();
+    let position = usize::MAX - 1;
+    ring.enqueue.store(position, Ordering::Relaxed);
+    ring.dequeue.store(position, Ordering::Relaxed);
+    for offset in 0..2 {
+        let next = position.wrapping_add(offset);
+        ring.slots[next % 2]
+            .sequence
+            .store(next.wrapping_mul(2), Ordering::Relaxed);
+    }
+    for value in [1, 2, 3, 4] {
+        assert!(!ring.push_from_ptr([value].as_ptr()));
+        assert_eq!(ring.queued_blocks(), 1);
+        let mut output = [0];
+        assert!(ring.pop_into(&mut output).unwrap());
+        assert_eq!(output, [value]);
+    }
+    assert_eq!(ring.queued_blocks(), 0);
+}

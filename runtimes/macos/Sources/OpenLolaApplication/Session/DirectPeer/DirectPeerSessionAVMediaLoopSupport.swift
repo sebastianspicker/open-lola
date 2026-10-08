@@ -11,10 +11,8 @@ import Foundation
 import os
 
 struct DirectPeerAVLoopWaitRequest {
-    let audioGraph: DirectPeerRealtimeAudioGraph
-    let liveVideoSource: DirectPeerAVFoundationRawFrameSource
-    let videoPreparationWorker: DirectPeerVideoPreparationWorker
-    let videoDecodeWorker: DirectPeerVideoDecodeWorker?
+    let control: DirectPeerSessionControlSocket
+    let resources: DirectPeerAVMediaLoopResources
     let useCaptureReadiness: Bool
     let state: DirectPeerAVMediaLoopState
     let timing: DirectPeerAVMediaLoopTiming
@@ -25,10 +23,10 @@ func waitForNextDirectPeerAVLoop(
     request: DirectPeerAVLoopWaitRequest
 ) throws {
     let captureReadinessDescriptor = request.useCaptureReadiness
-        ? request.audioGraph.captureReadinessDescriptor
+        ? request.resources.audioGraph.captureReadinessDescriptor
         : nil
     let videoCaptureReadinessDescriptor = request.useCaptureReadiness
-        ? request.liveVideoSource.readinessDescriptor
+        ? request.resources.liveVideoSource.readinessDescriptor
         : nil
     var waitTimeoutMicroseconds = directPeerAVLoopWaitTimeoutMicroseconds(
         nowNanoseconds: DispatchTime.now().uptimeNanoseconds,
@@ -54,10 +52,11 @@ func waitForNextDirectPeerAVLoop(
     _ = try runner.waitForIncomingMedia(
         timeoutMicroseconds: waitTimeoutMicroseconds,
         additionalReadDescriptors: [
+            request.control.readinessDescriptor,
             captureReadinessDescriptor,
             videoCaptureReadinessDescriptor,
-            request.videoPreparationWorker.readinessDescriptor,
-            request.videoDecodeWorker?.readinessDescriptor
+            request.resources.videoPreparationWorker.readinessDescriptor,
+            request.resources.videoDecodeWorker?.readinessDescriptor
         ].compactMap { $0 }
     )
 }

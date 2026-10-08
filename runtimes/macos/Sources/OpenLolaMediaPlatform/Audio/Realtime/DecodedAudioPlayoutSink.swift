@@ -145,11 +145,15 @@ package final class DecodedAudioPlayoutSink: @unchecked Sendable {
         while accumulator.count - accumulatorHead >= required {
             let output = Array(accumulator[accumulatorHead..<(accumulatorHead + required)])
             accumulatorHead += required
-            let start = frameAnchor.takeNextFrame(
+            var candidateAnchor = frameAnchor
+            let start = candidateAnchor.takeNextFrame(
                 localOutputFrame: target.nextOutputFrameForPlayout,
                 frameCount: framesPerBlock
             )
             if target.queuePlayoutForDecodedAudio(floatData(output), startFrame: start, hostTimeNanoseconds: hostTimeNanoseconds) == .stored {
+                // Dropped blocks must not reserve future output time: advancing
+                // the anchor on backpressure would turn each drop into silence.
+                frameAnchor = candidateAnchor
                 queuedBlocks += 1
                 outcome.queuedBlocks += 1
             } else {

@@ -223,9 +223,13 @@ Desktop.ini
 *.orig
 *.rej
 
-# Internal status notes, design briefs and test trees (not published)
+# Internal status notes, design briefs and unreviewed test trees
 /RELEASE_STATUS.md
 /web/demo/DESIGN_BRIEF.md
-/runtimes/macos/Tests/
+/runtimes/macos/Tests/*
+!/runtimes/macos/Tests/OpenLolaTransportTests/
+!/runtimes/macos/Tests/OpenLolaApplicationTests/
+!/runtimes/macos/Tests/OpenLolaMediaPlatformTests/
+!/runtimes/macos/Tests/OpenLolaIntegrationsTests/
 /runtimes/rust-station/tests/*
 !/runtimes/rust-station/tests/lola2_compatibility.rs

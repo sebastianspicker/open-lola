@@ -113,6 +113,7 @@ struct DirectPeerVideoRXLoopConfiguration {
     var maxPackets: Int
     var decodeWorker: DirectPeerVideoDecodeWorker? = nil
     var remoteHostTimeMapper: DirectPeerRemoteVideoHostTimeMapper? = nil
+    var maximumDrainDurationNanoseconds: UInt64 = UInt64.max
 }
 
 private enum DirectPeerVideoRXPacketDrain {
@@ -128,6 +129,7 @@ func runVideoRXLoop(
     configuration: DirectPeerVideoRXLoopConfiguration
 ) throws -> DirectPeerVideoRXDrainResult {
     var result = DirectPeerVideoRXDrainResult()
+    let startedAt = DispatchTime.now().uptimeNanoseconds
     let reassemblyMetricsBefore = reassembler.metrics
     try drainDeferredVideoFrame(&deferredFrame, configuration: configuration, result: &result)
     try drainDecodedVideoFrame(
@@ -139,6 +141,9 @@ func runVideoRXLoop(
     var drainedPackets = 0
     packetDrainLoop:
     while drainedPackets < configuration.maxPackets {
+        if drainedPackets > 0, DispatchTime.now().uptimeNanoseconds &- startedAt >= configuration.maximumDrainDurationNanoseconds {
+            break
+        }
         drainedPackets += 1
         switch try drainNextVideoRXPacket(
             runner: &runner,

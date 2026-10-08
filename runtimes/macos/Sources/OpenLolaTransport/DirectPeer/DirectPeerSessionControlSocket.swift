@@ -10,7 +10,8 @@ private let directPeerControlPollDatagramLimit = 64
 
 package final class DirectPeerSessionControlSocket: @unchecked Sendable {
     package let endpoint: SessionNetworkEndpoint
-    private let descriptor: Int32
+    package let readinessDescriptor: Int32
+    private var descriptor: Int32 { readinessDescriptor }
     private let receiveTimeoutNanoseconds: UInt64
     private let stateLock = NSLock()
     /// Serialises use of `pollScratch` so the non-blocking poll reuses one receive buffer.
@@ -50,7 +51,7 @@ package final class DirectPeerSessionControlSocket: @unchecked Sendable {
             "direct peer control receive timeout must be bounded"
         )
         self.endpoint = endpoint
-        self.descriptor = descriptor
+        readinessDescriptor = descriptor
         receiveTimeoutNanoseconds = UInt64(receiveTimeoutSeconds) * 1_000_000_000
     }
 

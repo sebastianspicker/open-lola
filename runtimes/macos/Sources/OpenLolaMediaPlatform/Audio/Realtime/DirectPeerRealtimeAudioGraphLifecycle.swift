@@ -83,7 +83,8 @@ extension DirectPeerRealtimeAudioGraph {
         defer { lifecycleLock.unlock() }
         guard inputIOProcID == nil,
               outputIOProcID == nil,
-              open_lola_atomic_u64_load(&ioProcRunning) == 0 else {
+              open_lola_atomic_u64_load(&callbackState.ioProcRunning) == 0,
+              open_lola_atomic_u64_load(&callbackState.activeIOProcCallbacks) == 0 else {
             throw DirectPeerAudioGraphError.graphAlreadyStarted
         }
         guard modeMatchesRequestedDevices(inputDeviceID: inputDeviceID, outputDeviceID: outputDeviceID) else {
@@ -97,19 +98,19 @@ extension DirectPeerRealtimeAudioGraph {
             if let outputDeviceID, outputDeviceID != inputDeviceID {
                 try configureDevice(outputDeviceID)
             }
-            open_lola_atomic_u64_store(&activeIOProcCallbacks, 0)
-            open_lola_atomic_u64_store(&ioProcRunning, 1)
+            open_lola_atomic_u64_store(&callbackState.activeIOProcCallbacks, 0)
+            open_lola_atomic_u64_store(&callbackState.ioProcRunning, 1)
             if let inputDeviceID, inputDeviceID == outputDeviceID {
                 inputIOProcID = try makeAndStartIOProc(
                     deviceID: inputDeviceID,
-                    ioProc: directPeerRealtimeAudioIOProc
+                    ioProc: directPeerRealtimeAudioIOProc, role: "input"
                 )
             } else {
                 if let inputDeviceID {
-                    inputIOProcID = try makeAndStartIOProc(deviceID: inputDeviceID, ioProc: directPeerRealtimeAudioInputIOProc)
+                    inputIOProcID = try makeAndStartIOProc(deviceID: inputDeviceID, ioProc: directPeerRealtimeAudioInputIOProc, role: "input")
                 }
                 if let outputDeviceID {
-                    outputIOProcID = try makeAndStartIOProc(deviceID: outputDeviceID, ioProc: directPeerRealtimeAudioOutputIOProc)
+                    outputIOProcID = try makeAndStartIOProc(deviceID: outputDeviceID, ioProc: directPeerRealtimeAudioOutputIOProc, role: "output")
                 }
             }
         } catch {
@@ -162,17 +163,17 @@ extension DirectPeerRealtimeAudioGraph {
 
     public func runtimeCounters() -> DirectPeerRealtimeAudioGraphRuntimeCounters {
         DirectPeerRealtimeAudioGraphRuntimeCounters(
-            capturedInputBlocks: Int(open_lola_atomic_u64_load(&capturedInputBlocks)),
-            droppedInputBlocks: Int(open_lola_atomic_u64_load(&droppedInputBlocks)),
-            inputOverrunBlocks: Int(open_lola_atomic_u64_load(&inputOverrunBlocks)),
-            outputBlocks: Int(open_lola_atomic_u64_load(&outputBlocks)),
-            droppedOutputBlocks: Int(open_lola_atomic_u64_load(&droppedOutputBlocks)),
-            outputUnderrunBlocks: Int(open_lola_atomic_u64_load(&outputUnderrunBlocks)),
-            callbackInvocationBlocks: Int(open_lola_atomic_u64_load(&callbackInvocationBlocks)),
-            callbackMaxMicroseconds: Int(open_lola_atomic_u64_load(&callbackMaxMicroseconds)),
-            callbackDeadlineMisses: Int(open_lola_atomic_u64_load(&callbackDeadlineMisses)),
-            callbackOverrunBlocks: Int(open_lola_atomic_u64_load(&callbackOverrunBlocks)),
-            hostTimeConversionFailures: Int(open_lola_atomic_u64_load(&hostTimeConversionFailures))
+            capturedInputBlocks: Int(open_lola_atomic_u64_load(&callbackState.capturedInputBlocks)),
+            droppedInputBlocks: Int(open_lola_atomic_u64_load(&callbackState.droppedInputBlocks)),
+            inputOverrunBlocks: Int(open_lola_atomic_u64_load(&callbackState.inputOverrunBlocks)),
+            outputBlocks: Int(open_lola_atomic_u64_load(&callbackState.outputBlocks)),
+            droppedOutputBlocks: Int(open_lola_atomic_u64_load(&callbackState.droppedOutputBlocks)),
+            outputUnderrunBlocks: Int(open_lola_atomic_u64_load(&callbackState.outputUnderrunBlocks)),
+            callbackInvocationBlocks: Int(open_lola_atomic_u64_load(&callbackState.callbackInvocationBlocks)),
+            callbackMaxMicroseconds: Int(open_lola_atomic_u64_load(&callbackState.callbackMaxMicroseconds)),
+            callbackDeadlineMisses: Int(open_lola_atomic_u64_load(&callbackState.callbackDeadlineMisses)),
+            callbackOverrunBlocks: Int(open_lola_atomic_u64_load(&callbackState.callbackOverrunBlocks)),
+            hostTimeConversionFailures: Int(open_lola_atomic_u64_load(&callbackState.hostTimeConversionFailures))
         )
     }
 
@@ -191,32 +192,48 @@ extension DirectPeerRealtimeAudioGraph {
         )
     }
 
-    func makeAndStartIOProc(deviceID: AudioObjectID, ioProc: AudioDeviceIOProc) throws -> AudioDeviceIOProcID {
-        let clientData = Unmanaged.passUnretained(self).toOpaque()
+    func makeAndStartIOProc(
+        deviceID: AudioObjectID, ioProc: AudioDeviceIOProc, role: String
+    ) throws -> AudioDeviceIOProcID {
+        // One balanced retain for each HAL registration. No IOProc refers to self.
+        let clientData = Unmanaged.passRetained(callbackState).toOpaque()
         var createdIOProcID: AudioDeviceIOProcID?
-        var status = AudioDeviceCreateIOProcID(
-            deviceID,
-            ioProc,
-            clientData,
-            &createdIOProcID
-        )
-        try throwDirectPeerAudioStatusIfNeeded(status, "create AudioDeviceIOProcID")
-        guard let createdIOProcID else { throw DirectPeerAudioGraphError.graphNotStarted }
-        status = AudioDeviceStart(deviceID, createdIOProcID)
-        do {
-            try throwDirectPeerAudioStatusIfNeeded(status, "start AudioDeviceIOProc")
-        } catch {
-            let cleanupStatus = destroyIOProc(deviceID, createdIOProcID)
-            if cleanupStatus != noErr {
-                os_log(
-                    .error,
-                    "AudioDeviceDestroyIOProcID failed after start failure with status %{public}d",
-                    cleanupStatus
-                )
-            }
-            throw error
+        let status = createIOProc(deviceID, ioProc, clientData, &createdIOProcID)
+        guard let createdIOProcID else {
+            Unmanaged<DirectPeerRealtimeAudioCallbackState>.fromOpaque(clientData).release()
+            try throwDirectPeerAudioStatusIfNeeded(status, "create AudioDeviceIOProcID")
+            throw DirectPeerAudioGraphError.graphNotStarted
         }
+        // Track ownership before start can fail so the outer cleanup can retry
+        // failed destruction instead of losing the only registration handle.
+        if role == "input" {
+            inputIOProcID = createdIOProcID
+            inputIOProcClientData = clientData
+        } else {
+            outputIOProcID = createdIOProcID
+            outputIOProcClientData = clientData
+        }
+        try throwDirectPeerAudioStatusIfNeeded(status, "create AudioDeviceIOProcID")
+        try throwDirectPeerAudioStatusIfNeeded(startDevice(deviceID, createdIOProcID), "start AudioDeviceIOProc")
         return createdIOProcID
     }
 
+    private func createIOProc(
+        _ deviceID: AudioObjectID, _ ioProc: AudioDeviceIOProc,
+        _ clientData: UnsafeMutableRawPointer, _ identifier: UnsafeMutablePointer<AudioDeviceIOProcID?>
+    ) -> OSStatus {
+        #if DEBUG
+        createIOProcForTesting(deviceID, ioProc, clientData, identifier)
+        #else
+        AudioDeviceCreateIOProcID(deviceID, ioProc, clientData, identifier)
+        #endif
+    }
+
+    private func startDevice(_ deviceID: AudioObjectID, _ identifier: AudioDeviceIOProcID) -> OSStatus {
+        #if DEBUG
+        startDeviceForTesting(deviceID, identifier)
+        #else
+        AudioDeviceStart(deviceID, identifier)
+        #endif
+    }
 }

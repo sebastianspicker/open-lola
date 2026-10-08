@@ -1,9 +1,10 @@
+use super::super::audio_receive::AudioReceiveQueue;
 use super::super::backends::SessionAudioBackend;
 use super::super::capture::CaptureWorker;
 use super::super::control::QuickconnAckCache;
 use super::super::control::{build_session_control, send_control_datagram};
 use super::super::lifecycle::record_transport_monitor;
-use super::super::media::{ReceivePrefillQueue, SessionMediaTransport};
+use super::super::media::SessionMediaTransport;
 use super::super::stream::run_interleaved_stream;
 use super::super::types::now_us;
 use super::super::video::VideoReceiveQueue;
@@ -145,10 +146,7 @@ pub(super) fn run_listen_media(
     let mut v_re = FrameReassembler::strict_video();
     let mut a_re =
         FrameReassembler::with_limit(settings.network.audio_receive_queue_depth.max(1) as usize);
-    let mut audio_queue = ReceivePrefillQueue::new(
-        settings.network.audio_receive_queue_depth,
-        settings.network.audio_receive_prefill,
-    );
+    let mut audio_queue = AudioReceiveQueue::new(settings);
     let mut video_queue = VideoReceiveQueue::new(
         settings.network.video_receive_queue_depth,
         settings.network.video_receive_prefill,

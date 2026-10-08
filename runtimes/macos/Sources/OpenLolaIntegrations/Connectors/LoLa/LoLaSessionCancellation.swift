@@ -87,3 +87,15 @@ func lolaRetryResponderHandlePeerDisconnect(
     terminalSession.cancellation.cancel(reason: "peer disconnected", peerMessage: message)
     return true
 }
+
+/// Bounds capture readiness and sleep waits so all media workers observe peer shutdown.
+func loLaCancellationWaitDeadline(_ deadline: DispatchTime) -> DispatchTime {
+    let poll = DispatchTime.now() + lolaSessionCancellationPollSeconds
+    return DispatchTime(uptimeNanoseconds: min(deadline.uptimeNanoseconds, poll.uptimeNanoseconds))
+}
+
+func loLaCancellableMediaSleepUntil(_ deadline: DispatchTime, cancellation: LoLaSessionCancellation) {
+    while !cancellation.isCancelled, DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds {
+        loLaUdpMediaSleepUntil(loLaCancellationWaitDeadline(deadline))
+    }
+}

@@ -1,4 +1,5 @@
 use super::audio::send_recv_audio_frame;
+use super::audio_receive::AudioReceiveQueue;
 use super::backends::{SessionAudioBackend, SessionCameraBackend};
 use super::capture::CaptureWorker;
 use super::client_cleanup::finalize_client_session;
@@ -8,7 +9,7 @@ use super::control::{
     send_queued_controls, ClientDisconnectGuard,
 };
 use super::lifecycle::{record_cached_transport_stats, record_transport_monitor};
-use super::media::{should_stream_more, ReceivePrefillQueue, SessionMediaTransport};
+use super::media::{should_stream_more, SessionMediaTransport};
 use super::stream::run_interleaved_stream;
 use super::types::{now_us, session_cancelled, stream_dims};
 use super::video::{send_recv_video_frame, VideoReceiveQueue};
@@ -272,10 +273,7 @@ fn run_client_stream(
     let mut video_reassembler = FrameReassembler::strict_video();
     let mut audio_reassembler =
         FrameReassembler::with_limit(settings.network.audio_receive_queue_depth.max(1) as usize);
-    let mut audio_queue = ReceivePrefillQueue::new(
-        settings.network.audio_receive_queue_depth,
-        settings.network.audio_receive_prefill,
-    );
+    let mut audio_queue = AudioReceiveQueue::new(settings);
     let mut video_queue = VideoReceiveQueue::new(
         settings.network.video_receive_queue_depth,
         settings.network.video_receive_prefill,
@@ -489,7 +487,7 @@ fn run_sequential_client_stream(
     sid: u32,
     t0: u64,
     audio_reassembler: &mut FrameReassembler,
-    audio_queue: &mut ReceivePrefillQueue<Vec<u8>>,
+    audio_queue: &mut AudioReceiveQueue,
     video_reassembler: &mut FrameReassembler,
     video_queue: &mut VideoReceiveQueue,
     previews: &mut Vec<String>,

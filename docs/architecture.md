@@ -143,6 +143,15 @@ Direct-peer execution then follows this ownership direction:
 Device, socket, process, filesystem, codec, and UI effects stay at explicit
 adapters. Reports may describe missing evidence; they must never create it.
 
+Core Audio IOProc registrations each retain independent callback storage containing
+rings, scratch buffers, counters, and readiness signals. They never reference the
+session graph or its lifecycle lock. Teardown disables processing before stopping
+devices and releases registration ownership only after callbacks drain and HAL
+successfully destroys the IOProc. Failed cleanup can be retried while the graph
+exists; if its final teardown still fails, callback storage remains retained for
+process lifetime so late callbacks stay safe. Disabled output callbacks emit
+silence, and device properties are restored only after every registration is gone.
+
 ## Rust station
 
 The Rust binary dispatches CLI commands into configuration, protocol, transport,

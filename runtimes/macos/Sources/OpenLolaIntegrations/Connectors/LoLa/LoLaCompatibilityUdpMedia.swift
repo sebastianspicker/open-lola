@@ -167,8 +167,18 @@ public enum LoLaUdpMediaTransmitRunner {
         sessionConfiguration configuration: ExternalConnectorSessionConfiguration,
         transmitter: LoLaUdpMediaTransmitter? = nil
     ) throws -> LoLaCompatibilityMediaSessionReport {
-        if transmitter == nil, !configuration.dryRun, shouldUseLoLaLiveSocketTransmitter(configuration) {
-            return try LoLaSocketUdpMediaLiveTransmitter().transmit(configuration: configuration)
+        try runCancellable(sessionConfiguration: configuration, transmitter: transmitter)
+    }
+
+    static func runCancellable(
+        sessionConfiguration configuration: ExternalConnectorSessionConfiguration,
+        transmitter: LoLaUdpMediaTransmitter? = nil,
+        cancellation: LoLaSessionCancellation? = nil
+    ) throws -> LoLaCompatibilityMediaSessionReport {
+        // A cancellable session uses duration-paced workers even when an
+        // audio-only configuration carries an unused video payload selection.
+        if transmitter == nil, !configuration.dryRun, shouldUseLoLaLiveSocketTransmitter(configuration) || cancellation != nil {
+            return try LoLaSocketUdpMediaLiveTransmitter().transmit(configuration: configuration, cancellation: cancellation)
         }
         let mediaTransmitter: LoLaUdpMediaTransmitter
         if let transmitter {
@@ -238,8 +248,15 @@ public enum LoLaUdpMediaBidirectionalRunner {
     public static func run(
         configuration: ExternalConnectorSessionConfiguration
     ) throws -> LoLaCompatibilityMediaSessionReport {
+        try run(configuration: configuration, cancellation: nil)
+    }
+
+    static func run(
+        configuration: ExternalConnectorSessionConfiguration,
+        cancellation: LoLaSessionCancellation?
+    ) throws -> LoLaCompatibilityMediaSessionReport {
         if !configuration.dryRun {
-            return try runSocketBidirectional(configuration: configuration)
+            return try runSocketBidirectional(configuration: configuration, cancellation: cancellation)
         }
         let transmitter: LoLaUdpMediaTransmitter = configuration.dryRun
             ? LoLaMemoryUdpMediaTransmitter()
@@ -289,24 +306,28 @@ public enum LoLaUdpMediaBidirectionalRunner {
     }
 
     private static func runSocketBidirectional(
-        configuration: ExternalConnectorSessionConfiguration
+        configuration: ExternalConnectorSessionConfiguration,
+        cancellation: LoLaSessionCancellation?
     ) throws -> LoLaCompatibilityMediaSessionReport {
-        let exchange = try LoLaSocketBidirectionalExchange(configuration: configuration)
+        let exchange = try LoLaSocketBidirectionalExchange(configuration: configuration, cancellation: cancellation)
+        defer { exchange.audioBridge?.stop() }
         let receiver = try receiveSocketBidirectional(configuration, exchange: exchange)
-        guard exchange.txDone.wait(timeout: exchange.deadline) == .success else {
-            exchange.audioBridge?.stop()
-            throw ExternalConnectorSessionError.receiveTimedOut
-        }
+        // Workers share the deadline and cancellation signal. Join cleanup before
+        // stopping their bridge; deadline expiry alone is a normal session end.
+        exchange.txDone.wait()
         let txReport = try requireLoLaBidirectionalTransmitReport(exchange.txResult.result)
-        exchange.audioBridge?.stop()
 
-        return makeLoLaSocketBidirectionalReport(
+        var report = makeLoLaSocketBidirectionalReport(
             configuration: configuration,
             txReport: txReport,
             receiver: receiver,
             audioBridge: exchange.audioBridge,
             audioFreshness: exchange.audioFreshnessCounters.snapshot
         )
+        if let reason = exchange.cancellation.reason {
+            report.notes += " Receive ended before the session deadline: \(reason)."
+        }
+        return report
     }
 
     private static func receiveSocketBidirectional(
@@ -317,6 +338,7 @@ public enum LoLaUdpMediaBidirectionalRunner {
         let txDone = exchange.txDone
         let audioBridge = exchange.audioBridge
         let deadline = exchange.deadline
+        let cancellation = exchange.cancellation
         do {
             let datagrams = try exchange.receiver.receive(
                 request: LoLaUdpMediaReceiveRequest(
@@ -325,22 +347,26 @@ public enum LoLaUdpMediaBidirectionalRunner {
                     runUntilDeadline: true
                 ),
                 afterBind: { sockets in
+                    txDone.enter()
                     DispatchQueue.global(qos: .userInitiated).async {
                         do {
                             txResult.set(.success(try transmitSocketBidirectional(
                                 configuration: configuration,
                                 audioBridge: audioBridge,
                                 sockets: sockets,
-                                deadline: deadline
+                                deadline: deadline,
+                                cancellation: cancellation
                             )))
                         } catch {
                             txResult.set(.failure(error))
+                            cancellation.cancel(reason: "media transmitter failed")
                         }
-                        txDone.signal()
+                        txDone.leave()
                     }
                 },
                 coalesceReadableAudioToNewest: false,
                 audioFreshnessCounters: exchange.audioFreshnessCounters,
+                cancellation: cancellation,
                 onDatagram: { datagram in
                     try enqueueLoLaLiveAudioIfNeeded(datagram, audioBridge: audioBridge)
                 }
@@ -352,6 +378,7 @@ public enum LoLaUdpMediaBidirectionalRunner {
         } catch ExternalConnectorSessionError.receiveTimedOut {
             return LoLaUdpMediaReceiveRunner.timeoutReport(configuration: exchange.receiveConfiguration)
         } catch {
+            cancellation.cancel(reason: "media receiver failed")
             return LoLaUdpMediaReceiveRunner.failureReport(
                 configuration: exchange.receiveConfiguration,
                 error: error,
@@ -366,16 +393,18 @@ private struct LoLaSocketBidirectionalExchange {
     let audioBridge: LoLaCoreAudioLiveBridge?
     let audioFreshnessCounters: LoLaAudioReceiveFreshnessCounters
     let txResult: LoLaBidirectionalTransmitResultBox
-    let txDone: DispatchSemaphore
+    let txDone: DispatchGroup
     let receiveConfiguration: LoLaUdpMediaReceiveRunConfiguration
     let deadline: DispatchTime
+    let cancellation: LoLaSessionCancellation
 
-    init(configuration: ExternalConnectorSessionConfiguration) throws {
+    init(configuration: ExternalConnectorSessionConfiguration, cancellation: LoLaSessionCancellation?) throws {
+        self.cancellation = cancellation ?? LoLaSessionCancellation()
         receiver = LoLaSocketUdpMediaReceiver(timeoutSeconds: configuration.durationSeconds)
         audioBridge = try LoLaCoreAudioLiveBridge.makeIfRequested(configuration: configuration)
         audioFreshnessCounters = LoLaAudioReceiveFreshnessCounters()
         txResult = LoLaBidirectionalTransmitResultBox()
-        txDone = DispatchSemaphore(value: 0)
+        txDone = DispatchGroup()
         receiveConfiguration = loLaSocketBidirectionalReceiveConfiguration(configuration)
         deadline = DispatchTime.now() + .seconds(max(1, configuration.durationSeconds))
     }
@@ -385,14 +414,16 @@ private func transmitSocketBidirectional(
     configuration: ExternalConnectorSessionConfiguration,
     audioBridge: LoLaCoreAudioLiveBridge?,
     sockets: LoLaUdpMediaReceiveSockets,
-    deadline: DispatchTime
+    deadline: DispatchTime,
+    cancellation: LoLaSessionCancellation
 ) throws -> LoLaCompatibilityMediaSessionReport {
     if shouldUseLoLaLiveSocketTransmitter(configuration) {
         return try LoLaSocketUdpMediaLiveTransmitter().transmit(
             configuration: configuration,
             audioBridge: audioBridge,
             socketForPort: { port in sockets.socket(for: port == configuration.audioPort ? .audio : .video) },
-            deadline: deadline
+            deadline: deadline,
+            cancellation: cancellation
         )
     }
     if configuration.mediaMode.hasVideo, configuration.lolaVideoPayload != .generated {
@@ -408,7 +439,8 @@ private func transmitSocketBidirectional(
         configuration: configuration,
         audioBridge: audioBridge,
         socketForPort: { port in sockets.socket(for: port == configuration.audioPort ? .audio : .video) },
-        deadline: deadline
+        deadline: deadline,
+        cancellation: cancellation
     )
 }
 

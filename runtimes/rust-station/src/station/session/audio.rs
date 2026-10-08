@@ -1,5 +1,6 @@
+use super::audio_receive::AudioReceiveQueue;
 use super::backends::SessionAudioBackend;
-use super::media::{send_audio_media, ReceiveOutcome, ReceivePrefillQueue, SessionMediaTransport};
+use super::media::{send_audio_media, ReceiveOutcome, SessionMediaTransport};
 use super::{SessionOptions, SessionResult};
 use crate::audio::{generate_pcm_tone, test_tone_frequency, TEST_TONE_AMPLITUDE};
 use crate::net::MediaKind;
@@ -31,7 +32,7 @@ pub(super) fn send_recv_audio_frame(
     result: &mut SessionResult,
     dual: &mut Option<DualStreamRecorder>,
     monitor: &mut NetworkMonitor,
-    receive_queue: &mut ReceivePrefillQueue<Vec<u8>>,
+    receive_queue: &mut AudioReceiveQueue,
     audio_writer: &mut AudioDatagramWriter,
 ) -> Result<(), SessionError> {
     if transmit {
@@ -132,7 +133,7 @@ pub(super) fn receive_audio_datagram_step(
     result: &mut SessionResult,
     dual: &mut Option<DualStreamRecorder>,
     monitor: &mut NetworkMonitor,
-    receive_queue: &mut ReceivePrefillQueue<Vec<u8>>,
+    receive_queue: &mut AudioReceiveQueue,
 ) -> Result<(), SessionError> {
     let _ = a_re;
     for _ in 0..AUDIO_RECEIVE_DRAIN_LIMIT {
@@ -175,7 +176,7 @@ fn admit_audio_datagram(
     peer_audio_addr: SocketAddr,
     result: &mut SessionResult,
     monitor: &mut NetworkMonitor,
-    receive_queue: &mut ReceivePrefillQueue<Vec<u8>>,
+    receive_queue: &mut AudioReceiveQueue,
 ) {
     if datagram.peer != peer_audio_addr || datagram.payload.len() != AUDIO_UDP_PAYLOAD_SIZE {
         result.audio_malformed_drops += 1;
@@ -190,6 +191,11 @@ fn admit_audio_datagram(
             return;
         }
     };
+    if !receive_queue.valid_pcm(&frame.pcm) {
+        result.audio_malformed_drops += 1;
+        monitor.note_drop(1);
+        return;
+    }
     if !receive_queue.admit_sequence(frame.sequence) {
         monitor.note_drop(1);
         return;

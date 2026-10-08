@@ -48,6 +48,26 @@ let package = Package(
         )
     ],
     targets: [
+        .testTarget(
+            name: "OpenLolaTransportTests",
+            dependencies: ["OpenLolaTransport"],
+            path: "runtimes/macos/Tests/OpenLolaTransportTests"
+        ),
+        .testTarget(
+            name: "OpenLolaApplicationTests",
+            dependencies: ["OpenLolaApplication", "OpenLolaTransport"],
+            path: "runtimes/macos/Tests/OpenLolaApplicationTests"
+        ),
+        .testTarget(
+            name: "OpenLolaMediaPlatformTests",
+            dependencies: ["OpenLolaMediaPlatform"],
+            path: "runtimes/macos/Tests/OpenLolaMediaPlatformTests"
+        ),
+        .testTarget(
+            name: "OpenLolaIntegrationsTests",
+            dependencies: ["OpenLolaIntegrations"],
+            path: "runtimes/macos/Tests/OpenLolaIntegrationsTests"
+        ),
         .target(
             name: "OpenLolaContracts",
             path: "runtimes/macos/Sources/OpenLolaContracts"

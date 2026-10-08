@@ -1,4 +1,5 @@
 //! Regression oracles retained from the retired connector's receive policy.
+use super::audio_receive::AudioReceiveQueue;
 use super::backends::SessionAudioBackend;
 use super::media::{ReceivePrefillQueue, SessionMediaTransport};
 use super::*;
@@ -22,14 +23,16 @@ fn malformed_audio_then_valid_and_reordered_packets_preserve_session() {
     let mut result = SessionResult::default();
     let mut monitor = NetworkMonitor::new();
     let mut reassembler = FrameReassembler::new();
-    let mut queue = ReceivePrefillQueue::new(1, 0);
+    let mut queue = AudioReceiveQueue::new(&default_settings());
     let mut record = None;
     let mut malformed = build_audio_payload(1, &[1; 256], None).unwrap();
     malformed[16] = 2;
     for packet in [
         malformed,
         build_audio_payload(10, &[1; 256], Some(7)).unwrap(),
+        build_audio_payload(1000, &[1; 3], None).unwrap(),
         build_audio_payload(9, &[1; 256], Some(99)).unwrap(),
+        build_audio_payload(11, &[2; 256], None).unwrap(),
     ] {
         sender.send_to(&packet, destination).unwrap();
         let before = transport.stats().received_datagrams;
@@ -49,9 +52,9 @@ fn malformed_audio_then_valid_and_reordered_packets_preserve_session() {
         }
         assert!(transport.stats().received_datagrams > before);
     }
-    assert_eq!(result.audio_frames_received, 1);
-    assert_eq!(result.audio_malformed_drops, 1);
-    assert_eq!(monitor.drops, 2);
+    assert_eq!(result.audio_frames_received, 2);
+    assert_eq!(result.audio_malformed_drops, 2);
+    assert_eq!(monitor.drops, 3);
     audio.stop().unwrap();
 }
 
@@ -68,7 +71,7 @@ fn audio_arrival_burst_is_absorbed_by_the_bounded_queue() {
     let mut result = SessionResult::default();
     let mut monitor = NetworkMonitor::new();
     let mut reassembler = FrameReassembler::new();
-    let mut queue = ReceivePrefillQueue::new(4, 0);
+    let mut queue = AudioReceiveQueue::new(&default_settings());
     let mut record = None;
     // Three blocks clustered into one scheduler quantum, as network jitter
     // produces routinely. Every block must survive admission; one block per
@@ -103,19 +106,14 @@ fn audio_arrival_burst_is_absorbed_by_the_bounded_queue() {
 }
 
 #[test]
-fn receive_queue_bounds_depth_and_returns_borrowed_latency() {
+fn video_receive_queue_bounds_depth_and_honors_prefill() {
     let mut queue = ReceivePrefillQueue::new(2, 0);
     assert!(!queue.enqueue(1));
     assert!(!queue.enqueue(2));
     assert!(queue.enqueue(3), "depth two keeps the two newest units");
     assert_eq!(queue.dequeue(), Some(2));
-    // One unit still queued after a deadline means the burst left latency
-    // behind. Patience of two deadlines returns it on the second deadline.
-    assert!(!queue.realign(2));
-    assert!(queue.realign(2));
-    assert_eq!(queue.len(), 0);
+    assert_eq!(queue.dequeue(), Some(3));
     assert_eq!(queue.dequeue(), None);
-    assert!(!queue.realign(2));
 
     let mut prefilled = ReceivePrefillQueue::new(4, 2);
     assert!(!prefilled.enqueue(1));
@@ -126,10 +124,7 @@ fn receive_queue_bounds_depth_and_returns_borrowed_latency() {
     );
     assert!(!prefilled.enqueue(2));
     assert_eq!(prefilled.dequeue(), Some(1));
-    assert!(
-        !prefilled.realign(1),
-        "one unit queued is the prefill target"
-    );
+    assert_eq!(prefilled.len(), 1);
 }
 
 #[test]

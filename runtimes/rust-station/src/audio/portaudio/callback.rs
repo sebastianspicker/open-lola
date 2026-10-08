@@ -31,7 +31,7 @@ impl CallbackRing {
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
             slots.push(CallbackSlot {
-                sequence: AtomicUsize::new(sequence),
+                sequence: AtomicUsize::new(sequence.wrapping_mul(2)),
                 data,
             });
         }
@@ -143,11 +143,14 @@ impl CallbackRing {
             let position = self.enqueue.load(Ordering::Relaxed);
             let slot = &self.slots[position % self.capacity];
             let sequence = slot.sequence.load(Ordering::Acquire);
-            let difference = sequence as isize - position as isize;
+            // Even sequence values grant producer ownership; odd values
+            // publish a block. Distinct states are required even at capacity
+            // one, where the next position shares the same physical slot.
+            let difference = sequence.wrapping_sub(position.wrapping_mul(2)) as isize;
             if difference == 0 {
                 if self
                     .enqueue
-                    .compare_exchange_weak(
+                    .compare_exchange(
                         position,
                         position.wrapping_add(1),
                         Ordering::Relaxed,
@@ -167,13 +170,13 @@ impl CallbackRing {
 
     fn publish_producer_slot(&self, slot: &CallbackSlot, position: usize) {
         slot.sequence
-            .store(position.wrapping_add(1), Ordering::Release);
+            .store(position.wrapping_mul(2).wrapping_add(1), Ordering::Release);
     }
 
     fn claim_consumer_slot(&self) -> Option<(&CallbackSlot, usize)> {
         let position = self.dequeue.load(Ordering::Relaxed);
         let slot = &self.slots[position % self.capacity];
-        if slot.sequence.load(Ordering::Acquire) != position.wrapping_add(1) {
+        if slot.sequence.load(Ordering::Acquire) != position.wrapping_mul(2).wrapping_add(1) {
             return None;
         }
         self.dequeue
@@ -188,14 +191,16 @@ impl CallbackRing {
     }
 
     fn release_consumer_slot(&self, slot: &CallbackSlot, position: usize) {
-        slot.sequence
-            .store(position.wrapping_add(self.capacity), Ordering::Release);
+        slot.sequence.store(
+            position.wrapping_add(self.capacity).wrapping_mul(2),
+            Ordering::Release,
+        );
     }
 
     pub(super) fn queued_blocks(&self) -> usize {
         self.enqueue
             .load(Ordering::Acquire)
-            .saturating_sub(self.dequeue.load(Ordering::Acquire))
+            .wrapping_sub(self.dequeue.load(Ordering::Acquire))
             .min(self.capacity)
     }
 }

@@ -88,6 +88,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Reject Swift compiler warnings
         run: make swift-build SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
+      - name: Run Swift regression tests
+        run: make swift-test SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
 
   rust:
     runs-on: ubuntu-24.04

@@ -375,7 +375,14 @@ package func receiveDatagramIfAvailable(socket: Int32, byteCount: Int) throws ->
     return try receiveDatagramIfAvailable(socket: socket, byteCount: byteCount, buffer: &buffer)
 }
 
-package func receiveDatagramIfAvailable(socket: Int32, byteCount: Int, buffer: inout [UInt8]) throws -> Data? {
+/// Empty datagrams retain the legacy no-payload result unless a decoder explicitly
+/// opts in so it can count a malformed packet and continue its bounded drain.
+package func receiveDatagramIfAvailable(
+    socket: Int32,
+    byteCount: Int,
+    buffer: inout [UInt8],
+    includingEmptyDatagrams: Bool = false
+) throws -> Data? {
     try validateUdpReceiveByteCount(byteCount)
     if buffer.count < byteCount {
         buffer = [UInt8](repeating: 0, count: byteCount)
@@ -390,7 +397,7 @@ package func receiveDatagramIfAvailable(socket: Int32, byteCount: Int, buffer: i
         }
         throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
     }
-    guard received > 0 else {
+    guard received > 0 || includingEmptyDatagrams else {
         return nil
     }
     return Data(buffer.prefix(received))

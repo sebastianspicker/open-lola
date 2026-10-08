@@ -65,6 +65,7 @@ final class LoLaControlTerminalSession: @unchecked Sendable {
             exchange.receivedMessage = peerMessage
         }
 
+        cancellation.cancel(reason: "session ended")
         let messages = [
             LoLaCompatibilityControlMessage.stopAudioSignal(
                 sourceIP: sourceIP,

@@ -41,7 +41,7 @@ func receiveLoLaLiveSocketMedia(
     var report = try LoLaUdpMediaReceiveRunner.report(configuration: receiveConfiguration, datagrams: datagrams)
     report.notes += " " + loLaAudioReceiveFreshnessNote(counters.snapshot) + loLaLiveAudioSnapshotNote(bridge?.snapshot)
     if let reason = cancellation?.reason {
-        report.notes += " Receive ended before the session deadline: \(reason) (/MESG_DISCONNECT)."
+        report.notes += " Receive ended before the session deadline: \(reason)."
     }
     return report
 }
@@ -125,6 +125,7 @@ struct LoLaLivePacketSendRequest {
     var peer: String
     var port: UInt16
     var deadline: DispatchTime
+    var cancellation: LoLaSessionCancellation? = nil
 }
 
 func sendLoLaLivePackets(
@@ -140,6 +141,7 @@ func sendLoLaLivePackets(
         abandonedAtDeadline: false
     )
     for packet in packets {
+        guard !(request.cancellation?.isCancelled ?? false) else { break }
         guard nowNanoseconds() < request.deadline.uptimeNanoseconds else {
             outcome.abandonedAtDeadline = true
             break

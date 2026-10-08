@@ -70,7 +70,11 @@ public enum RawBGRAImageFactory {
         guard frame.metadata.pixelFormat == "bgra8" || frame.metadata.pixelFormat == "BGRA" else {
             throw RawBGRAPreviewError.unsupportedPixelFormat(frame.metadata.pixelFormat)
         }
-        let expected = frame.metadata.width * frame.metadata.height * 4
+        let expected = try MediaGeometrySizing.rawFrameByteCount(
+            width: frame.metadata.width,
+            height: frame.metadata.height,
+            bytesPerPixel: 4
+        )
         guard frame.payload.count == expected else {
             throw RawBGRAPreviewError.payloadSizeMismatch(expected: expected, actual: frame.payload.count)
         }

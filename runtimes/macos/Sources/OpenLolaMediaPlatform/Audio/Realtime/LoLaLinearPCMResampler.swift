@@ -51,7 +51,10 @@ package final class LoLaLinearPCMResampler: @unchecked Sendable {
             }
             position += step
         }
-        let consumedFrames = max(0, Int(position) - 1)
+        // A downsampling step can jump beyond the currently buffered frames.
+        // Keep the last sample for interpolation and carry the remaining phase
+        // into the next chunk instead of removing samples we do not have.
+        let consumedFrames = Int(min(position, Double(frameCount - 1)))
         if consumedFrames > 0 {
             input.removeFirst(consumedFrames * channels)
             position -= Double(consumedFrames)

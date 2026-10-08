@@ -21,10 +21,8 @@ func runDirectPeerAVMediaLoopIteration(
     try waitForNextDirectPeerAVLoop(
         runner: &runner,
         request: DirectPeerAVLoopWaitRequest(
-            audioGraph: resources.audioGraph,
-            liveVideoSource: resources.liveVideoSource,
-            videoPreparationWorker: resources.videoPreparationWorker,
-            videoDecodeWorker: resources.videoDecodeWorker,
+            control: context.control,
+            resources: resources,
             useCaptureReadiness: context.configuration.mediaSourceMode == .production,
             state: state,
             timing: context.timing
@@ -40,7 +38,7 @@ private func serviceDirectPeerAVMedia(
     context: DirectPeerAVMediaLoopIterationContext,
     now: UInt64
 ) throws {
-    try captureSyntheticAVAudioIfNeeded(resources: resources, state: &state, configuration: context.configuration, now: now)
+    try captureSyntheticAVAudioIfNeeded(resources: resources, state: &state, configuration: context.configuration, timing: context.timing, now: now)
     try drainDirectPeerAVAudio(runner: &runner, resources: resources, state: &state, configuration: context.configuration, timing: context.timing)
     try drainDirectPeerAVVideo(runner: &runner, resources: &resources, state: &state, configuration: context.configuration, timing: context.timing)
     serviceDirectPeerAVMetrics(runner: &runner, state: &state, now: now)
@@ -105,7 +103,12 @@ private func transmitPendingDirectPeerAVVideo(
         audioPacketIntervalNanoseconds: context.timing.audioPacketIntervalNanoseconds,
         minimumQuantum: context.timing.videoTransmitPacketLimit
     )
-    let sendAttempt = try runner.trySendPreparedVideoPackets(&pending.cursor, limit: limit)
+    let sendAttempt = try runner.trySendPreparedVideoPackets(
+        &pending.cursor, limit: limit,
+        maximumDurationNanoseconds: directPeerVideoWorkBudgetNanoseconds(
+            audioPacketIntervalNanoseconds: context.timing.audioPacketIntervalNanoseconds
+        )
+    )
     state.metrics.videoFragmentsSent += sendAttempt.packetsSent
     let stalled = pending.noteSendAttempt(
         wouldBlock: sendAttempt.wouldBlock,

@@ -122,6 +122,7 @@ private func answerLoLaControlRetryMessageIfAvailable(
     let received: ExternalConnectorUdpReceiveResult
     let parsed: (name: String, fields: [String: String])
     do {
+        guard try waitForReadableSocket(socket: keepAliveDescriptor, timeoutMicroseconds: 50_000) else { return }
         received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
         parsed = try LoLaControlDatagramDecoder.decode(received.payload)
     } catch {
@@ -137,13 +138,20 @@ private func answerLoLaControlRetryMessageIfAvailable(
     ) {
         return
     }
+    if let terminalSession {
+        guard !terminalSession.cancellation.isCancelled,
+              received.senderPort == configuration.controlPort,
+              lolaIPv4AddressMatches(received.senderHost, expected: terminalSession.destinationIP),
+              parsed.fields["SID"] == String(terminalSession.sessionID) else { return }
+    }
     if let response = try lolaRetryResponderAck(
         configuration: configuration,
         message: received.message,
         parsed: parsed,
         senderHost: received.senderHost
     ) {
-        _ = try sendExternalConnectorUdp(
+        // A refused ACK must leave the responder alive for the peer's next retry.
+        _ = try? sendExternalConnectorUdp(
             response,
             socket: keepAliveDescriptor,
             host: received.senderHost,

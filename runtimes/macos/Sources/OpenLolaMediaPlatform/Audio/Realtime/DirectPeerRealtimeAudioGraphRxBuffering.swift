@@ -53,22 +53,16 @@ extension DirectPeerRealtimeAudioGraph {
         }
     }
 
-    /// RFC 3550 interarrival jitter. The sender host time and the local arrival time come from
-    /// different clocks, so only the change in transit between packets is meaningful; the constant
-    /// clock offset cancels out. Caller holds `rxBufferAdaptationLock`.
+    /// Sender and receiver clocks may have different origins. Transit changes
+    /// cancel that offset; the bounded p99 preserves burst jitter that an RFC
+    /// 3550 smoothed mean would hide from the adaptive controller's p99 input.
     private func updateInterarrivalJitterLocked(
         senderHostTimeNanoseconds: UInt64,
         arrivalNanoseconds: UInt64
     ) -> Double {
-        let transit = Int64(truncatingIfNeeded: arrivalNanoseconds)
-            &- Int64(truncatingIfNeeded: senderHostTimeNanoseconds)
-        defer { rxInterarrivalPreviousTransitNanoseconds = transit }
-        guard let previousTransit = rxInterarrivalPreviousTransitNanoseconds else {
-            rxInterarrivalJitterMicroseconds = 0
-            return 0
-        }
-        let differenceMicroseconds = Double(transit &- previousTransit).magnitude / 1_000
-        rxInterarrivalJitterMicroseconds += (differenceMicroseconds - rxInterarrivalJitterMicroseconds) / 16
-        return rxInterarrivalJitterMicroseconds
+        rxInterarrivalJitter.observe(
+            senderHostTimeNanoseconds: senderHostTimeNanoseconds,
+            arrivalNanoseconds: arrivalNanoseconds
+        )
     }
 }

@@ -38,13 +38,15 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         configuration: ExternalConnectorSessionConfiguration,
         audioBridge providedAudioBridge: LoLaCoreAudioLiveBridge? = nil,
         socketForPort: ((UInt16) -> Int32)? = nil,
-        deadline providedDeadline: DispatchTime? = nil
+        deadline providedDeadline: DispatchTime? = nil,
+        cancellation providedCancellation: LoLaSessionCancellation? = nil
     ) throws -> LoLaCompatibilityMediaSessionReport {
         let profile = try ExternalConnectorMediaProfile.build(configuration: configuration)
         let deadline = Self.liveTransmitDeadline(
             configuration: configuration,
             providedDeadline: providedDeadline
         )
+        let cancellation = providedCancellation ?? LoLaSessionCancellation()
         let counters = LoLaLiveTransmitCounters()
         let errors = LoLaLiveTransmitErrors()
         let group = DispatchGroup()
@@ -60,31 +62,41 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         }
 
         if profile.audioEnabled {
-            runTransmitLoop(group: group, errors: errors) {
+            runTransmitLoop(group: group, errors: errors, cancellation: cancellation) {
                 try transmitAudioLoop(
                     configuration: configuration,
                     deadline: deadline,
                     counters: counters,
                     audioBridge: audioBridge,
-                    socket: audioSocket
+                    socket: audioSocket,
+                    cancellation: cancellation
                 )
             }
         }
 
         if profile.videoEnabled {
-            runTransmitLoop(group: group, errors: errors) {
+            runTransmitLoop(group: group, errors: errors, cancellation: cancellation) {
                 try transmitVideoLoop(
                     configuration: configuration,
                     deadline: deadline,
                     counters: counters,
-                    socket: videoSocket
+                    socket: videoSocket,
+                    cancellation: cancellation
                 )
             }
         }
 
         Self.waitForTransmitLoops(group, until: deadline)
         try errors.throwIfPresent()
-        return makeTransmitReport(configuration: configuration, counters: counters, audioBridge: audioBridge)
+        var report = makeTransmitReport(configuration: configuration, counters: counters, audioBridge: audioBridge)
+        if let reason = cancellation.reason {
+            report.notes += " Transmit ended before the session deadline: \(reason)."
+            if cancellation.peerMessage != nil, counters.snapshot.sentBytes == 0 {
+                report.runtimeError = nil
+                report.verdict = .partial
+            }
+        }
+        return report
     }
 
     private static func liveTransmitDeadline(
@@ -150,6 +162,7 @@ struct LoLaSocketUdpMediaLiveTransmitter {
     private func runTransmitLoop(
         group: DispatchGroup,
         errors: LoLaLiveTransmitErrors,
+        cancellation: LoLaSessionCancellation,
         _ transmit: @escaping @Sendable () throws -> Void
     ) {
         group.enter()
@@ -158,6 +171,7 @@ struct LoLaSocketUdpMediaLiveTransmitter {
                 try transmit()
             } catch {
                 errors.append(error)
+                cancellation.cancel(reason: "media transmitter failed")
             }
             group.leave()
         }
@@ -168,7 +182,8 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         deadline: DispatchTime,
         counters: LoLaLiveTransmitCounters,
         audioBridge: LoLaCoreAudioLiveBridge?,
-        socket providedSocket: Int32?
+        socket providedSocket: Int32?,
+        cancellation: LoLaSessionCancellation
     ) throws {
         let socket = try providedSocket ?? makeLoLaUdpMediaSocket(bindHost: configuration.localHost, port: configuration.audioPort)
         defer { if providedSocket == nil { close(socket) } }
@@ -176,12 +191,13 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         var nextSyntheticSend = DispatchTime.now()
         var sequence: UInt32 = 0
 
-        while DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds {
+        while DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds, !cancellation.isCancelled {
             guard let packets = try liveAudioPackets(
                 configuration: configuration,
                 audioBridge: audioBridge,
                 sequence: sequence,
-                deadline: deadline
+                deadline: deadline,
+                cancellation: cancellation
             ) else {
                 break
             }
@@ -191,7 +207,8 @@ struct LoLaSocketUdpMediaLiveTransmitter {
                     socket: socket,
                     peer: configuration.peer,
                     port: configuration.audioPort,
-                    deadline: deadline
+                    deadline: deadline,
+                    cancellation: cancellation
                 )
             )
             counters.addAudio(
@@ -208,7 +225,8 @@ struct LoLaSocketUdpMediaLiveTransmitter {
                 audioBridge: audioBridge,
                 nextSend: &nextSyntheticSend,
                 intervalNanoseconds: interval,
-                deadline: deadline
+                deadline: deadline,
+                cancellation: cancellation
             )
         }
     }
@@ -217,7 +235,8 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         configuration: ExternalConnectorSessionConfiguration,
         audioBridge: LoLaCoreAudioLiveBridge?,
         sequence: UInt32,
-        deadline: DispatchTime
+        deadline: DispatchTime,
+        cancellation: LoLaSessionCancellation
     ) throws -> [LoLaCompatibilityMediaPacket]? {
         guard let audioBridge else {
             return try LoLaCompatibilityMediaCodec.audioFragments(
@@ -225,9 +244,12 @@ struct LoLaSocketUdpMediaLiveTransmitter {
                 channels: configuration.channels
             )
         }
-        guard let payload = try audioBridge.nextLoLaAudioPayload(until: deadline) else {
-            return nil
+        var payload: Data?
+        while !cancellation.isCancelled, DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds {
+            payload = try audioBridge.nextLoLaAudioPayload(until: loLaCancellationWaitDeadline(deadline))
+            if payload != nil { break }
         }
+        guard let payload, !cancellation.isCancelled else { return nil }
         return try LoLaCompatibilityMediaCodec.audioFragments(
             sequenceNumber: sequence,
             channels: configuration.channels,
@@ -239,7 +261,8 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         audioBridge: LoLaCoreAudioLiveBridge?,
         nextSend: inout DispatchTime,
         intervalNanoseconds: UInt64,
-        deadline: DispatchTime
+        deadline: DispatchTime,
+        cancellation: LoLaSessionCancellation
     ) {
         guard audioBridge == nil else {
             return
@@ -249,16 +272,17 @@ struct LoLaSocketUdpMediaLiveTransmitter {
             intervalNanoseconds: intervalNanoseconds,
             now: DispatchTime.now()
         )
-        loLaUdpMediaSleepUntil(DispatchTime(
+        loLaCancellableMediaSleepUntil(DispatchTime(
             uptimeNanoseconds: min(nextSend.uptimeNanoseconds, deadline.uptimeNanoseconds)
-        ))
+        ), cancellation: cancellation)
     }
 
     private func transmitVideoLoop(
         configuration: ExternalConnectorSessionConfiguration,
         deadline: DispatchTime,
         counters: LoLaLiveTransmitCounters,
-        socket providedSocket: Int32?
+        socket providedSocket: Int32?,
+        cancellation: LoLaSessionCancellation
     ) throws {
         let socket = try providedSocket ?? makeLoLaUdpMediaSocket(bindHost: configuration.localHost, port: configuration.videoPort)
         defer { if providedSocket == nil { close(socket) } }
@@ -271,10 +295,11 @@ struct LoLaSocketUdpMediaLiveTransmitter {
             configuration: configuration,
             deadline: deadline,
             counters: counters,
-            socket: socket
+            socket: socket,
+            cancellation: cancellation
         )
 
-        while DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds {
+        while DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds, !cancellation.isCancelled {
             guard try transmitVideoFrame(
                 context: context,
                 sequence: sequence,
@@ -287,7 +312,8 @@ struct LoLaSocketUdpMediaLiveTransmitter {
                 configuration: configuration,
                 nextSend: &nextSend,
                 intervalNanoseconds: interval,
-                deadline: deadline
+                deadline: deadline,
+                cancellation: cancellation
             )
         }
     }
@@ -297,12 +323,14 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         sequence: UInt32,
         source: inout LoLaLiveRaw8VideoSource?
     ) throws -> Bool {
-        let payload = try liveVideoPayload(
+        guard let payload = try liveVideoPayload(
             configuration: context.configuration,
             source: &source,
             sequence: sequence,
-            deadline: context.deadline
-        )
+            deadline: context.deadline,
+            cancellation: context.cancellation
+        ) else { return false }
+        guard !context.cancellation.isCancelled else { return false }
         guard DispatchTime.now().uptimeNanoseconds < context.deadline.uptimeNanoseconds else {
             context.counters.addVideo(
                 frameCount: 0,
@@ -323,7 +351,8 @@ struct LoLaSocketUdpMediaLiveTransmitter {
                 socket: context.socket,
                 peer: context.configuration.peer,
                 port: context.configuration.videoPort,
-                deadline: context.deadline
+                deadline: context.deadline,
+                cancellation: context.cancellation
             )
         )
         context.counters.addVideo(
@@ -340,7 +369,8 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         configuration: ExternalConnectorSessionConfiguration,
         nextSend: inout DispatchTime,
         intervalNanoseconds: UInt64,
-        deadline: DispatchTime
+        deadline: DispatchTime,
+        cancellation: LoLaSessionCancellation
     ) {
         guard Self.shouldPaceLiveVideo(configuration.lolaVideoPayload) else {
             return
@@ -353,15 +383,16 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         let sleepDeadline = DispatchTime(
             uptimeNanoseconds: min(nextSend.uptimeNanoseconds, deadline.uptimeNanoseconds)
         )
-        loLaUdpMediaSleepUntil(sleepDeadline)
+        loLaCancellableMediaSleepUntil(sleepDeadline, cancellation: cancellation)
     }
 
     private func liveVideoPayload(
         configuration: ExternalConnectorSessionConfiguration,
         source: inout LoLaLiveRaw8VideoSource?,
         sequence: UInt32,
-        deadline: DispatchTime
-    ) throws -> Data {
+        deadline: DispatchTime,
+        cancellation: LoLaSessionCancellation
+    ) throws -> Data? {
         switch configuration.lolaVideoPayload {
         case .generated:
             return try LoLaVideoPayloadProvider.generatedRawVideoPayload(
@@ -378,10 +409,14 @@ struct LoLaSocketUdpMediaLiveTransmitter {
             let remainingSeconds = deadline.uptimeNanoseconds > nowNanoseconds
                 ? min(1, Double(deadline.uptimeNanoseconds - nowNanoseconds) / 1_000_000_000)
                 : 0
-            if let payload = try source?.nextPayload(until: Date().addingTimeInterval(remainingSeconds)) {
-                try LoLaVideoPayloadProvider.validatePayload(payload, configuration: configuration)
-                return payload
+            let captureDeadline = Date().addingTimeInterval(remainingSeconds)
+            while !cancellation.isCancelled, Date() < captureDeadline {
+                if let payload = try source?.nextPayload(until: min(captureDeadline, Date().addingTimeInterval(lolaSessionCancellationPollSeconds))) {
+                    try LoLaVideoPayloadProvider.validatePayload(payload, configuration: configuration)
+                    return payload
+                }
             }
+            guard !cancellation.isCancelled, DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds else { return nil }
             throw LoLaVideoPayloadError.captureUnavailable
         }
     }
@@ -427,6 +462,7 @@ private struct LoLaLiveVideoTransmitContext {
     var deadline: DispatchTime
     var counters: LoLaLiveTransmitCounters
     var socket: Int32
+    var cancellation: LoLaSessionCancellation
 }
 
 private struct LoLaLiveTransmitSnapshot {

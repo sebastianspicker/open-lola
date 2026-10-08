@@ -4,6 +4,7 @@
 //! transport, peer, media, backend, and stream responsibilities.
 
 mod audio;
+mod audio_receive;
 mod backends;
 mod capture;
 mod client;
@@ -18,6 +19,7 @@ mod realtime;
 mod report;
 mod runner;
 mod scheduler;
+mod sequence;
 mod stream;
 mod stream_support;
 mod timing;

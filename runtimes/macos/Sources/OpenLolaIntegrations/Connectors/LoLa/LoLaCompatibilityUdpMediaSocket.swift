@@ -221,6 +221,9 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
                 context: &context
             )
         }
+        if cancellation?.isCancelled == true {
+            return Array(context.datagrams.prefix(request.maxDatagrams))
+        }
         let required = request.runUntilDeadline ? 1 : request.maxDatagrams
         guard context.datagrams.count >= required else {
             throw ExternalConnectorSessionError.receiveTimedOut

@@ -1,3 +1,4 @@
+use super::sequence::{ReceiveSequenceGate, SequenceAdmission};
 use super::{SessionOptions, SessionRuntimeControl};
 use crate::net::{
     DatagramPoll, MediaKind, MediaTransport, NpcapMediaTransport, ReceivedDatagram, TransportError,
@@ -217,15 +218,8 @@ pub(super) struct ReceivePrefillQueue<T> {
     depth: usize,
     prefill: usize,
     started: bool,
-    latest_sequence: Option<u32>,
-    consecutive_rejected: u32,
-    resyncs: u64,
-    excess_deadlines: u32,
+    sequence: ReceiveSequenceGate,
 }
-
-/// Consecutive non-newer sequences after which the sender is assumed to have
-/// restarted its sequence counter and the queue resynchronises to it.
-const SEQUENCE_RESYNC_REJECTIONS: u32 = 16;
 
 impl<T> ReceivePrefillQueue<T> {
     pub(super) fn new(depth: u32, prefill: u32) -> Self {
@@ -235,38 +229,26 @@ impl<T> ReceivePrefillQueue<T> {
             depth,
             prefill: (prefill as usize).min(depth),
             started: prefill == 0,
-            latest_sequence: None,
-            consecutive_rejected: 0,
-            resyncs: 0,
-            excess_deadlines: 0,
+            sequence: ReceiveSequenceGate::default(),
         }
     }
 
-    /// Admits only strictly newer sequences. A sender that restarted (or a
-    /// jump beyond the serial window) would otherwise be rejected forever, so
-    /// after `SEQUENCE_RESYNC_REJECTIONS` consecutive rejections the queue
-    /// resets to the new sequence, drops stale queued units and admits it.
+    /// Admits newer sequences and clears queued media after a confirmed sender restart.
     pub(super) fn admit_sequence(&mut self, sequence: u32) -> bool {
-        if self
-            .latest_sequence
-            .is_some_and(|last| !crate::protocol::serial_u32_is_newer(sequence, last))
-        {
-            self.consecutive_rejected += 1;
-            if self.consecutive_rejected < SEQUENCE_RESYNC_REJECTIONS {
-                return false;
+        match self.sequence.admit(sequence) {
+            SequenceAdmission::Rejected => false,
+            SequenceAdmission::New => true,
+            SequenceAdmission::Resynced => {
+                self.queue.clear();
+                self.started = self.prefill == 0;
+                true
             }
-            self.resyncs += 1;
-            self.queue.clear();
-            self.started = self.prefill == 0;
         }
-        self.consecutive_rejected = 0;
-        self.latest_sequence = Some(sequence);
-        true
     }
 
-    /// Returns and clears the number of sequence resynchronisations.
+    #[cfg(test)]
     pub(super) fn take_resyncs(&mut self) -> u64 {
-        std::mem::take(&mut self.resyncs)
+        self.sequence.take_resyncs()
     }
 
     /// Stores one unit. Returns whether the oldest queued unit was discarded
@@ -301,23 +283,6 @@ impl<T> ReceivePrefillQueue<T> {
     #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.queue.len()
-    }
-
-    /// Call once per presentation deadline after `dequeue`. A queue that stays
-    /// above its prefill target for `patience` consecutive deadlines has
-    /// permanently absorbed a late burst; one unit is discarded so the added
-    /// latency is returned instead of being kept for the rest of the session.
-    pub(super) fn realign(&mut self, patience: u32) -> bool {
-        if self.queue.len() <= self.prefill {
-            self.excess_deadlines = 0;
-            return false;
-        }
-        self.excess_deadlines += 1;
-        if self.excess_deadlines < patience.max(1) {
-            return false;
-        }
-        self.excess_deadlines = 0;
-        self.queue.pop_front().is_some()
     }
 }
 pub(super) fn send_video_media(
@@ -457,6 +422,7 @@ pub(super) fn should_stream_more(
 
 #[cfg(test)]
 mod tests {
+    use super::super::sequence::SEQUENCE_RESYNC_REJECTIONS;
     use super::*;
 
     #[test]
@@ -470,13 +436,13 @@ mod tests {
         }
         assert_eq!(queue.take_resyncs(), 0);
         assert_eq!(queue.len(), 1);
-        assert!(queue.admit_sequence(5));
+        assert!(queue.admit_sequence(SEQUENCE_RESYNC_REJECTIONS - 1));
         assert_eq!(queue.take_resyncs(), 1);
         assert_eq!(queue.take_resyncs(), 0);
         assert_eq!(queue.len(), 0);
         // The new numbering is now authoritative.
-        assert!(queue.admit_sequence(6));
-        assert!(!queue.admit_sequence(5));
+        assert!(queue.admit_sequence(SEQUENCE_RESYNC_REJECTIONS));
+        assert!(!queue.admit_sequence(SEQUENCE_RESYNC_REJECTIONS - 1));
     }
 
     #[test]

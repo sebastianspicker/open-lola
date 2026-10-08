@@ -342,6 +342,8 @@ public struct UdpMediaMetrics: Codable, Equatable, Sendable {
     public var duplicatePackets: Int = 0
     public var malformedPackets: Int = 0
     public var jitterMicroseconds: Double = 0
+    /// Retained for report compatibility. Unsynchronized peer uptime offsets
+    /// are not clock-skew events; the current transport leaves this at zero.
     public var clockSkewEventCount: Int = 0
     public var callbackDurationP99Microseconds: Double = 0
     public var queueDepthPackets: Int = 0

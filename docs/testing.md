@@ -33,6 +33,7 @@ make code-quality
 make code-quality-self-test
 make test-python
 make test-rust
+make swift-test
 make lint
 ```
 
@@ -128,9 +129,15 @@ acceptance thresholds must not appear as implemented capability.
 
 ## What the suites protect
 
-- Swift tests cover deterministic contracts, session transitions, packet
-  validation, media policy, report models, and the checked-in compatibility
-  corpus.
+- Swift regression targets cover transport timing, direct-peer scheduling,
+  media buffering and rendering, LoLa connector lifecycle and negotiation, and
+  two concurrent synthetic peers using the full A/V loop and headless preview.
+  Run them with `make swift-test`; the full source gate runs them as well.
+  The broader synthetic CLI probes remain separate from these regression tests.
+  Core Audio lifetime tests inject HAL creation, startup, stop, and destruction
+  failures, then exercise real callback functions after graph release, including
+  an in-flight callback held beyond the teardown timeout and split registrations.
+  These tests need no physical audio device and support Address Sanitizer runs.
 - Python verifies documentation, architecture, and code-quality tooling. Its
   retired runtime assertions are mapped in
   [Linux migration](linux-migration.md).

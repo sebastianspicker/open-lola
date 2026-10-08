@@ -43,7 +43,7 @@ func runExternalProcessSession(
 }()
     }
 func shouldStartLoLaControlRetryResponder(configuration: ExternalConnectorSessionConfiguration) -> Bool {
-    configuration.connector == .lola && configuration.role.receives && configuration.controlTransport == .udp
+    configuration.connector == .lola && configuration.controlTransport == .udp
 }
 
 func externalAuxiliaryProcessRuntimeError(_ auxiliaries: [ExternalConnectorProcessResult]) -> String? {
@@ -104,12 +104,13 @@ func makeLoLaMediaSessionEvidence(
     if allowRealMedia, !configuration.dryRun, configuration.rawLinkInterface == nil {
         switch configuration.role {
         case .tx:
-            return try LoLaUdpMediaTransmitRunner.run(sessionConfiguration: configuration)
+            return try LoLaUdpMediaTransmitRunner.runCancellable(sessionConfiguration: configuration, cancellation: cancellation)
         case .rx:
             return try receiveLoLaLiveSocketMedia(configuration: configuration, cancellation: cancellation)
         case .txRx:
             return try LoLaUdpMediaBidirectionalRunner.run(
                 configuration: configuration,
+                cancellation: cancellation
             )
         }
     }

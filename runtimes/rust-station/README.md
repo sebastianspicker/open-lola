@@ -84,9 +84,10 @@ LoLa JSON or the documented subset of Windows LastSsn INI fields.
 proprietary Windows session file.
 
 `network.audio_receive_queue_depth` (default 4) bounds how many remote audio
-blocks the receiver may hold; every readable block is admitted and one block
-is presented per audio deadline, so the bound is the most latency a jitter
-burst can add. `network.audio_receive_prefill` (default 0) withholds playout
+local-device blocks the receiver may hold. Valid peer packets are combined or
+split into one local block per audio deadline, so differing packet sizes preserve
+the sample rate. The queue retains at least one complete peer packet when its
+packetization interval exceeds the configured local-block depth. `network.audio_receive_prefill` (default 0) withholds playout
 until that many blocks are queued. A queue that stays above its prefill target
 for about 0.7 s discards one block and reports it as a realigned buffer. Remote
 blocks whose frames-per-packet differ from the local device are re-blocked

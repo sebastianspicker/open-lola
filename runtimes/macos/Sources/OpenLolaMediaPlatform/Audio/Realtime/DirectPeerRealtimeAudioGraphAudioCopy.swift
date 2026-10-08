@@ -3,7 +3,7 @@ import CoreAudio
 import Darwin
 import Foundation
 
-extension DirectPeerRealtimeAudioGraph {
+extension DirectPeerRealtimeAudioCallbackState {
     func copyMappedInput(from buffers: ReadOnlyAudioBufferListPointer) -> DirectPeerInputCopyResult {
         memset(inputScratch, 0, configuration.payloadByteCount)
         if buffers.count == 1 {
@@ -20,6 +20,13 @@ extension DirectPeerRealtimeAudioGraph {
         }
         let sourceChannels = Int(sourceBuffer.mNumberChannels)
         guard sourceChannels > 0 else { return .invalidSourceChannelCount }
+        if inputChannelMapIsIdentity, sourceChannels == configuration.channelCount {
+            guard Int(sourceBuffer.mDataByteSize) >= configuration.payloadByteCount else {
+                return .inputBufferTooSmall
+            }
+            memcpy(inputScratch, source, configuration.payloadByteCount)
+            return .copied
+        }
         for (outputChannel, inputChannel) in configuration.inputChannelMap.enumerated() {
             guard outputChannel < configuration.channelCount else {
                 return .destinationChannelOutOfRange
@@ -131,6 +138,11 @@ extension DirectPeerRealtimeAudioGraph {
     ) -> Bool {
         let destinationChannels = Int(buffer.mNumberChannels)
         guard destinationChannels > 0 else { return false }
+        if outputChannelMapIsIdentity, destinationChannels == configuration.channelCount {
+            guard Int(buffer.mDataByteSize) >= configuration.payloadByteCount else { return false }
+            memcpy(destination, outputScratch, configuration.payloadByteCount)
+            return true
+        }
         for (inputChannel, outputChannel) in configuration.outputChannelMap.enumerated() {
             guard inputChannel < configuration.channelCount,
                   outputChannel >= 0,

@@ -28,7 +28,7 @@ struct DirectPeerMutableAudioBufferLocation {
     var channelCount: Int
 }
 
-extension DirectPeerRealtimeAudioGraph {
+extension DirectPeerRealtimeAudioCallbackState {
     func captureInputForTesting(input: UnsafePointer<AudioBufferList>, hostTimeNanoseconds: UInt64) {
         copyInputToCaptureRing(input: input, hostTimeNanoseconds: hostTimeNanoseconds)
     }
@@ -172,11 +172,10 @@ extension DirectPeerRealtimeAudioGraph {
             return 0
         }
         let elapsedTicks = endTicks - startTicks
-        let (elapsedNanoseconds, overflow) = elapsedTicks.multipliedReportingOverflow(by: hostTimeNumerator)
-        guard !overflow else {
-            return UInt64.max
-        }
-        return (elapsedNanoseconds / hostTimeDenominator) / 1_000
+        guard let elapsedNanoseconds = nanosecondsFromHostTime(
+            elapsedTicks, numerator: hostTimeNumerator, denominator: hostTimeDenominator
+        ) else { return UInt64.max }
+        return elapsedNanoseconds / 1_000
     }
 
     func callbackPeriodMicroseconds() -> UInt64 {

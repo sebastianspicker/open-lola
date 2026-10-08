@@ -76,38 +76,42 @@ func throwDirectPeerAudioStatusIfNeeded(_ status: OSStatus, _ operation: String)
 
 func nanosecondsFromHostTime(_ hostTime: UInt64, numerator: UInt64, denominator: UInt64) -> UInt64? {
     precondition(denominator > 0, "mach timebase denominator must be positive")
-    let (scaled, overflow) = hostTime.multipliedReportingOverflow(by: numerator)
-    return overflow ? nil : scaled / denominator
+    let product = hostTime.multipliedFullWidth(by: numerator)
+    if product.high == 0 { return product.low / denominator }
+    // The quotient can fit even when the intermediate multiplication does not,
+    // as on Apple Silicon's fractional mach timebase after a long uptime.
+    guard product.high < denominator else { return nil }
+    return denominator.dividingFullWidth(product).quotient
 }
 
-private struct ActiveDirectPeerRealtimeAudioGraphCallback {
-    let graph: DirectPeerRealtimeAudioGraph
+private struct ActiveDirectPeerRealtimeAudioCallback {
+    let state: DirectPeerRealtimeAudioCallbackState
     let hostTimeNanoseconds: UInt64
 }
 
 @inline(__always)
-private func startDirectPeerRealtimeAudioGraphCallback(
+private func startDirectPeerRealtimeAudioCallback(
     clientData: UnsafeMutableRawPointer?,
     hostTime: UInt64
-) -> ActiveDirectPeerRealtimeAudioGraphCallback? {
+) -> ActiveDirectPeerRealtimeAudioCallback? {
     guard let clientData else {
         return nil
     }
-    let graph = Unmanaged<DirectPeerRealtimeAudioGraph>
+    let state = Unmanaged<DirectPeerRealtimeAudioCallbackState>
         .fromOpaque(clientData)
         .takeUnretainedValue()
-    guard graph.beginIOProcCallback() else {
+    guard state.beginIOProcCallback() else {
         return nil
     }
-    guard let hostTimeNanoseconds = graph.nanoseconds(fromHostTime: hostTime) else {
+    guard let hostTimeNanoseconds = state.nanoseconds(fromHostTime: hostTime) else {
         // Host-time overflow is not recoverable for this block, but returning
         // noErr keeps Core Audio running instead of stopping the device.
-        graph.recordHostTimeConversionFailure()
-        graph.endIOProcCallback()
+        state.recordHostTimeConversionFailure()
+        state.endIOProcCallback()
         return nil
     }
-    return ActiveDirectPeerRealtimeAudioGraphCallback(
-        graph: graph,
+    return ActiveDirectPeerRealtimeAudioCallback(
+        state: state,
         hostTimeNanoseconds: hostTimeNanoseconds
     )
 }
@@ -122,15 +126,22 @@ private func directPeerCaptureHostTime(
     return inputTime.mFlags.contains(.hostTimeValid) ? inputTime.mHostTime : inNow.pointee.mHostTime
 }
 
+private func silenceDirectPeerOutput(_ output: UnsafeMutablePointer<AudioBufferList>) {
+    for buffer in UnsafeMutableAudioBufferListPointer(output) {
+        if let data = buffer.mData { memset(data, 0, Int(buffer.mDataByteSize)) }
+    }
+}
+
 let directPeerRealtimeAudioIOProc: AudioDeviceIOProc = { _, inNow, inInputData, inInputTime, outOutputData, _, inClientData in
-    guard let callback = startDirectPeerRealtimeAudioGraphCallback(
+    guard let callback = startDirectPeerRealtimeAudioCallback(
         clientData: inClientData,
         hostTime: directPeerCaptureHostTime(inNow: inNow, inInputTime: inInputTime)
     ) else {
+        silenceDirectPeerOutput(outOutputData)
         return inClientData == nil ? kAudioHardwareIllegalOperationError : noErr
     }
-    defer { callback.graph.endIOProcCallback() }
-    callback.graph.processIO(
+    defer { callback.state.endIOProcCallback() }
+    callback.state.processIO(
         hostTimeNanoseconds: callback.hostTimeNanoseconds,
         input: inInputData,
         output: outOutputData
@@ -139,14 +150,14 @@ let directPeerRealtimeAudioIOProc: AudioDeviceIOProc = { _, inNow, inInputData, 
 }
 
 let directPeerRealtimeAudioInputIOProc: AudioDeviceIOProc = { _, inNow, inInputData, inInputTime, _, _, inClientData in
-    guard let callback = startDirectPeerRealtimeAudioGraphCallback(
+    guard let callback = startDirectPeerRealtimeAudioCallback(
         clientData: inClientData,
         hostTime: directPeerCaptureHostTime(inNow: inNow, inInputTime: inInputTime)
     ) else {
         return inClientData == nil ? kAudioHardwareIllegalOperationError : noErr
     }
-    defer { callback.graph.endIOProcCallback() }
-    callback.graph.processInputIO(
+    defer { callback.state.endIOProcCallback() }
+    callback.state.processInputIO(
         hostTimeNanoseconds: callback.hostTimeNanoseconds,
         input: inInputData
     )
@@ -155,15 +166,17 @@ let directPeerRealtimeAudioInputIOProc: AudioDeviceIOProc = { _, inNow, inInputD
 
 let directPeerRealtimeAudioOutputIOProc: AudioDeviceIOProc = { _, _, _, _, outOutputData, _, inClientData in
     guard let inClientData else {
+        silenceDirectPeerOutput(outOutputData)
         return kAudioHardwareIllegalOperationError
     }
-    let graph = Unmanaged<DirectPeerRealtimeAudioGraph>
+    let state = Unmanaged<DirectPeerRealtimeAudioCallbackState>
         .fromOpaque(inClientData)
         .takeUnretainedValue()
-    guard graph.beginIOProcCallback() else {
+    guard state.beginIOProcCallback() else {
+        silenceDirectPeerOutput(outOutputData)
         return noErr
     }
-    defer { graph.endIOProcCallback() }
-    graph.processOutputIO(output: outOutputData)
+    defer { state.endIOProcCallback() }
+    state.processOutputIO(output: outOutputData)
     return noErr
 }

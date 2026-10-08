@@ -103,3 +103,40 @@ fn older_video_sequence_is_dropped_before_presentation() {
     assert_eq!(result.video_frames_received, 2);
     assert_eq!(result.video_malformed_drops, 0);
 }
+
+#[test]
+fn malformed_video_does_not_poison_the_validated_sequence_clock() {
+    for compressed in [false, true] {
+        let options = SessionOptions::demo();
+        let mut result = SessionResult::default();
+        let mut recorder = None;
+        let mut monitor = NetworkMonitor::new();
+        let mut queue = VideoReceiveQueue::new(1, 0);
+        for (sequence, valid) in [(5, true), (1000, false), (6, true)] {
+            let frame = if compressed {
+                jpeg_frame(if valid { 2 } else { 1 }, 2, "RGB24", sequence)
+            } else {
+                VideoFrame {
+                    sequence,
+                    payload: vec![0; if valid { 12 } else { 3 }],
+                    compressed,
+                }
+            };
+            present_received_video(
+                frame,
+                2,
+                2,
+                24,
+                &options,
+                &mut result,
+                &mut recorder,
+                &mut monitor,
+                &mut queue,
+            )
+            .unwrap();
+        }
+        assert_eq!(result.video_frames_received, 2);
+        assert_eq!(result.video_malformed_drops, 1);
+        assert_eq!(result.video_out_of_order_drops, 0);
+    }
+}

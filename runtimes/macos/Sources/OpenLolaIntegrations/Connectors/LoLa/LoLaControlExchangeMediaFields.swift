@@ -28,6 +28,10 @@ func lolaQuickConnectRejectReason(_ error: Error) -> String {
        text.hasPrefix(lolaIncompatibleQuickConnectPrefix) {
         return "audio settings mismatch"
     }
+    if case let ExternalConnectorSessionError.unsupportedRuntimeMode(mode) = error,
+       mode.hasPrefix("lola-video-settings-mismatch-") {
+        return "video settings mismatch"
+    }
     return "invalid media settings"
 }
 
@@ -100,7 +104,7 @@ private func lolaQuickConnectAckMediaFields(
             configuration: configuration,
             receivedFields: receivedFields
         ),
-        video: lolaQuickConnectAckVideoFields(configuration: configuration, receivedFields: receivedFields)
+        video: try lolaQuickConnectAckVideoFields(configuration: configuration, receivedFields: receivedFields)
     )
 }
 
@@ -129,8 +133,18 @@ private func lolaQuickConnectAckAudioFields(
 private func lolaQuickConnectAckVideoFields(
     configuration: ExternalConnectorSessionConfiguration,
     receivedFields: [String: String]
-) -> LoLaCompatibilityVideoFields {
+) throws -> LoLaCompatibilityVideoFields {
     let fallback = lolaQuickConnectVideoFields(configuration: configuration)
+    if configuration.mediaMode.hasVideo {
+        let expected = [
+            "FPS": fallback.frameRate, "BPP": fallback.bitsPerPixel,
+            "X": fallback.dimensions.width, "Y": fallback.dimensions.height,
+            "COMP": fallback.compression, "BAYER": fallback.bayer
+        ]
+        for (key, value) in expected where Int(receivedFields[key] ?? "") != value {
+            throw ExternalConnectorSessionError.unsupportedRuntimeMode("lola-video-settings-mismatch-\(key)")
+        }
+    }
     return LoLaCompatibilityVideoFields(
         frameRate: lolaControlIntegerField(receivedFields, key: "FPS", fallback: fallback.frameRate),
         bitsPerPixel: lolaControlIntegerField(receivedFields, key: "BPP", fallback: fallback.bitsPerPixel),

@@ -124,6 +124,14 @@ private final class DarwinLoLaOutgoingControlTransport: LoLaOutgoingControlTrans
         close(descriptor)
     }
 
+    func duplicateSocketForRetryResponder() throws -> Int32 {
+        let duplicateDescriptor = dup(descriptor)
+        guard duplicateDescriptor >= 0 else {
+            throw ExternalConnectorSessionError.socketFailed("dup errno \(errno)")
+        }
+        return duplicateDescriptor
+    }
+
     func prepare(configuration: ExternalConnectorSessionConfiguration) throws {
         if shouldBindLoLaTransmitControlPort(configuration) {
             try bindLoLaTransmitControlPort(socket: descriptor, configuration: configuration)
@@ -169,7 +177,8 @@ func sendLoLaControlAttempt(
             exchange: attempt.exchange,
             send: { message in
                 try transport.send(message, host: configuration.peer, port: configuration.controlPort)
-            }
+            },
+            duplicateSocketForRetryResponder: { try transport.duplicateSocketForRetryResponder() }
         )
     }
     return attempt

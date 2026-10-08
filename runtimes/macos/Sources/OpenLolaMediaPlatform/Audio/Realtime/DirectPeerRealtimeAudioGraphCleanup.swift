@@ -13,14 +13,14 @@ extension DirectPeerRealtimeAudioGraph {
         let start = DispatchTime.now().uptimeNanoseconds
         let timeoutNanoseconds = ioProcTimeoutMicros * 1_000
         while DispatchTime.now().uptimeNanoseconds - start <= timeoutNanoseconds {
-            guard open_lola_atomic_u64_load(&activeIOProcCallbacks) == 0 else {
+            guard open_lola_atomic_u64_load(&callbackState.activeIOProcCallbacks) == 0 else {
                 usleep(ioProcPollMicros)
                 continue
             }
-            let callbackCount = open_lola_atomic_u64_load(&callbackInvocationBlocks)
+            let callbackCount = open_lola_atomic_u64_load(&callbackState.callbackInvocationBlocks)
             usleep(useconds_t(ioProcStableMicros))
-            if open_lola_atomic_u64_load(&activeIOProcCallbacks) == 0,
-               open_lola_atomic_u64_load(&callbackInvocationBlocks) == callbackCount {
+            if open_lola_atomic_u64_load(&callbackState.activeIOProcCallbacks) == 0,
+               open_lola_atomic_u64_load(&callbackState.callbackInvocationBlocks) == callbackCount {
                 return true
             }
         }
@@ -105,25 +105,15 @@ extension DirectPeerRealtimeAudioGraph {
         return nil
     }
 
-    func beginIOProcCallback() -> Bool {
-        open_lola_atomic_u64_fetch_add(&activeIOProcCallbacks, 1)
-        guard open_lola_atomic_u64_load(&ioProcRunning) != 0 else {
-            endIOProcCallback()
-            return false
-        }
-        return true
-    }
-
-    func endIOProcCallback() {
-        open_lola_atomic_u64_fetch_add(&activeIOProcCallbacks, UInt64.max)
-    }
-
     func stopUnlocked() -> DirectPeerRealtimeAudioGraphCleanupResult {
         var result = DirectPeerRealtimeAudioGraphCleanupResult()
+        open_lola_atomic_u64_store(&callbackState.ioProcRunning, 0)
         let ioProcsToDestroy = stopActiveIOProcs(result: &result)
-        clearRunningFlagIfNeeded(hasStoppedIOProcs: !ioProcsToDestroy.isEmpty)
         destroyStoppedIOProcs(ioProcsToDestroy, result: &result)
-        restoreDeviceSettings(result: &result)
+        // Restore device properties only after all registrations are gone.
+        if inputIOProcID == nil, outputIOProcID == nil {
+            restoreDeviceSettings(result: &result)
+        }
         latestCleanupResult = result
         guard result.succeeded else {
             return result
@@ -169,12 +159,6 @@ extension DirectPeerRealtimeAudioGraph {
         targets.append(.init(role: role, deviceID: deviceID, ioProcID: ioProcID))
     }
 
-    func clearRunningFlagIfNeeded(hasStoppedIOProcs: Bool) {
-        if hasStoppedIOProcs || open_lola_atomic_u64_load(&ioProcRunning) != 0 {
-            open_lola_atomic_u64_store(&ioProcRunning, 0)
-        }
-    }
-
     func destroyStoppedIOProcs(
         _ targets: [DirectPeerIOProcCleanupTarget],
         result: inout DirectPeerRealtimeAudioGraphCleanupResult
@@ -202,9 +186,17 @@ extension DirectPeerRealtimeAudioGraph {
         guard status == noErr else { return }
         if target.role == "input" {
             self.inputIOProcID = nil
+            releaseIOProcClientData(&inputIOProcClientData)
         } else {
             self.outputIOProcID = nil
+            releaseIOProcClientData(&outputIOProcClientData)
         }
+    }
+
+    private func releaseIOProcClientData(_ pointer: inout UnsafeMutableRawPointer?) {
+        guard let retained = pointer else { return }
+        pointer = nil
+        Unmanaged<DirectPeerRealtimeAudioCallbackState>.fromOpaque(retained).release()
     }
 
     func recordQuiescenceFailures(
@@ -283,7 +275,7 @@ extension DirectPeerRealtimeAudioGraph {
     }
 
     func clearStoppedGraphState() {
-        open_lola_atomic_u64_store(&ioProcRunning, 0)
+        open_lola_atomic_u64_store(&callbackState.ioProcRunning, 0)
         self.inputIOProcID = nil
         self.outputIOProcID = nil
         self.inputDeviceID = nil
@@ -341,11 +333,11 @@ func setCleanupOperationOverridesForTesting(_ overrides: DirectPeerCleanupOperat
 }
 
     func setHostTimeConversionForTesting(_ conversion: ((UInt64) -> UInt64?)?) {
-        hostTimeConversionForTesting = conversion
+        callbackState.hostTimeConversionForTesting = conversion
     }
 
     func setCallbackTimingTickForTesting(_ tick: (() -> UInt64)?) {
-        callbackTimingTickForTesting = tick
+        callbackState.callbackTimingTickForTesting = tick
     }
 
     func lifecycleLockForTesting() -> NSLock {

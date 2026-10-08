@@ -139,6 +139,7 @@ struct DirectPeerAVVideoTransmitContext {
 struct DirectPeerAVMediaLoopState {
     var audioSequence: UInt64 = 1
     var videoSequence: UInt64 = 1
+    var nextSyntheticAudioTimeNanoseconds: UInt64 = 0
     var nextVideoFrameTimeNanoseconds = DispatchTime.now().uptimeNanoseconds
     var metrics = DirectPeerSessionAVRuntimeMetrics()
     var videoFormat: DirectPeerSessionVideoFormatReport?
@@ -272,17 +273,21 @@ func captureSyntheticAVAudioIfNeeded(
     resources: DirectPeerAVMediaLoopResources,
     state: inout DirectPeerAVMediaLoopState,
     configuration: DirectPeerSessionAVRunConfiguration,
+    timing: DirectPeerAVMediaLoopTiming,
     now: UInt64
 ) throws {
-    guard configuration.mediaSourceMode == .syntheticFixture else {
+    guard configuration.mediaSourceMode == .syntheticFixture,
+          now >= state.nextSyntheticAudioTimeNanoseconds else {
         return
     }
+    state.nextSyntheticAudioTimeNanoseconds = directPeerNextSyntheticAudioTime(
+        nowNanoseconds: now, intervalNanoseconds: timing.audioPacketIntervalNanoseconds
+    )
     _ = resources.audioGraph.captureInjectedPayload(
         syntheticAudioPayload(configuration: configuration, sequenceNumber: state.audioSequence),
         hostTimeNanoseconds: now
     )
     state.audioSequence = try nextDirectPeerMediaSequence(after: state.audioSequence)
-    state.playoutAnchor.observeAudio(hostTimeNanoseconds: now)
 }
 
 func drainDirectPeerAVAudio(
@@ -363,7 +368,10 @@ func drainDirectPeerAVVideo(
             compression: configuration.videoCompression,
             maxPackets: timing.videoReceiveDrainPacketLimit,
             decodeWorker: resources.videoDecodeWorker,
-            remoteHostTimeMapper: state.remoteVideoHostTimeMapper
+            remoteHostTimeMapper: state.remoteVideoHostTimeMapper,
+            maximumDrainDurationNanoseconds: directPeerVideoWorkBudgetNanoseconds(
+                audioPacketIntervalNanoseconds: timing.audioPacketIntervalNanoseconds
+            )
         )
     )
     accumulateDirectPeerAVVideoRXMetrics(videoRX, into: &state.metrics)

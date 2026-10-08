@@ -39,6 +39,8 @@ public enum MediaGeometrySizing {
         maxByteCount: Int? = nil,
         field: String = "rawVideoFrameBytes"
     ) throws -> Int {
+        try requirePositive(width, "width")
+        try requirePositive(height, "height")
         try requirePositive(bitsPerPixel, "bitsPerPixel")
         let pixelCount = try checkedProduct(width, height, field: field)
         let totalBits = try checkedProduct(pixelCount, bitsPerPixel, field: field)

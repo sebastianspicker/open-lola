@@ -214,7 +214,7 @@ public struct VideoOutputRenderer: Equatable, Sendable {
             framesDroppedBackpressure += 1
             return .rejected
         }
-        guard !isLate(frame.packet, renderAtNanoseconds: renderAtNanoseconds) else {
+        guard !isLate(frame, renderAtNanoseconds: renderAtNanoseconds) else {
             framesDroppedLate += 1
             return .rejected
         }
@@ -223,6 +223,20 @@ public struct VideoOutputRenderer: Equatable, Sendable {
             return .rejected
         }
 
+        var droppedPrevious = false
+        if pacingPolicy == .latestOnly {
+            let previous = queue.last(where: { $0.packet.streamID == frame.packet.streamID })?
+                .packet.sequenceNumber ?? lastOutputSequenceNumberByStreamID[frame.packet.streamID]
+            if let previous, !videoFrameSequenceIsNewer(frame.packet.sequenceNumber, than: previous) {
+                framesDroppedBackpressure += 1
+                return .rejected
+            }
+            let previousCount = queue.count
+            queue.removeAll { $0.packet.streamID == frame.packet.streamID }
+            let dropped = previousCount - queue.count
+            framesDroppedBackpressure += dropped
+            droppedPrevious = dropped > 0
+        }
         queue.append(frame)
         if queue.count > maxQueueDepth {
             let dropCount = queue.count - maxQueueDepth
@@ -232,16 +246,18 @@ public struct VideoOutputRenderer: Equatable, Sendable {
             return queue.contains(frame) ? .acceptedWithBackpressureDrop : .rejected
         }
         observedQueueDepth = max(observedQueueDepth, queue.count)
-        return .accepted
+        return droppedPrevious ? .acceptedWithBackpressureDrop : .accepted
     }
 
     public mutating func renderNext(
         renderAtNanoseconds: UInt64,
         outputAtNanoseconds: UInt64
     ) -> VideoTransportPacket? {
-        guard !queue.isEmpty else {
-            return nil
+        while let first = queue.first, isLate(first, renderAtNanoseconds: renderAtNanoseconds) {
+            queue.removeFirst()
+            framesDroppedLate += 1
         }
+        guard !queue.isEmpty else { return nil }
         let frame = queue.removeFirst()
         framesRendered += 1
         receiveToReassemblyMicroseconds.append(
@@ -261,20 +277,23 @@ public struct VideoOutputRenderer: Equatable, Sendable {
     }
 
     private func isLate(
-        _ packet: VideoTransportPacket,
+        _ frame: VideoOutputFrame,
         renderAtNanoseconds: UInt64
     ) -> Bool {
         guard pacingPolicy == .deadline,
               let deadlineNanoseconds else {
             return false
         }
-        return renderAtNanoseconds > packet.timestampNanoseconds
-            && renderAtNanoseconds - packet.timestampNanoseconds > deadlineNanoseconds
+        // Receive timestamps use this host's clock. Sender capture timestamps
+        // cannot be compared with local uptime without clock synchronization.
+        return renderAtNanoseconds > frame.receivedAtNanoseconds
+            && renderAtNanoseconds - frame.receivedAtNanoseconds > deadlineNanoseconds
     }
 
     private func keepsContinuity(_ packet: VideoTransportPacket) -> Bool {
         guard pacingPolicy == .continuity,
-              let previous = lastOutputSequenceNumberByStreamID[packet.streamID] else {
+              let previous = queue.last(where: { $0.packet.streamID == packet.streamID })?
+                .packet.sequenceNumber ?? lastOutputSequenceNumberByStreamID[packet.streamID] else {
             return true
         }
         return packet.sequenceNumber == previous &+ 1

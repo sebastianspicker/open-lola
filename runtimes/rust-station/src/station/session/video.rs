@@ -311,11 +311,6 @@ fn present_received_video(
     monitor: &mut NetworkMonitor,
     queue: &mut VideoReceiveQueue,
 ) -> Result<(), SessionError> {
-    if !queue.queue.admit_sequence(frame.sequence) {
-        result.video_out_of_order_drops += 1;
-        monitor.note_drop(1);
-        return Ok(());
-    }
     if frame.compressed {
         if let Some(decoder) = queue.decoder.as_ref() {
             decoder.submit(frame);
@@ -348,6 +343,13 @@ fn accept_video(
         monitor.note_drop(1);
         return;
     };
+    // Only validated media advances freshness. A malformed frame with a
+    // distant sequence must not suppress the following valid frames.
+    if !queue.queue.admit_sequence(frame.sequence()) {
+        result.video_out_of_order_drops += 1;
+        monitor.note_drop(1);
+        return;
+    }
     result.video_frames_received += 1;
     result.media_frames_received += 1;
     monitor.note_recv(MediaKind::Video, Some(frame.sequence()));
@@ -371,7 +373,7 @@ fn present_display_frame(
     dual: &mut Option<DualStreamRecorder>,
 ) {
     match frame {
-        ReceivedVideoFrame::Jpeg { frame, decoded } => {
+        ReceivedVideoFrame::Jpeg { decoded, .. } => {
             result.jpeg_decoded_ok = true;
             if let Some(control) = options.runtime_control.as_ref() {
                 control.publish_remote_video(
@@ -381,7 +383,7 @@ fn present_display_frame(
                     &decoded.mode,
                 );
             }
-            record_remote_video(dual, &frame.payload, stream_w, stream_h);
+            record_remote_video(dual, &decoded.pixels, stream_w, stream_h);
         }
         ReceivedVideoFrame::Raw(frame) => {
             if let Some(control) = options.runtime_control.as_ref() {

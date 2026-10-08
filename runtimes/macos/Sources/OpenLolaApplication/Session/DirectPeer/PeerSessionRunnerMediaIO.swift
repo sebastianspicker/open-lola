@@ -249,7 +249,8 @@ extension PeerSessionRunner {
 
     mutating func trySendPreparedVideoPackets(
         _ cursor: inout UdpMediaPreparedVideoCursor,
-        limit: Int
+        limit: Int,
+        maximumDurationNanoseconds: UInt64 = UInt64.max
     ) throws -> PeerSessionVideoSendAttempt {
         guard state == .running else {
             throw PeerSessionRunnerError.missingAcceptedConfiguration
@@ -258,7 +259,11 @@ extension PeerSessionRunner {
             throw PeerSessionRunnerError.missingVideoTransport
         }
         var sent = 0
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         while sent < max(1, limit), !cursor.isComplete {
+            if sent > 0, DispatchTime.now().uptimeNanoseconds &- startedAt >= maximumDurationNanoseconds {
+                break
+            }
             guard try videoTransport.trySendNextPreparedVideoDatagram(&cursor) == .sent else {
                 return PeerSessionVideoSendAttempt(packetsSent: sent, wouldBlock: true)
             }

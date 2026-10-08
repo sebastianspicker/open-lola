@@ -28,7 +28,9 @@ change silently.
 The receiver tracks sequence continuity, packet age, jitter, occupancy, late and
 incomplete blocks, underruns and overruns, concealment, drift estimate, target
 changes, and added buffer duration. Adaptive policy changes stay within declared
-bounds and are included in the report.
+bounds and are included in the report. macOS adaptive audio uses the p99 of
+the latest 128 interarrival-delay changes; differences cancel the offset between
+peer and local clocks. Transport jitter remains a separate smoothed observation.
 
 ## Runtime rules
 
@@ -41,8 +43,11 @@ bounds and are included in the report.
 - Never use an adaptive increase to claim Direct Audio First performance.
 
 The Rust station implements the audio side of this policy as a bounded
-receive queue: every readable datagram is admitted (the oldest is replaced at
-the depth bound), one block is presented per audio deadline, and a queue that
+receive queue measured in local-device frames: valid peer packets are combined
+or split into one local block per audio deadline. Queue depth and prefill use
+local blocks, so a different peer packet size does not change the playback rate
+or local-block interpretation. At least one peer packet is retained when it
+exceeds that depth. The oldest samples are replaced at the depth bound; a queue that
 stays above its prefill target for about 0.7 s discards one block so a late
 burst does not leave its latency behind for the rest of the session. When the
 PortAudio capture ring has a block ready, that block paces the audio deadline

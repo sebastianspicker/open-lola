@@ -5,6 +5,44 @@ publish releases; these entries describe repository state and preparation only.
 
 ## Unreleased
 
+- Core Audio callback storage now has independent ownership for each IOProc
+  registration. Failed stop, unregister, or callback-drain operations cannot
+  leave callbacks pointing at a deallocated graph or scratch buffers. Startup
+  failures retain their registration handles for cleanup retries, and stopped
+  output callbacks emit silence. If HAL still refuses teardown when the graph
+  is released, its callback storage remains retained for process lifetime.
+
+- A/V timing and interoperability: Rust receives audio in local-device sample
+  quanta, combining or splitting peer packets without changing the playback
+  rate. Invalid PCM cannot advance sequence state, and duplicate bursts cannot
+  trigger a false sender restart. The PortAudio ring keeps producer/consumer
+  ownership distinct even at capacity one.
+- Rust video: invalid frames cannot advance receive freshness; JPEG recording
+  receives decoded pixels; network video counters count completed frames rather
+  than UDP fragments.
+- macOS scheduling: media waits wake for control messages; video transmit and
+  receive bursts yield between packets after a quarter audio period (capped at
+  250 µs). Synthetic capture follows negotiated audio cadence. Transport jitter
+  works across different host uptimes and starts with the second observation.
+  Decoded media drains consume and count empty datagrams instead of stopping
+  early; shared and raw receive APIs preserve their existing empty-payload behavior.
+- macOS LoLa lifecycle: peer disconnect reaches TX, RX, and TX-RX media
+  workers, including capture waits and fragment bursts. Outgoing sessions retain
+  a control socket for retries and disconnects; retries remain pinned to the
+  accepted session. Bidirectional cleanup joins workers before stopping their
+  shared audio bridge. Video settings must agree in both directions, while
+  audio-only negotiation tolerates legacy video placeholders.
+- macOS media: small downsampling chunks and large mach timestamps no longer
+  overflow/trap; rejected playout blocks do not reserve future playback time.
+  Adaptive buffering consumes a bounded jitter p99 instead of a smoothed mean.
+  Matching interleaved audio layouts use a bounds-checked block copy. Video
+  rendering keeps the latest frame per stream, rejects stale sequences, checks
+  deadlines again at delivery using local receive time, and preserves continuity
+  across queued frames. Raw preview rejects invalid dimensions safely.
+- Swift regression suites are tracked and run by `make swift-test`, CI, and
+  `make verify`. Removed obsolete duplication-baseline entries without increasing
+  the accepted duplication budget. Hardware latency and reference-peer behavior
+  remain separate validation requirements.
 - Rust station scheduling: the interleaved loop sends up to 16 video fragments
   per quantum and stops 150 µs before the audio deadline (previously one
   fragment per pass, with a control-socket poll and two blocking-mode toggles

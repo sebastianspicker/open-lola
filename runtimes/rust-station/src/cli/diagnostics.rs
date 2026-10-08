@@ -181,6 +181,10 @@ mod tests {
             let started = Instant::now();
             let report = selftest(0.05).unwrap();
             assert_eq!(report["ok"], true, "{report}");
+            assert_eq!(
+                report["network_monitor"]["video_sent"], report["video_frames_sent"],
+                "monitor counts video frames rather than fragments"
+            );
             assert!(started.elapsed() < Duration::from_secs(5));
         }
         for duration in [0.0, -1.0, f64::NAN, f64::INFINITY, 61.0] {
