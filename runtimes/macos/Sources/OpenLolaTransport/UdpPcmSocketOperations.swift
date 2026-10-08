@@ -24,8 +24,11 @@ public enum UdpSocketBufferProfile: Equatable, Sendable {
             // One full 16-fragment, 1,200-byte audio deadline plus short scheduling slack.
             32 * 1_024
         case .realtimeVideo:
-            // Video is latest-frame paced but arrives in larger fragment bursts.
-            256 * 1_024
+            // Video is latest-frame paced but one raw or JPEG XS frame arrives
+            // and leaves as a burst of hundreds of fragments. The request is
+            // generous; `setUdpSocketBuffer` falls back to smaller bounds when
+            // the kernel refuses it.
+            2 * 1_024 * 1_024
         case .diagnostic:
             4 * 1_024 * 1_024
         }
@@ -39,6 +42,9 @@ private let maxUdpDatagramPayloadByteCount = 65_535
 package enum UdpDatagramSendResult: Equatable, Sendable {
     case sent
     case wouldBlock
+    /// The kernel refused this one datagram for a transient path reason (unreachable or refused peer,
+    /// interrupted call); the socket stays usable and the caller should count the payload as dropped.
+    case dropped
 }
 
 package func makeUdpSocket(
@@ -74,19 +80,33 @@ package func makeUdpSocket(
     return descriptor
 }
 
+/// Requests the profile's buffer bound and halves it while the kernel refuses
+/// the request (macOS rejects sizes above `kern.ipc.maxsockbuf` outright).
+/// Only a refusal of the smallest bound fails socket creation.
 private func setUdpSocketBuffer(byteCount: Int32, option: Int32, socket: Int32) throws {
-    var byteCount = byteCount
-    let result = setsockopt(
-        socket,
-        SOL_SOCKET,
-        option,
-        &byteCount,
-        socklen_t(MemoryLayout<Int32>.size)
-    )
-    if result != 0 {
-        let savedErrno = errno
-        throw UdpPcmRouteProbeError.setSocketOptionFailed(savedErrno)
-    }
+    let minimumByteCount: Int32 = 64 * 1_024
+    var requested = byteCount
+    var result: Int32
+    var savedErrno: Int32 = 0
+    repeat {
+        var candidate = requested
+        result = setsockopt(
+            socket,
+            SOL_SOCKET,
+            option,
+            &candidate,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+        if result == 0 {
+            break
+        }
+        savedErrno = errno
+        guard requested > minimumByteCount else {
+            throw UdpPcmRouteProbeError.setSocketOptionFailed(savedErrno)
+        }
+        requested = max(minimumByteCount, requested / 2)
+    } while result != 0
+    let appliedByteCount = requested
     var actualByteCount: Int32 = 0
     var actualByteCountSize = socklen_t(MemoryLayout<Int32>.size)
     let readbackResult = getsockopt(
@@ -100,12 +120,12 @@ private func setUdpSocketBuffer(byteCount: Int32, option: Int32, socket: Int32) 
         let savedErrno = errno
         throw UdpPcmRouteProbeError.setSocketOptionFailed(savedErrno)
     }
-    if actualByteCount < byteCount {
+    if actualByteCount < appliedByteCount {
         os_log(
             .error,
             "UDP socket buffer option %{public}d capped below requested bytes: requested=%{public}d actual=%{public}d",
             option,
-            byteCount,
+            appliedByteCount,
             actualByteCount
         )
     }
@@ -288,8 +308,12 @@ package func udpDatagramSendResult(
     nonBlocking: Bool
 ) throws -> UdpDatagramSendResult {
     if sentByteCount < 0 {
-        if nonBlocking, savedErrno == EAGAIN || savedErrno == EWOULDBLOCK {
+        // macOS reports UDP interface-queue pressure as ENOBUFS rather than EAGAIN.
+        if nonBlocking, savedErrno == EAGAIN || savedErrno == EWOULDBLOCK || savedErrno == ENOBUFS {
             return .wouldBlock
+        }
+        if udpSendErrorDropsDatagram(savedErrno) {
+            return .dropped
         }
         throw UdpPcmRouteProbeError.sendFailed(savedErrno)
     }
@@ -297,6 +321,26 @@ package func udpDatagramSendResult(
         throw UdpPcmRouteProbeError.shortSend(expected: expectedByteCount, actual: sentByteCount)
     }
     return .sent
+}
+
+private func udpSendErrorDropsDatagram(_ savedErrno: Int32) -> Bool {
+    switch savedErrno {
+    case ENOBUFS, EHOSTUNREACH, ENETUNREACH, ENETDOWN, EHOSTDOWN, ECONNREFUSED, EINTR:
+        return true
+    default:
+        return false
+    }
+}
+
+/// Receive errors that mean "no usable datagram this time" rather than a broken socket. ICMP-driven
+/// ECONNREFUSED/ECONNRESET and EINTR are transient; EBADF/ENOTSOCK and others stay fatal.
+private func udpReceiveErrorMeansNoDatagram(_ savedErrno: Int32) -> Bool {
+    switch savedErrno {
+    case EAGAIN, EWOULDBLOCK, ECONNREFUSED, ECONNRESET, EINTR:
+        return true
+    default:
+        return false
+    }
 }
 
 package func receiveDatagram(socket: Int32, byteCount: Int) throws -> Data {
@@ -341,13 +385,13 @@ package func receiveDatagramIfAvailable(socket: Int32, byteCount: Int, buffer: i
     }
     let savedErrno = errno
     if received < 0 {
-        if savedErrno == EAGAIN || savedErrno == EWOULDBLOCK {
+        if udpReceiveErrorMeansNoDatagram(savedErrno) {
             return nil
         }
         throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
     }
     guard received > 0 else {
-        throw UdpPcmRouteProbeError.receiveFailed(EINVAL)
+        return nil
     }
     return Data(buffer.prefix(received))
 }
@@ -381,13 +425,15 @@ package func receiveDatagramWithSourceIfAvailable(
         addressLength: &addressLength
     )
     if received < 0 {
-        if savedErrno == EAGAIN || savedErrno == EWOULDBLOCK {
+        if udpReceiveErrorMeansNoDatagram(savedErrno) {
             return nil
         }
         throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
     }
-    guard received > 0,
-          addressLength == socklen_t(MemoryLayout<sockaddr_in>.size) else {
+    guard received > 0 else {
+        return nil
+    }
+    guard addressLength == socklen_t(MemoryLayout<sockaddr_in>.size) else {
         throw UdpPcmRouteProbeError.receiveFailed(EINVAL)
     }
     return UdpDatagramWithSource(

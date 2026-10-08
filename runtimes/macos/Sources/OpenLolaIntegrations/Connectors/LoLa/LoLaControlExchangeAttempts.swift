@@ -34,7 +34,8 @@ func startLoLaControlRetryResponder(
         }
         return startLoLaControlRetryResponder(
             configuration: configuration,
-            reusing: try terminalSession.duplicateSocketForRetryResponder()
+            reusing: try terminalSession.duplicateSocketForRetryResponder(),
+            terminalSession: terminalSession
         )
     } catch {
         return lolaControlRetryResponderFailure(configuration: configuration, error: error)
@@ -43,11 +44,16 @@ func startLoLaControlRetryResponder(
 
 private func startLoLaControlRetryResponder(
     configuration: ExternalConnectorSessionConfiguration,
-    reusing descriptor: Int32
+    reusing descriptor: Int32,
+    terminalSession: LoLaControlTerminalSession? = nil
 ) -> LoLaControlRetryResponderReport {
     do {
         try setExternalConnectorReceiveTimeout(socket: descriptor, seconds: 1)
-        startLoLaControlRetryResponderLoop(descriptor: descriptor, configuration: configuration)
+        startLoLaControlRetryResponderLoop(
+            descriptor: descriptor,
+            configuration: configuration,
+            terminalSession: terminalSession
+        )
         return LoLaControlRetryResponderReport(
             started: true,
             localHost: configuration.localHost,
@@ -88,16 +94,18 @@ private func prepareLoLaControlRetryResponderSocket(
 
 private func startLoLaControlRetryResponderLoop(
     descriptor keepAliveDescriptor: Int32,
-    configuration: ExternalConnectorSessionConfiguration
+    configuration: ExternalConnectorSessionConfiguration,
+    terminalSession: LoLaControlTerminalSession?
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         defer { close(keepAliveDescriptor) }
         let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
-        while deadline.hasTimeRemaining {
+        while deadline.hasTimeRemaining, !(terminalSession?.cancellation.isCancelled ?? false) {
             do {
                 try answerLoLaControlRetryMessageIfAvailable(
                     socket: keepAliveDescriptor,
-                    configuration: configuration
+                    configuration: configuration,
+                    terminalSession: terminalSession
                 )
             } catch {
                 return
@@ -108,7 +116,8 @@ private func startLoLaControlRetryResponderLoop(
 
 private func answerLoLaControlRetryMessageIfAvailable(
     socket keepAliveDescriptor: Int32,
-    configuration: ExternalConnectorSessionConfiguration
+    configuration: ExternalConnectorSessionConfiguration,
+    terminalSession: LoLaControlTerminalSession?
 ) throws {
     let received: ExternalConnectorUdpReceiveResult
     let parsed: (name: String, fields: [String: String])
@@ -116,6 +125,16 @@ private func answerLoLaControlRetryMessageIfAvailable(
         received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
         parsed = try LoLaControlDatagramDecoder.decode(received.payload)
     } catch {
+        return
+    }
+    if lolaRetryResponderHandlePeerDisconnect(
+        configuration: configuration,
+        message: received.message,
+        parsed: parsed,
+        senderHost: received.senderHost,
+        senderPort: received.senderPort,
+        terminalSession: terminalSession
+    ) {
         return
     }
     if let response = try lolaRetryResponderAck(
@@ -334,9 +353,20 @@ func lolaControlAttemptFailure(
             fields: fields,
             bytesTransferred: bytesTransferred
         ),
-        runtimeError: String(describing: runtimeError),
+        runtimeError: lolaControlAttemptRuntimeErrorText(runtimeError),
         isTimeout: isLoLaTimeoutError(runtimeError)
     )
+}
+
+/// Report text for a control failure. A peer REJECT is the peer's own
+/// decision, so the report carries its reason instead of a Swift enum dump.
+func lolaControlAttemptRuntimeErrorText(_ error: Error) -> String {
+    if case let ExternalConnectorSessionError.peerRejected(reason) = error {
+        return reason.isEmpty
+            ? "peer rejected QUICKCONN"
+            : "peer rejected QUICKCONN: \(reason)"
+    }
+    return String(describing: error)
 }
 
 func isLoLaReceiveTimedOutFailure(_ attempt: LoLaControlExchangeAttempt) -> Bool {

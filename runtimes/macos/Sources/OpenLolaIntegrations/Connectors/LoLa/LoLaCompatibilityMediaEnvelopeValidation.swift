@@ -17,15 +17,24 @@ enum LoLaCompatibilityMediaEnvelopeValidation {
         }
     }
 
+    /// Validates every datagram's grammar and summarizes frame completeness.
+    ///
+    /// Grammar faults still throw. Frame-level incompleteness does not: on a
+    /// live UDP link a lost fragment, a fragment that arrives before its
+    /// prelude, or a frame cut off at the evidence boundary are ordinary
+    /// observations, so they are counted and reported instead of failing the
+    /// whole session.
+    @discardableResult
     static func validateReceivedFrames(
         _ encodedFrames: [Data],
         configuration: ExternalConnectorSessionConfiguration
-    ) throws {
+    ) throws -> LoLaReceivedMediaValidationSummary {
         let expectedAudioPayloadByteCount = try LoLaCompatibilityMediaModel.audioPayloadByteCount(
             channels: configuration.channels
         )
         var videoPreludes: [UInt32: LoLaCompatibilityVideoPrelude] = [:]
         var videoFragments: [UInt32: [LoLaCompatibilityNormalFragment]] = [:]
+        var summary = LoLaReceivedMediaValidationSummary()
 
         for encodedFrame in encodedFrames {
             let wireFrame = try LoLaCompatibilityWireFrame.decode(encodedFrame)
@@ -39,40 +48,48 @@ enum LoLaCompatibilityMediaEnvelopeValidation {
                     throw LoLaCompatibilityMediaCodecError.invalidFragmentMagic
                 }
                 try validateAudioFragment(fragment, expectedPayloadByteCount: expectedAudioPayloadByteCount)
+                summary.audioDatagrams += 1
             case .video:
                 try validateVideoPacket(
                     mediaPacket,
                     videoPreludes: &videoPreludes,
-                    videoFragments: &videoFragments
+                    videoFragments: &videoFragments,
+                    summary: &summary
                 )
             }
         }
 
-        for frameID in videoFragments.keys where videoPreludes[frameID] == nil {
-            throw LoLaCompatibilityMediaCodecError.missingVideoPrelude(frameID)
-        }
+        summary.orphanVideoFragments = videoFragments
+            .filter { videoPreludes[$0.key] == nil }
+            .reduce(0) { $0 + $1.value.count }
         for prelude in videoPreludes.values {
-            _ = try LoLaCompatibilityMediaCodec.reassemble(
-                prelude: prelude,
-                fragments: videoFragments[prelude.frameID] ?? []
-            )
+            do {
+                _ = try LoLaCompatibilityMediaCodec.reassemble(
+                    prelude: prelude,
+                    fragments: videoFragments[prelude.frameID] ?? []
+                )
+                summary.completeVideoFrames += 1
+            } catch LoLaCompatibilityMediaCodecError.missingFragment {
+                summary.incompleteVideoFrames += 1
+            } catch LoLaCompatibilityMediaCodecError.duplicateFragment {
+                summary.incompleteVideoFrames += 1
+            }
         }
+        return summary
     }
 
     private static func validateVideoPacket(
         _ mediaPacket: LoLaCompatibilityDecodedMediaPacket,
         videoPreludes: inout [UInt32: LoLaCompatibilityVideoPrelude],
-        videoFragments: inout [UInt32: [LoLaCompatibilityNormalFragment]]
+        videoFragments: inout [UInt32: [LoLaCompatibilityNormalFragment]],
+        summary: inout LoLaReceivedMediaValidationSummary
     ) throws {
         if let prelude = mediaPacket.videoPrelude {
-            guard videoPreludes[prelude.frameID] == nil else {
-                throw LoLaCompatibilityMediaCodecError.duplicateVideoPrelude(prelude.frameID)
+            if videoPreludes[prelude.frameID] != nil {
+                summary.duplicateVideoPreludes += 1
             }
             videoPreludes[prelude.frameID] = prelude
         } else if let fragment = mediaPacket.normalFragment {
-            guard videoPreludes[fragment.header.frameID] != nil else {
-                throw LoLaCompatibilityMediaCodecError.missingVideoPrelude(fragment.header.frameID)
-            }
             videoFragments[fragment.header.frameID, default: []].append(fragment)
         } else {
             throw LoLaCompatibilityMediaCodecError.invalidFragmentMagic
@@ -144,11 +161,24 @@ enum LoLaCompatibilityMediaEnvelopeValidation {
                 actual: fragment.header.frameID
             )
         }
-        guard body.payloadLength == expectedPayloadByteCount else {
-            throw LoLaCompatibilityMediaCodecError.serializedSizeMismatch(
-                expected: 8 + expectedPayloadByteCount,
-                actual: fragment.fragmentBytes.count
-            )
-        }
+        try LoLaCompatibilityMediaCodec.validateAudioPayloadByteCount(
+            body.payloadLength,
+            channels: expectedPayloadByteCount / LoLaCompatibilityMediaModel.defaultAudioPayloadBytesPerChannel
+        )
+    }
+}
+
+/// Frame-level completeness observed across one set of validated datagrams.
+struct LoLaReceivedMediaValidationSummary: Equatable, Sendable {
+    var audioDatagrams = 0
+    var completeVideoFrames = 0
+    var incompleteVideoFrames = 0
+    var orphanVideoFragments = 0
+    var duplicateVideoPreludes = 0
+
+    var note: String {
+        "Validated \(audioDatagrams) audio datagram(s); video frames complete \(completeVideoFrames), "
+            + "incomplete \(incompleteVideoFrames), fragments without prelude \(orphanVideoFragments), "
+            + "duplicate preludes \(duplicateVideoPreludes)."
     }
 }

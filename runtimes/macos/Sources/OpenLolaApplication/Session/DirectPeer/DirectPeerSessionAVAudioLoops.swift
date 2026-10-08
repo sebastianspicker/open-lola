@@ -145,6 +145,7 @@ struct DirectPeerAudioRXDrainResult {
     var queuedForPlayout = 0
     var droppedBeforePlayout = 0
     var droppedByPlayoutQueue = 0
+    var playoutReanchors = 0
     var unexpectedPayloadTypes = 0
     var rtpPacketsLost = 0
     var latestHostTimeNanoseconds: UInt64?

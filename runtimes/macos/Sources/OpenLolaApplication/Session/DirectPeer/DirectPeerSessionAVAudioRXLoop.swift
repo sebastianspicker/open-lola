@@ -26,41 +26,114 @@ struct DirectPeerAudioRXLoopState {
     var aes67DecodeScratch = Data()
 }
 
+/// Maps the sender's frame timeline onto local output frames. `queuePlayoutPayload` adds the
+/// playout target afterwards, so a payload is only late when even the target cannot absorb it.
+/// A sustained excess above target plus slack re-anchors too, so latency can shrink again.
 struct DirectPeerRemotePlayoutFrameAnchor {
+    static let excessLatencyPayloadLimit = 64
+    static let excessLatencySlackBuffers: UInt64 = 4
+
     private(set) var remoteBaseFrame: UInt64?
     private(set) var localBaseFrame: UInt64?
+    private(set) var excessLatencyStreak = 0
+    private var pendingReanchors = 0
 
-    mutating func localFrame(remoteFrame: UInt64, nextLocalOutputFrame: UInt64) -> UInt64 {
-        guard let remoteBaseFrame, let localBaseFrame else {
+    mutating func localFrame(
+        remoteFrame: UInt64,
+        nextLocalOutputFrame: UInt64,
+        targetFrames: Int,
+        framesPerBuffer: Int
+    ) -> UInt64 {
+        guard let mappedFrame = mappedLocalFrame(remoteFrame: remoteFrame) else {
             return reanchor(remoteFrame: remoteFrame, nextLocalOutputFrame: nextLocalOutputFrame)
         }
+        switch directPeerPlayoutFramePlacement(
+            mappedFrame: mappedFrame,
+            nextLocalOutputFrame: nextLocalOutputFrame,
+            targetFrames: targetFrames,
+            framesPerBuffer: framesPerBuffer
+        ) {
+        case .late:
+            return reanchor(remoteFrame: remoteFrame, nextLocalOutputFrame: nextLocalOutputFrame)
+        case .excessLatency:
+            excessLatencyStreak += 1
+            guard excessLatencyStreak < Self.excessLatencyPayloadLimit else {
+                return reanchor(remoteFrame: remoteFrame, nextLocalOutputFrame: nextLocalOutputFrame)
+            }
+            return mappedFrame
+        case .onTime:
+            excessLatencyStreak = 0
+            return mappedFrame
+        }
+    }
 
-        let mappedFrame: UInt64
+    /// Returns and clears the number of re-anchors after the initial anchor.
+    mutating func consumeReanchorCount() -> Int {
+        let count = pendingReanchors
+        pendingReanchors = 0
+        return count
+    }
+
+    private func mappedLocalFrame(remoteFrame: UInt64) -> UInt64? {
+        guard let remoteBaseFrame, let localBaseFrame else {
+            return nil
+        }
         if remoteFrame >= remoteBaseFrame {
             let mapped = localBaseFrame.addingReportingOverflow(remoteFrame - remoteBaseFrame)
-            guard !mapped.overflow else {
-                return reanchor(remoteFrame: remoteFrame, nextLocalOutputFrame: nextLocalOutputFrame)
-            }
-            mappedFrame = mapped.partialValue
-        } else {
-            let backwardFrames = remoteBaseFrame - remoteFrame
-            guard backwardFrames <= localBaseFrame else {
-                return reanchor(remoteFrame: remoteFrame, nextLocalOutputFrame: nextLocalOutputFrame)
-            }
-            mappedFrame = localBaseFrame - backwardFrames
+            return mapped.overflow ? nil : mapped.partialValue
         }
-
-        guard mappedFrame >= nextLocalOutputFrame else {
-            return reanchor(remoteFrame: remoteFrame, nextLocalOutputFrame: nextLocalOutputFrame)
+        let backwardFrames = remoteBaseFrame - remoteFrame
+        guard backwardFrames <= localBaseFrame else {
+            return nil
         }
-        return mappedFrame
+        return localBaseFrame - backwardFrames
     }
 
     private mutating func reanchor(remoteFrame: UInt64, nextLocalOutputFrame: UInt64) -> UInt64 {
+        if remoteBaseFrame != nil {
+            pendingReanchors += 1
+        }
         remoteBaseFrame = remoteFrame
         localBaseFrame = nextLocalOutputFrame
+        excessLatencyStreak = 0
         return nextLocalOutputFrame
     }
+}
+
+enum DirectPeerPlayoutFramePlacement: Equatable {
+    case late
+    case onTime
+    case excessLatency
+}
+
+/// Pure placement rule: late when `mapped + target < next`, excess when
+/// `mapped > next + target + slackBuffers * framesPerBuffer`, otherwise on time.
+func directPeerPlayoutFramePlacement(
+    mappedFrame: UInt64,
+    nextLocalOutputFrame: UInt64,
+    targetFrames: Int,
+    framesPerBuffer: Int
+) -> DirectPeerPlayoutFramePlacement {
+    let target = UInt64(max(0, targetFrames))
+    let latestPlayable = mappedFrame.addingReportingOverflow(target)
+    if !latestPlayable.overflow, latestPlayable.partialValue < nextLocalOutputFrame {
+        return .late
+    }
+    let slack = UInt64(max(0, framesPerBuffer)).multipliedReportingOverflow(
+        by: DirectPeerRemotePlayoutFrameAnchor.excessLatencySlackBuffers
+    )
+    guard !slack.overflow else {
+        return .onTime
+    }
+    let tolerance = target.addingReportingOverflow(slack.partialValue)
+    guard !tolerance.overflow else {
+        return .onTime
+    }
+    let excessBound = nextLocalOutputFrame.addingReportingOverflow(tolerance.partialValue)
+    if !excessBound.overflow, mappedFrame > excessBound.partialValue {
+        return .excessLatency
+    }
+    return .onTime
 }
 
 private struct DirectPeerAudioRXLoopContext {
@@ -372,8 +445,11 @@ private func queueDirectPeerAudioPayload(
 ) {
         let localStartFrame = state.playoutFrameAnchor.localFrame(
             remoteFrame: payload.senderFrameIndex,
-            nextLocalOutputFrame: audioGraph.nextOutputFrameSnapshot()
+            nextLocalOutputFrame: audioGraph.nextOutputFrameSnapshot(),
+            targetFrames: audioGraph.playoutTargetFramesSnapshot(),
+            framesPerBuffer: audioGraph.configuration.framesPerBuffer
         )
+        result.playoutReanchors += state.playoutFrameAnchor.consumeReanchorCount()
         let queueResult = audioGraph.queuePlayoutPayload(
             payload.payload,
             startFrame: localStartFrame,

@@ -3,7 +3,7 @@ import OpenLolaSessionDomain
 import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
-// Runs latest-only video work on a serial queue while accounting for every superseded frame.
+// Runs latest-only video work on a serial queue: every finished result is published (replacing an untaken one), and every superseded frame is counted as dropped.
 import Foundation
 import OpenLolaMediaPlatform
 
@@ -49,11 +49,7 @@ final class DirectPeerLatestVideoWorker<Request, Output>: @unchecked Sendable {
             if pending != nil {
                 recordDroppedFrameLocked()
             }
-            if completion != nil {
-                recordDroppedFrameLocked()
-            }
             pending = PendingRequest(generation: latestGeneration, request: request)
-            completion = nil
             shouldSchedule = !workerScheduled
             workerScheduled = true
         }
@@ -78,6 +74,13 @@ final class DirectPeerLatestVideoWorker<Request, Output>: @unchecked Sendable {
         droppedFrames = 0
         lock.unlock()
         return dropped
+    }
+
+    /// Counts one frame that the consumer discarded after taking its completion (for example a failed result).
+    func recordDroppedFrame() {
+        lock.lock()
+        recordDroppedFrameLocked()
+        lock.unlock()
     }
 
     func cancel() {
@@ -130,11 +133,12 @@ final class DirectPeerLatestVideoWorker<Request, Output>: @unchecked Sendable {
         var shouldSignal = false
         lock.lock()
         inFlightGeneration = nil
-        if !cancelled, pending.generation == latestGeneration {
+        if !cancelled {
+            if completion != nil {
+                recordDroppedFrameLocked()
+            }
             completion = Completion(request: pending.request, result: result)
             shouldSignal = true
-        } else if !cancelled {
-            recordDroppedFrameLocked()
         }
         shouldScheduleAgain = !cancelled && self.pending != nil
         if !shouldScheduleAgain {

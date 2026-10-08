@@ -23,8 +23,11 @@ final class LoLaControlSocketLease {
 /// existing Sendable handshake-attempt boundary used by asynchronous receiver tests.
 final class LoLaControlTerminalSession: @unchecked Sendable {
     private let sourceIP: String
-    private let destinationIP: String
-    private let sessionID: Int
+    /// Pinned peer address and SID; inbound terminal controls must match them.
+    let destinationIP: String
+    let sessionID: Int
+    /// Set by the retry responder when the pinned peer sends `/MESG_DISCONNECT`.
+    let cancellation = LoLaSessionCancellation()
     private let send: (String) throws -> Int
     private let duplicateSocket: (() throws -> Int32)?
     private var finished = false
@@ -57,6 +60,10 @@ final class LoLaControlTerminalSession: @unchecked Sendable {
     func finish(exchange: inout LoLaControlExchange) -> String? {
         guard !finished else { return nil }
         finished = true
+        if let peerMessage = cancellation.peerMessage {
+            exchange.receivedMessages.append(peerMessage)
+            exchange.receivedMessage = peerMessage
+        }
 
         let messages = [
             LoLaCompatibilityControlMessage.stopAudioSignal(
@@ -94,16 +101,20 @@ func makeLoLaControlTerminalSession(
 ) throws -> LoLaControlTerminalSession {
     let sourceIP = exchange.fields["DSTIP"] ?? configuration.localHost
     let destinationIP: String
+    let sessionID: String
     switch configuration.role {
     case .tx, .txRx:
         destinationIP = configuration.peer
+        sessionID = configuration.sessionID
     case .rx:
         destinationIP = exchange.fields["SRCIP"] ?? configuration.peer
+        // The responder ACK echoed the initiator's SID; the peer pins that one.
+        sessionID = exchange.fields["SID"] ?? configuration.sessionID
     }
     return LoLaControlTerminalSession(
         sourceIP: sourceIP,
         destinationIP: destinationIP,
-        sessionID: try lolaControlSessionID(configuration.sessionID),
+        sessionID: try lolaControlSessionID(sessionID),
         send: send,
         duplicateSocketForRetryResponder: duplicateSocketForRetryResponder
     )

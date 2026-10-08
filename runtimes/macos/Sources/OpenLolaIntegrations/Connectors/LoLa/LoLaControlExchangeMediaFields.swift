@@ -6,6 +6,31 @@ import OpenLolaMediaPlatform
 // Handles LoLaControlExchangeMediaFields control exchange, keeping control-plane details distinct from media data flow.
 import Foundation
 
+/// Video fields an audio-only QUICKCONN advertises and expects. Responders
+/// validate FPS 1...240, BPP 8/16/24/32 and X/Y >= 1 even when no video flows,
+/// so the corpus defaults (`control.quickconn.default.v1`) stand in for zeros.
+let lolaAudioOnlyQuickConnectVideoFields = LoLaCompatibilityVideoFields(
+    frameRate: 25,
+    bitsPerPixel: 8,
+    dimensions: LoLaCompatibilityVideoDimensions(width: 640, height: 480),
+    compression: 0,
+    bayer: 0
+)
+
+/// Prefix of the error raised when a QUICKCONN carries audio settings this
+/// station cannot accept; `lolaQuickConnectRejectReason` maps it to REJECT text.
+private let lolaIncompatibleQuickConnectPrefix = "incompatible LoLa QuickConn "
+
+/// Maps a QUICKCONN acceptance error to the short REJECT reason the Rust
+/// station and the LoLa corpus send, instead of a Swift error description.
+func lolaQuickConnectRejectReason(_ error: Error) -> String {
+    if case let ExternalConnectorSessionError.malformedLoLaControlMessage(text) = error,
+       text.hasPrefix(lolaIncompatibleQuickConnectPrefix) {
+        return "audio settings mismatch"
+    }
+    return "invalid media settings"
+}
+
 func lolaCheckStatusAck(
     configuration: ExternalConnectorSessionConfiguration,
     receivedFields: [String: String],
@@ -91,7 +116,7 @@ private func lolaQuickConnectAckAudioFields(
     for (key, expectedValue) in expected where Int(receivedFields[key] ?? "") != expectedValue {
         let receivedValue = receivedFields[key] ?? ""
         throw ExternalConnectorSessionError.malformedLoLaControlMessage(
-            "incompatible LoLa QuickConn \(key):\(receivedValue)"
+            "\(lolaIncompatibleQuickConnectPrefix)\(key):\(receivedValue)"
         )
     }
     return LoLaCompatibilityAudioFields(
@@ -105,35 +130,16 @@ private func lolaQuickConnectAckVideoFields(
     configuration: ExternalConnectorSessionConfiguration,
     receivedFields: [String: String]
 ) -> LoLaCompatibilityVideoFields {
-    LoLaCompatibilityVideoFields(
-        frameRate: lolaControlIntegerField(
-            receivedFields,
-            key: "FPS",
-            fallback: configuration.mediaMode.hasVideo ? configuration.videoFrameRate : 0
-        ),
-        bitsPerPixel: lolaControlIntegerField(
-            receivedFields,
-            key: "BPP",
-            fallback: configuration.mediaMode.hasVideo ? configuration.videoBitsPerPixel : 0
-        ),
+    let fallback = lolaQuickConnectVideoFields(configuration: configuration)
+    return LoLaCompatibilityVideoFields(
+        frameRate: lolaControlIntegerField(receivedFields, key: "FPS", fallback: fallback.frameRate),
+        bitsPerPixel: lolaControlIntegerField(receivedFields, key: "BPP", fallback: fallback.bitsPerPixel),
         dimensions: LoLaCompatibilityVideoDimensions(
-            width: lolaControlIntegerField(
-                receivedFields,
-                key: "X",
-                fallback: configuration.mediaMode.hasVideo ? configuration.videoWidth : 0
-            ),
-            height: lolaControlIntegerField(
-                receivedFields,
-                key: "Y",
-                fallback: configuration.mediaMode.hasVideo ? configuration.videoHeight : 0
-            )
+            width: lolaControlIntegerField(receivedFields, key: "X", fallback: fallback.dimensions.width),
+            height: lolaControlIntegerField(receivedFields, key: "Y", fallback: fallback.dimensions.height)
         ),
-        compression: lolaControlIntegerField(
-            receivedFields,
-            key: "COMP",
-            fallback: configuration.videoCompression
-        ),
-        bayer: lolaControlIntegerField(receivedFields, key: "BAYER", fallback: configuration.videoBayer)
+        compression: lolaControlIntegerField(receivedFields, key: "COMP", fallback: fallback.compression),
+        bayer: lolaControlIntegerField(receivedFields, key: "BAYER", fallback: fallback.bayer)
     )
 }
 
@@ -156,18 +162,21 @@ private func lolaQuickConnectMediaFields(
     )
 }
 
-private func lolaQuickConnectVideoFields(
+func lolaQuickConnectVideoFields(
     configuration: ExternalConnectorSessionConfiguration
 ) -> LoLaCompatibilityVideoFields {
-    LoLaCompatibilityVideoFields(
-        frameRate: configuration.mediaMode.hasVideo ? configuration.videoFrameRate : 0,
-        bitsPerPixel: configuration.mediaMode.hasVideo ? configuration.videoBitsPerPixel : 0,
+    guard configuration.mediaMode.hasVideo else {
+        return lolaAudioOnlyQuickConnectVideoFields
+    }
+    return LoLaCompatibilityVideoFields(
+        frameRate: configuration.videoFrameRate,
+        bitsPerPixel: configuration.videoBitsPerPixel,
         dimensions: LoLaCompatibilityVideoDimensions(
-            width: configuration.mediaMode.hasVideo ? configuration.videoWidth : 0,
-            height: configuration.mediaMode.hasVideo ? configuration.videoHeight : 0
+            width: configuration.videoWidth,
+            height: configuration.videoHeight
         ),
-        compression: configuration.mediaMode.hasVideo ? configuration.videoCompression : 0,
-        bayer: configuration.mediaMode.hasVideo ? configuration.videoBayer : 0
+        compression: configuration.videoCompression,
+        bayer: configuration.videoBayer
     )
 }
 

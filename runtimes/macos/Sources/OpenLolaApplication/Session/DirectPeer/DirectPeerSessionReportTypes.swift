@@ -310,6 +310,7 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
     public var audioPayloadsDroppedBeforeSend = 0
     public var audioPayloadsDroppedBeforePlayout = 0
     public var audioPayloadsDroppedByPlayoutQueue = 0
+    public var audioPlayoutReanchors = 0
     public var audioUnexpectedPayloadTypes = 0
     public var audioRXBuffer: RxBufferRuntimeSnapshot?
     public var audioPlayoutUnderruns = 0
@@ -356,6 +357,7 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
         case audioPayloadsDroppedBeforeSend
         case audioPayloadsDroppedBeforePlayout
         case audioPayloadsDroppedByPlayoutQueue
+        case audioPlayoutReanchors
         case audioUnexpectedPayloadTypes
         case audioRXBuffer
         case audioPlayoutUnderruns
@@ -424,6 +426,7 @@ forKey: .audioPayloadsDroppedBeforePlayout
             Int.self,
             forKey: .audioPayloadsDroppedByPlayoutQueue
         ) ?? 0
+        audioPlayoutReanchors = try container.decodeIfPresent(Int.self, forKey: .audioPlayoutReanchors) ?? 0
         audioUnexpectedPayloadTypes = try container.decodeIfPresent(Int.self, forKey: .audioUnexpectedPayloadTypes) ?? 0
         audioRXBuffer = try container.decodeIfPresent(RxBufferRuntimeSnapshot.self, forKey: .audioRXBuffer)
         audioPlayoutUnderruns = try container.decodeIfPresent(Int.self, forKey: .audioPlayoutUnderruns) ?? 0

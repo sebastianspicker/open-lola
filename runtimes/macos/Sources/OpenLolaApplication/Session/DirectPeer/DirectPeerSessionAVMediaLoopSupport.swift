@@ -30,7 +30,7 @@ func waitForNextDirectPeerAVLoop(
     let videoCaptureReadinessDescriptor = request.useCaptureReadiness
         ? request.liveVideoSource.readinessDescriptor
         : nil
-    let waitTimeoutMicroseconds = directPeerAVLoopWaitTimeoutMicroseconds(
+    var waitTimeoutMicroseconds = directPeerAVLoopWaitTimeoutMicroseconds(
         nowNanoseconds: DispatchTime.now().uptimeNanoseconds,
         deadlineNanoseconds: request.timing.deadlineNanoseconds,
         audioPollIntervalMicroseconds: captureReadinessDescriptor == nil
@@ -41,6 +41,16 @@ func waitForNextDirectPeerAVLoop(
             : UInt64.max,
         nextMetricsPublishTimeNanoseconds: request.state.nextMetricsPublishTimeNanoseconds
     )
+    if let pending = request.state.pendingVideoTransmit {
+        // Unsent fragments are ready work: return to the loop as soon as the
+        // kernel can take more, rather than parking until the next audio poll.
+        waitTimeoutMicroseconds = min(
+            waitTimeoutMicroseconds,
+            pending.blockedSinceNanoseconds == nil
+                ? directPeerPendingVideoLoopWaitMicroseconds
+                : directPeerBackpressuredVideoLoopWaitMicroseconds
+        )
+    }
     _ = try runner.waitForIncomingMedia(
         timeoutMicroseconds: waitTimeoutMicroseconds,
         additionalReadDescriptors: [
@@ -51,6 +61,12 @@ func waitForNextDirectPeerAVLoop(
         ].compactMap { $0 }
     )
 }
+
+/// Loop wait while fragments of the current frame remain unsent.
+let directPeerPendingVideoLoopWaitMicroseconds: UInt64 = 50
+/// Loop wait while the video socket refuses fragments; long enough for the
+/// kernel to drain a few datagrams, short against one frame interval.
+let directPeerBackpressuredVideoLoopWaitMicroseconds: UInt64 = 250
 
 func finishDirectPeerAVMediaLoop(
     resources: inout DirectPeerAVMediaLoopResources,
@@ -99,6 +115,7 @@ func accumulateAudioRXDrainMetrics(
     metrics.audioPayloadsQueuedForPlayout += audioRX.queuedForPlayout
     metrics.audioPayloadsDroppedBeforePlayout += audioRX.droppedBeforePlayout
     metrics.audioPayloadsDroppedByPlayoutQueue += audioRX.droppedByPlayoutQueue
+    metrics.audioPlayoutReanchors += audioRX.playoutReanchors
     metrics.audioUnexpectedPayloadTypes += audioRX.unexpectedPayloadTypes
 }
 
@@ -179,13 +196,22 @@ func directPeerVideoTransmitPacketLimit(
     guard remainingPacketCount > 0 else {
         return 0
     }
-    // A fragment is not audio-critical work. Yield after every fragment so an
-    // audio readiness event or run deadline is serviced before another send.
-    _ = nowNanoseconds
-    _ = nextFrameNanoseconds
-    _ = audioPacketIntervalNanoseconds
-    _ = minimumQuantum
-    return 1
+    // Audio owns the loop cadence, so a video burst must finish well inside
+    // one audio packet period. Sending costs a few microseconds per datagram;
+    // a quantum of `minimumQuantum` fragments stays under a tenth of the
+    // shortest supported period. Spend more only when the next frame is far
+    // enough away that the remaining fragments still leave before it is due.
+    let quantum = max(1, minimumQuantum)
+    guard nextFrameNanoseconds > nowNanoseconds else {
+        return min(remainingPacketCount, quantum)
+    }
+    let periodsUntilNextFrame = (nextFrameNanoseconds - nowNanoseconds)
+        / max(1, audioPacketIntervalNanoseconds)
+    guard periodsUntilNextFrame > 0 else {
+        return min(remainingPacketCount, quantum)
+    }
+    let budget = Int(min(UInt64(remainingPacketCount), UInt64(quantum) * min(periodsUntilNextFrame, 4)))
+    return min(remainingPacketCount, max(quantum, budget))
 }
 
 func directPeerAVRunDeadlineNanoseconds(now: UInt64, durationSeconds: Int) throws -> UInt64 {

@@ -77,7 +77,7 @@ for the exact evidence boundary.
 |---|---|---|---|---|
 | `runtimes/macos/` | Operator app, CLI, direct-peer sessions, media adapters, integrations, and evidence | SwiftPM, SwiftUI, AppKit, Core Audio, AVFoundation | Built and run on macOS 14 or later | [Architecture](docs/architecture.md) |
 | `runtimes/rust-station/` | Windows and Linux LoLa 2.0 station with native and diagnostic backends | Rust, egui, ALSA, V4L2, PortAudio, XIMEA, Npcap | Cargo package and `rusty-lola` executable | [Rust station](runtimes/rust-station/README.md) |
-| `interop/lola2/` | Versioned synthetic cross-runtime wire corpus | JSON | Consumed by Swift and Rust tests | [Corpus contract](interop/lola2/README.md) |
+| `interop/lola2/` | Versioned synthetic cross-runtime wire corpus | JSON | Consumed by the Rust corpus test (`cargo test --test lola2_compatibility`); the macOS connector has no corpus consumer yet | [Corpus contract](interop/lola2/README.md) |
 | `web/demo/` | Fixture-backed Signal Desk walkthrough | Static HTML, CSS, JavaScript | Served by any static file server | This README |
 | `tools/` | Verification, local packaging, release export, and interoperability helpers | Shell, Python, Swift, PowerShell | Invoked from the repository root | [Tool index](tools/README.md) |
 | `third_party/` | Vendored Opus and JPEG XS source | C/C++ and upstream support files | Compiled only through selected package targets | [Third-party notices](THIRD_PARTY_NOTICES.md) |

@@ -112,10 +112,20 @@ private func startDirectPeerRealtimeAudioGraphCallback(
     )
 }
 
-let directPeerRealtimeAudioIOProc: AudioDeviceIOProc = { _, inNow, inInputData, _, outOutputData, _, inClientData in
+/// Capture is stamped with the time the input was sampled, not the IOProc's "now".
+@inline(__always)
+private func directPeerCaptureHostTime(
+    inNow: UnsafePointer<AudioTimeStamp>,
+    inInputTime: UnsafePointer<AudioTimeStamp>
+) -> UInt64 {
+    let inputTime = inInputTime.pointee
+    return inputTime.mFlags.contains(.hostTimeValid) ? inputTime.mHostTime : inNow.pointee.mHostTime
+}
+
+let directPeerRealtimeAudioIOProc: AudioDeviceIOProc = { _, inNow, inInputData, inInputTime, outOutputData, _, inClientData in
     guard let callback = startDirectPeerRealtimeAudioGraphCallback(
         clientData: inClientData,
-        hostTime: inNow.pointee.mHostTime
+        hostTime: directPeerCaptureHostTime(inNow: inNow, inInputTime: inInputTime)
     ) else {
         return inClientData == nil ? kAudioHardwareIllegalOperationError : noErr
     }
@@ -128,10 +138,10 @@ let directPeerRealtimeAudioIOProc: AudioDeviceIOProc = { _, inNow, inInputData, 
     return noErr
 }
 
-let directPeerRealtimeAudioInputIOProc: AudioDeviceIOProc = { _, inNow, inInputData, _, _, _, inClientData in
+let directPeerRealtimeAudioInputIOProc: AudioDeviceIOProc = { _, inNow, inInputData, inInputTime, _, _, inClientData in
     guard let callback = startDirectPeerRealtimeAudioGraphCallback(
         clientData: inClientData,
-        hostTime: inNow.pointee.mHostTime
+        hostTime: directPeerCaptureHostTime(inNow: inNow, inInputTime: inInputTime)
     ) else {
         return inClientData == nil ? kAudioHardwareIllegalOperationError : noErr
     }

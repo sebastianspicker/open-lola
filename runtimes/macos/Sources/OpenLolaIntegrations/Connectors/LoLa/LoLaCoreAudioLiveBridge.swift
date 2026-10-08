@@ -101,7 +101,9 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
                 requestedChannels: configuration.channels,
                 availableChannels: inputDevice?.inputChannelCount ?? configuration.channels
             ), output: Array(0..<configuration.channels)),
-            buffering: .init(ringCapacityBlocks: 2, rxBufferPolicy: nil)
+            // Four blocks bound the latency an arrival burst can add (about
+            // 5.8 ms at 64 frames / 44.1 kHz) while absorbing ordinary jitter.
+            buffering: .init(ringCapacityBlocks: 4, rxBufferPolicy: nil)
         )
         _ = try DirectPeerRealtimeAudioGraph.preflight(
             configuration: graphConfiguration,
@@ -225,10 +227,18 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
         return nil
     }
 
+    /// Queues one received PCM body. The peer's frames per packet are not
+    /// negotiated by LoLa, so any whole number of frames that fits one padded
+    /// datagram is accepted; the playout sink re-blocks it to the local graph.
     func enqueueLoLaPlaybackPayload(_ payload: Data, hostTimeNanoseconds: UInt64) throws {
         guard graphMode != .inputOnly else { return }
         let expected = try LoLaCompatibilityMediaModel.audioPayloadByteCount(channels: configuration.channels)
-        guard payload.count == expected else {
+        do {
+            try LoLaCompatibilityMediaCodec.validateAudioPayloadByteCount(
+                payload.count,
+                channels: configuration.channels
+            )
+        } catch {
             throw LoLaCoreAudioLiveBridgeError.malformedAudioPayload(expected: expected, actual: payload.count)
         }
         try playoutSink.enqueue(.init(payload: payload, sampleRateHertz: configuration.sampleRateHertz, channels: configuration.channels, representation: .int16LittleEndian), hostTimeNanoseconds: hostTimeNanoseconds)

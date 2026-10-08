@@ -57,23 +57,15 @@ private func lolaExpectedQuickConnectSessionFields(
 private func lolaExpectedQuickConnectVideoFields(
     _ configuration: ExternalConnectorSessionConfiguration
 ) -> [String: String] {
-    guard configuration.mediaMode.hasVideo else {
-        return [
-            "FPS": "0",
-            "BPP": "0",
-            "X": "0",
-            "Y": "0",
-            "COMP": "0",
-            "BAYER": "0"
-        ]
-    }
+    // Audio-only sessions expect the same corpus placeholders they advertise.
+    let video = lolaQuickConnectVideoFields(configuration: configuration)
     return [
-        "FPS": String(configuration.videoFrameRate),
-        "BPP": String(configuration.videoBitsPerPixel),
-        "X": String(configuration.videoWidth),
-        "Y": String(configuration.videoHeight),
-        "COMP": String(configuration.videoCompression),
-        "BAYER": String(configuration.videoBayer)
+        "FPS": String(video.frameRate),
+        "BPP": String(video.bitsPerPixel),
+        "X": String(video.dimensions.width),
+        "Y": String(video.dimensions.height),
+        "COMP": String(video.compression),
+        "BAYER": String(video.bayer)
     ]
 }
 
@@ -156,7 +148,7 @@ private func lolaHandshakeFieldMatches(key: String, actual: String?, expected: S
     return actual == expected
 }
 
-private func lolaIPv4AddressMatches(_ actual: String?, expected: String) -> Bool {
+func lolaIPv4AddressMatches(_ actual: String?, expected: String) -> Bool {
     guard let actual else {
         return false
     }
@@ -229,7 +221,7 @@ func lolaRetryResponderAck(
                 configuration: configuration,
                 receivedFields: parsed.fields,
                 senderHost: senderHost,
-                reason: String(describing: error)
+                reason: lolaQuickConnectRejectReason(error)
             )
         }
     default:

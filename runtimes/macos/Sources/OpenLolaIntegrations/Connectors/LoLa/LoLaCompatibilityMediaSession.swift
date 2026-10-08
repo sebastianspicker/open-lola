@@ -345,16 +345,18 @@ public enum LoLaCompatibilityMediaSession {
             try decodeFrame(data, sequenceNumber: index, configuration: configuration)
         }
         let malformedCount = frames.filter { $0.packetKind == .malformedFragment }.count
+        var completenessNote = ""
         if malformedCount > 0 {
             try LoLaCompatibilityMediaEnvelopeValidation.validateReceivedWireEnvelopes(
                 encodedFrames,
                 configuration: configuration
             )
         } else {
-            try LoLaCompatibilityMediaEnvelopeValidation.validateReceivedFrames(
+            let summary = try LoLaCompatibilityMediaEnvelopeValidation.validateReceivedFrames(
                 encodedFrames,
                 configuration: configuration
             )
+            completenessNote = " " + summary.note
         }
         return report(
             role: .rx,
@@ -365,7 +367,7 @@ public enum LoLaCompatibilityMediaSession {
             runtimeError: malformedCount > 0 ? "malformed LoLa media payloads: \(malformedCount)" : nil,
             notes: "Source-level LoLa media RX envelope validation decodes recovered prelude/fragment "
                 + "payload shapes where present. PASS remains blocked until measured Windows LoLa "
-                + "media capture exists."
+                + "media capture exists." + completenessNote
         )
     }
 

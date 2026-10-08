@@ -429,11 +429,9 @@ extension PeerSessionRunner {
         guard case .audioPcmV2(let decodedPcm) = decoded.decodedPayload else {
             throw PeerSessionRunnerError.unsupportedControlMessage(.error)
         }
-        guard let audioRouter else {
+        guard audioRouter != nil else {
             throw PeerSessionRunnerError.missingAudioRouter
         }
-        _ = try audioRouter.route(decodedPcm)
-        self.audioRouter = audioRouter
         metrics.audioPacketsRouted += 1
         received.decodedPcmV2 = decodedPcm
     }

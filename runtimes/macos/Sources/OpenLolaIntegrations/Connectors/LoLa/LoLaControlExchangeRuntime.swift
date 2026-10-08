@@ -463,7 +463,7 @@ private func answerLoLaQuickConnect(
             configuration: configuration,
             receivedFields: parsed.parsed.fields,
             senderHost: current.senderHost,
-            reason: String(describing: error)
+            reason: lolaQuickConnectRejectReason(error)
         )
         try sendLoLaReceiveAck(rejection, socket: descriptor, state: &state, current: current)
         return state.failure(

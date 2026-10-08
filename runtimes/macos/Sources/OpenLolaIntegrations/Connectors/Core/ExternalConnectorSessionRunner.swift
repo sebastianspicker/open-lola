@@ -129,7 +129,11 @@ runtimeError: runtimeError
             : nil
         let lolaMedia: LoLaCompatibilityMediaSessionReport?
         do {
-            lolaMedia = try makeLoLaMediaSessionEvidence(configuration, allowRealMedia: true)
+            lolaMedia = try makeLoLaMediaSessionEvidence(
+                configuration,
+                allowRealMedia: true,
+                cancellation: attempt.terminalSession?.cancellation
+            )
         } catch {
             lolaMedia = loLaMediaRuntimeFailureReport(configuration: configuration, error: error)
         }

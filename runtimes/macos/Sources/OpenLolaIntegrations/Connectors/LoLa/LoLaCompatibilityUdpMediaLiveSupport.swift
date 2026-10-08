@@ -8,8 +8,13 @@ import Foundation
 
 func receiveLoLaLiveSocketMedia(
     configuration: ExternalConnectorSessionConfiguration,
-    receiver: LoLaSocketUdpMediaReceiver = .init()
+    receiver providedReceiver: LoLaSocketUdpMediaReceiver? = nil,
+    cancellation: LoLaSessionCancellation? = nil
 ) throws -> LoLaCompatibilityMediaSessionReport {
+    // The receive window is the session duration, not the receiver's one
+    // second default; a live RX session used to stop after one second.
+    let receiver = providedReceiver
+        ?? LoLaSocketUdpMediaReceiver(timeoutSeconds: max(1, configuration.durationSeconds))
     let receiveConfiguration = loLaUdpMediaReceiveRunConfiguration(
         configuration,
         dryRun: false,
@@ -18,13 +23,27 @@ func receiveLoLaLiveSocketMedia(
     let bridge = try LoLaCoreAudioLiveBridge.makeIfRequested(configuration: configuration)
     try bridge?.start()
     defer { bridge?.stop() }
+    let counters = LoLaAudioReceiveFreshnessCounters()
     let datagrams = try receiver.receive(
-        request: .init(configuration: receiveConfiguration),
+        request: .init(
+            configuration: receiveConfiguration,
+            runUntilDeadline: bridge != nil
+        ),
         afterBind: { _ in },
-        coalesceReadableAudioToNewest: true,
+        // Every clustered block is admitted; the playout ring bounds the
+        // latency a burst can add. Reducing a burst to its newest block would
+        // turn ordinary arrival clustering into dropped audio.
+        coalesceReadableAudioToNewest: false,
+        audioFreshnessCounters: counters,
+        cancellation: cancellation,
         onDatagram: { try enqueueLoLaLiveAudioIfNeeded($0, audioBridge: bridge) }
     )
-    return try LoLaUdpMediaReceiveRunner.report(configuration: receiveConfiguration, datagrams: datagrams)
+    var report = try LoLaUdpMediaReceiveRunner.report(configuration: receiveConfiguration, datagrams: datagrams)
+    report.notes += " " + loLaAudioReceiveFreshnessNote(counters.snapshot) + loLaLiveAudioSnapshotNote(bridge?.snapshot)
+    if let reason = cancellation?.reason {
+        report.notes += " Receive ended before the session deadline: \(reason) (/MESG_DISCONNECT)."
+    }
+    return report
 }
 
 func enqueueLoLaLiveAudioIfNeeded(
@@ -60,9 +79,12 @@ func loLaAudioReceiveFreshnessNote(_ snapshot: LoLaAudioReceiveFreshnessSnapshot
     guard let snapshot else {
         return ""
     }
-    return "Coalesced \(snapshot.coalescedStaleAudioDatagrams) stale received audio datagram(s) "
-        + "before playout and rejected \(snapshot.rejectedAudioSourceDatagrams) audio datagram(s) "
-        + "from a non-peer source. "
+    return "Received \(snapshot.receivedDatagrams) media datagram(s) and retained "
+        + "\(snapshot.retainedEvidenceDatagrams) as report evidence. Coalesced "
+        + "\(snapshot.coalescedStaleAudioDatagrams) stale received audio datagram(s) "
+        + "before playout, rejected \(snapshot.rejectedAudioSourceDatagrams) audio datagram(s) "
+        + "from a non-peer source, and rejected \(snapshot.playoutRejectedDatagrams) datagram(s) "
+        + "at playout admission. "
 }
 
 func requireLoLaBidirectionalTransmitReport(
