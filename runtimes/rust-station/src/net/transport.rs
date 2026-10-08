@@ -8,5 +8,7 @@ mod types;
 mod udp_media;
 
 pub use npcap::NpcapMediaTransport;
-pub use types::{MediaKind, MediaTransport, ReceivedDatagram, TransportError, TransportStats};
+pub use types::{
+    DatagramPoll, MediaKind, MediaTransport, ReceivedDatagram, TransportError, TransportStats,
+};
 pub use udp_media::UdpMediaTransport;

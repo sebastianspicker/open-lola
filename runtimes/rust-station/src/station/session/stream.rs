@@ -3,10 +3,11 @@
 use super::audio::send_recv_audio_frame;
 use super::backends::SessionAudioBackend;
 use super::capture::CaptureWorker;
-use super::control::{pump_control, send_queued_controls};
+use super::control::{pump_control, send_queued_controls, QuickconnAckCache};
 use super::media::{ReceivePrefillQueue, SessionMediaTransport, VideoSendDisposition};
 use super::scheduler::{DeadlineScheduler, PreparedVideoMailbox, VideoTxCursor};
-use super::video::{consume_prepared_capture, receive_video_datagram_step, ReceivedVideoFrame};
+use super::stream_support::{note_realtime_priority, record_audio_backend_counters};
+use super::video::{consume_prepared_capture, receive_video_datagram_step, VideoReceiveQueue};
 use super::{SessionOptions, SessionResult};
 use crate::config::StationSettings;
 use crate::net::{MediaKind, Udp};
@@ -45,19 +46,44 @@ pub(super) fn run_interleaved_stream(
     audio_reassembler: &mut FrameReassembler,
     audio_queue: &mut ReceivePrefillQueue<Vec<u8>>,
     video_reassembler: &mut FrameReassembler,
-    video_queue: &mut ReceivePrefillQueue<ReceivedVideoFrame>,
+    video_queue: &mut VideoReceiveQueue,
+    quickconn_ack: Option<&QuickconnAckCache>,
 ) -> Result<(), SessionError> {
-    let mut phase = StreamPhase::new(audio_period(settings), capture, n_frames);
+    let mut phase = StreamPhase::new(
+        audio_period(settings),
+        video_period(settings),
+        capture,
+        n_frames,
+    );
     let mut audio_writer = AudioDatagramWriter::new();
+    note_realtime_priority(result);
     while phase.should_continue(options, result, started) {
-        if stream_cancelled(options)
-            || process_controls(control_socket, control_peer, settings, options, result)?
-        {
+        if stream_cancelled(options) {
             break;
         }
         let now = Instant::now();
+        // The capture device clock paces audio when it has a block ready; the
+        // wall clock remains the fallback.
+        let device_ready = capture_consumed_at_deadline(options, result, started, &phase)
+            && audio
+                .as_deref()
+                .and_then(SessionAudioBackend::capture_blocks_ready)
+                .is_some_and(|blocks| blocks > 0);
+        let audio_due = (device_ready && phase.scheduler.service_device_block(now))
+            || phase.scheduler.audio_due(now);
+        if phase.control_service_due(now, audio_due)
+            && process_controls(
+                control_socket,
+                control_peer,
+                settings,
+                options,
+                result,
+                quickconn_ack,
+            )?
+        {
+            break;
+        }
         phase.expire_stale_video(now);
-        let audio_due = phase.scheduler.audio_due(now);
         if audio_due {
             let audio_result = process_audio_deadline(
                 &mut audio,
@@ -77,12 +103,12 @@ pub(super) fn run_interleaved_stream(
                 &mut audio_writer,
                 &mut phase,
             );
-            result.audio_device_xruns = audio.as_ref().and_then(|audio| audio.xruns());
+            record_audio_backend_counters(result, audio.as_deref());
             audio_result?;
             prepare_video_capture(&mut phase, options, result, dual, previews)?;
         }
         let backpressured = send_video_step(transport, peer_video, result, monitor, &mut phase)?;
-        receive_video_step(
+        let received_video = receive_video_step(
             transport,
             options,
             peer_video,
@@ -95,10 +121,47 @@ pub(super) fn run_interleaved_stream(
             video_compressed,
             remote_video_bpp,
             video_queue,
+            &phase,
         )?;
-        phase.finish_quantum(audio_due, backpressured, result, options);
+        phase.finish_quantum(
+            QuantumOutcome {
+                audio_due,
+                backpressured,
+                received_video,
+            },
+            result,
+            options,
+        );
     }
     Ok(())
+}
+
+/// Video datagrams admitted per scheduler quantum. A quantum is bounded by
+/// the audio deadline guard as well, so a burst never starves audio.
+const VIDEO_RECEIVE_DRAIN_LIMIT: usize = 64;
+/// Remaining time to the next audio deadline below which no further video
+/// datagram is read in the current quantum.
+const VIDEO_RECEIVE_AUDIO_GUARD: Duration = Duration::from_micros(150);
+/// Pause while the video socket refuses more datagrams. Long enough for the
+/// kernel to drain a few packets, short enough to stay well inside a frame.
+const VIDEO_BACKPRESSURE_PAUSE: Duration = Duration::from_micros(200);
+/// Video datagrams sent per scheduler quantum, bounded so a burst cannot
+/// monopolise the loop; sending also stops near the audio deadline.
+const VIDEO_SEND_BURST_LIMIT: usize = 16;
+/// Remaining time to the next audio deadline below which no further video
+/// datagram is sent in the current quantum.
+const VIDEO_SEND_AUDIO_GUARD: Duration = Duration::from_micros(150);
+/// The idle sleep ends this long before the audio deadline; the remainder is
+/// spun so OS timer granularity cannot make the deadline late.
+const EARLY_WAKE_MARGIN: Duration = Duration::from_micros(200);
+/// Longest the control socket may go unserviced while audio is not due. Each
+/// service costs a nonblocking toggle plus a receive on the control socket.
+const CONTROL_SERVICE_INTERVAL: Duration = Duration::from_millis(2);
+
+struct QuantumOutcome {
+    audio_due: bool,
+    backpressured: bool,
+    received_video: bool,
 }
 
 struct StreamPhase<'a> {
@@ -109,10 +172,22 @@ struct StreamPhase<'a> {
     audio_sequence: u32,
     finite_drain_deadline: Option<Instant>,
     n_frames: u64,
+    /// Prepared frames older than this are discarded unsent.
+    video_age_limit: Duration,
+    /// A cursor blocked by socket backpressure for longer than this is
+    /// discarded; shorter stalls simply retry on the next quantum.
+    video_backpressure_limit: Duration,
+    blocked_since: Option<Instant>,
+    last_control_service: Instant,
 }
 
 impl<'a> StreamPhase<'a> {
-    fn new(period: Duration, capture: Option<&'a mut CaptureWorker>, n_frames: u32) -> Self {
+    fn new(
+        period: Duration,
+        frame_period: Duration,
+        capture: Option<&'a mut CaptureWorker>,
+        n_frames: u32,
+    ) -> Self {
         Self {
             scheduler: DeadlineScheduler::new(period),
             mailbox: PreparedVideoMailbox::default(),
@@ -121,7 +196,22 @@ impl<'a> StreamPhase<'a> {
             audio_sequence: 0,
             finite_drain_deadline: None,
             n_frames: u64::from(n_frames),
+            video_age_limit: video_age_limit(frame_period),
+            video_backpressure_limit: frame_period.max(Duration::from_millis(20)),
+            blocked_since: None,
+            last_control_service: Instant::now(),
         }
+    }
+    /// Whether the control socket is serviced this pass: at every audio
+    /// deadline, or once the service interval has elapsed. Records the service
+    /// time when it is, so callers only need to act on `true`.
+    fn control_service_due(&mut self, now: Instant, audio_due: bool) -> bool {
+        let due =
+            audio_due || now.duration_since(self.last_control_service) >= CONTROL_SERVICE_INTERVAL;
+        if due {
+            self.last_control_service = now;
+        }
+        due
     }
     fn should_continue(
         &mut self,
@@ -155,27 +245,53 @@ impl<'a> StreamPhase<'a> {
         if self
             .cursor
             .as_ref()
-            .is_some_and(|cursor| cursor.expired(now, Duration::from_millis(250)))
+            .is_some_and(|cursor| cursor.expired(now, self.video_age_limit))
         {
             self.scheduler.drop_video_for_deadline(&mut self.cursor);
+            self.blocked_since = None;
+        }
+    }
+    /// Socket backpressure is ordinary for a fragmented frame whose bytes
+    /// exceed the kernel send buffer. The cursor is kept and retried; only a
+    /// stall longer than the backpressure limit discards the frame.
+    fn note_backpressure(&mut self, backpressured: bool, now: Instant) {
+        if !backpressured {
+            self.blocked_since = None;
+            return;
+        }
+        let since = *self.blocked_since.get_or_insert(now);
+        if now.duration_since(since) > self.video_backpressure_limit {
+            self.scheduler.drop_video_for_backpressure(&mut self.cursor);
+            self.blocked_since = None;
         }
     }
     fn finish_quantum(
         &mut self,
-        audio_due: bool,
-        backpressured: bool,
+        outcome: QuantumOutcome,
         result: &mut SessionResult,
         options: &SessionOptions,
     ) {
-        if backpressured {
-            self.scheduler.drop_video_for_backpressure(&mut self.cursor);
-        }
-        if !audio_due && self.cursor.is_none() {
-            thread::sleep(
-                self.scheduler
-                    .wait_until_audio_due(Instant::now())
-                    .min(Duration::from_millis(1)),
-            );
+        let now = Instant::now();
+        self.note_backpressure(outcome.backpressured, now);
+        if !outcome.audio_due && !outcome.received_video {
+            let until_audio = self.scheduler.wait_until_audio_due(now);
+            let pause = if self.cursor.is_none() {
+                if until_audio <= EARLY_WAKE_MARGIN {
+                    while self.scheduler.wait_until_audio_due(Instant::now()) > Duration::ZERO {
+                        std::hint::spin_loop();
+                    }
+                    Duration::ZERO
+                } else {
+                    (until_audio - EARLY_WAKE_MARGIN).min(Duration::from_millis(1))
+                }
+            } else if outcome.backpressured {
+                until_audio.min(VIDEO_BACKPRESSURE_PAUSE)
+            } else {
+                Duration::ZERO
+            };
+            if !pause.is_zero() {
+                thread::sleep(pause);
+            }
         }
         copy_scheduler_counters(result, &self.scheduler);
         if let Some(control) = options.runtime_control.as_ref() {
@@ -189,6 +305,29 @@ fn audio_period(settings: &StationSettings) -> Duration {
         f64::from(settings.audio.buffer_samples.max(1))
             / f64::from(settings.audio.sample_rate.max(1)),
     )
+}
+fn video_period(settings: &StationSettings) -> Duration {
+    Duration::from_secs_f64(1.0 / f64::from(settings.video.fps.clamp(1, 240)))
+}
+/// Two frame periods, bounded so slow frame rates still expire within a
+/// quarter second and fast ones keep a usable retry window.
+fn video_age_limit(frame_period: Duration) -> Duration {
+    (frame_period * 2).clamp(Duration::from_millis(50), Duration::from_millis(250))
+}
+/// Whether the next audio deadline will read a capture block. Only then may a
+/// ready block pace the clock: a test-signal send or a finished transmit run
+/// never drains the ring, so its occupancy says nothing about the device.
+fn capture_consumed_at_deadline(
+    options: &SessionOptions,
+    result: &SessionResult,
+    started: Instant,
+    phase: &StreamPhase<'_>,
+) -> bool {
+    options.stream_tx_audio
+        && !options.test_signal_send()
+        && (options.persistent
+            || duration_active(options, started)
+            || result.audio_frames_sent < phase.n_frames)
 }
 fn duration_active(options: &SessionOptions, started: Instant) -> bool {
     options
@@ -221,6 +360,7 @@ fn process_controls(
     settings: &StationSettings,
     options: &SessionOptions,
     result: &mut SessionResult,
+    quickconn_ack: Option<&QuickconnAckCache>,
 ) -> Result<bool, SessionError> {
     send_queued_controls(socket, peer, settings, options, result)?;
     pump_control(
@@ -229,6 +369,7 @@ fn process_controls(
         settings,
         result,
         options.runtime_control.as_ref(),
+        quickconn_ack,
     )
 }
 
@@ -321,28 +462,34 @@ fn send_video_step(
     monitor: &mut NetworkMonitor,
     phase: &mut StreamPhase<'_>,
 ) -> Result<bool, SessionError> {
-    let Some(cursor) = phase.cursor.as_mut() else {
-        return Ok(false);
-    };
-    match transport.send_video_datagram(
-        cursor.next().expect("cursor always has a next datagram"),
-        peer,
-    ) {
-        Ok(VideoSendDisposition::Sent) => {
-            let complete = cursor.sent_one();
-            monitor.note_send(MediaKind::Video);
-            if complete {
-                result.video_frames_sent += 1;
-                result.media_frames_sent += 1;
-                phase.cursor = None;
+    for _ in 0..VIDEO_SEND_BURST_LIMIT {
+        let Some(cursor) = phase.cursor.as_mut() else {
+            break;
+        };
+        match transport.send_video_datagram(
+            cursor.next().expect("cursor always has a next datagram"),
+            peer,
+        )? {
+            VideoSendDisposition::Sent => {
+                let complete = cursor.sent_one();
+                monitor.note_send(MediaKind::Video);
+                if complete {
+                    result.video_frames_sent += 1;
+                    result.media_frames_sent += 1;
+                    phase.cursor = None;
+                }
             }
-            Ok(false)
+            VideoSendDisposition::WouldBlock => return Ok(true),
         }
-        Ok(VideoSendDisposition::WouldBlock) => Ok(true),
-        Err(error) => Err(error),
+        if phase.scheduler.wait_until_audio_due(Instant::now()) < VIDEO_SEND_AUDIO_GUARD {
+            break;
+        }
     }
+    Ok(false)
 }
 
+/// Drains a bounded burst of video datagrams, yielding early when the next
+/// audio deadline is close. Returns whether any datagram was read.
 #[allow(clippy::too_many_arguments)]
 fn receive_video_step(
     transport: &mut SessionMediaTransport,
@@ -356,10 +503,16 @@ fn receive_video_step(
     monitor: &mut NetworkMonitor,
     compressed: bool,
     remote_bpp: u32,
-    queue: &mut ReceivePrefillQueue<ReceivedVideoFrame>,
-) -> Result<(), SessionError> {
-    if options.stream_rx_video && !options.audio_only {
-        receive_video_datagram_step(
+    queue: &mut VideoReceiveQueue,
+    phase: &StreamPhase<'_>,
+) -> Result<bool, SessionError> {
+    if !options.stream_rx_video || options.audio_only {
+        return Ok(false);
+    }
+    queue.poll_decoded(width, height, remote_bpp, options, result, dual, monitor);
+    let mut received = false;
+    for _ in 0..VIDEO_RECEIVE_DRAIN_LIMIT {
+        if !receive_video_datagram_step(
             transport,
             peer,
             reassembler,
@@ -372,9 +525,16 @@ fn receive_video_step(
             compressed,
             remote_bpp,
             queue,
-        )?;
+        )? {
+            break;
+        }
+        received = true;
+        if phase.scheduler.wait_until_audio_due(Instant::now()) < VIDEO_RECEIVE_AUDIO_GUARD {
+            break;
+        }
     }
-    Ok(())
+    result.video_superseded_incomplete_frames += reassembler.take_evicted_older_frames();
+    Ok(received)
 }
 
 fn copy_scheduler_counters(result: &mut SessionResult, scheduler: &DeadlineScheduler) {
@@ -389,4 +549,5 @@ fn copy_scheduler_counters(result: &mut SessionResult, scheduler: &DeadlineSched
     result.video_stale_drops = scheduler.counters.video_stale_drops;
     result.video_backpressure_drops = scheduler.counters.video_backpressure_drops;
     result.video_deadline_drops = scheduler.counters.video_deadline_drops;
+    result.audio_device_paced_services = scheduler.counters.audio_device_paced_services;
 }

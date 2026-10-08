@@ -1,6 +1,6 @@
 //! Header, preview, status, and monitoring panes.
 
-use super::StationApp;
+use super::{PreviewSource, StationApp};
 use crate::ui::controller::{DeskSection, Measurement};
 use eframe::egui;
 use eframe::egui::Color32;
@@ -150,18 +150,28 @@ impl StationApp {
         if let Some(texture) = &self.preview_tex {
             ui.group(|ui| {
                 ui.label(self.preview_label());
-                ui.image((texture.id(), egui::vec2(480.0, 270.0)));
+                let size = texture.size_vec2();
+                let width = 480.0;
+                let height = if size.x > 0.0 {
+                    width * size.y / size.x
+                } else {
+                    270.0
+                };
+                ui.image((texture.id(), egui::vec2(width, height)));
             });
         }
     }
 
     fn preview_label(&self) -> &'static str {
-        if self.controller.get_state().test_signal_active {
-            "Diagnostic preview (synthetic SMPTE test signal)"
-        } else if self.preview_is_live {
-            "Latest session video preview"
-        } else {
-            "Local UI preview (synthetic)"
+        match self.preview_source {
+            PreviewSource::Remote if self.preview_is_live => "Received (RX)",
+            PreviewSource::Local if self.preview_is_live => {
+                "Local (TX) \u{2014} not received peer video"
+            }
+            PreviewSource::Synthetic { test_signal: true } => {
+                "Diagnostic preview (synthetic SMPTE test signal)"
+            }
+            _ => "Local UI preview (synthetic)",
         }
     }
 

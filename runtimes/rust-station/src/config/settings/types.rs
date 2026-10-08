@@ -318,7 +318,7 @@ pub struct NetworkSettings {
     pub receive_queue_depth: u32,
     #[serde(default, skip_serializing)]
     pub receive_prefill: u32,
-    #[serde(default = "default_receive_queue_depth")]
+    #[serde(default = "default_audio_receive_queue_depth")]
     pub audio_receive_queue_depth: u32,
     #[serde(default = "default_receive_prefill")]
     pub audio_receive_prefill: u32,
@@ -334,6 +334,13 @@ pub struct NetworkSettings {
 fn default_reach_ms() -> u32 {
     1000
 }
+/// Audio blocks the receiver may hold before presenting the oldest one. Four
+/// 64-frame blocks bound the latency a jitter burst can add to about 5.8 ms at
+/// 44.1 kHz; the queue returns that latency once arrivals settle.
+fn default_audio_receive_queue_depth() -> u32 {
+    4
+}
+/// Video keeps only the newest frame unless the operator asks for buffering.
 fn default_receive_queue_depth() -> u32 {
     1
 }
@@ -383,7 +390,7 @@ impl Default for NetworkSettings {
             reachability_timeout_ms: default_reach_ms(),
             receive_queue_depth: 0,
             receive_prefill: 0,
-            audio_receive_queue_depth: default_receive_queue_depth(),
+            audio_receive_queue_depth: default_audio_receive_queue_depth(),
             audio_receive_prefill: default_receive_prefill(),
             video_receive_queue_depth: default_receive_queue_depth(),
             video_receive_prefill: default_receive_prefill(),

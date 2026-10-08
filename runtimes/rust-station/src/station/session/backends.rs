@@ -1,6 +1,8 @@
 use super::SessionOptions;
 use crate::audio::alsa::{AlsaAudio, AlsaConfig};
-use crate::audio::{open_portaudio_strict, PortAudioConfig, SoftwareAudio, StrictPortAudio};
+use crate::audio::{
+    open_portaudio_strict, PortAudioConfig, PortAudioError, SoftwareAudio, StrictPortAudio,
+};
 use crate::config::{AudioBackend, CameraMode, StationSettings, VideoBackend};
 use crate::station::SessionError;
 use crate::video::v4l2::{V4l2Camera, V4l2Config};
@@ -133,6 +135,7 @@ pub(super) enum SessionAudioBackend {
     Alsa {
         audio: AlsaAudio,
         capture: Vec<u8>,
+        playout: Vec<u8>,
     },
     Diagnostic {
         audio: SoftwareAudio,
@@ -141,8 +144,17 @@ pub(super) enum SessionAudioBackend {
     PortAudio {
         audio: StrictPortAudio,
         capture: Vec<u8>,
+        playout: Vec<u8>,
+        /// Capture blocks discarded to keep the device queue shallow.
+        capture_backlog_drops: u64,
+        /// Capture waits that expired without a block (sent as silence-skip).
+        capture_timeouts: u64,
     },
 }
+
+/// Queued capture blocks above which the backlog is trimmed to one block, so
+/// a stalled session thread does not add its stall to the capture latency.
+const CAPTURE_BACKLOG_TRIM_ABOVE: usize = 2;
 
 impl SessionAudioBackend {
     pub(super) fn open(
@@ -198,6 +210,7 @@ impl SessionAudioBackend {
                 Ok(Self::Alsa {
                     audio,
                     capture: Vec::with_capacity(capacity),
+                    playout: Vec::with_capacity(capacity),
                 })
             }
             AudioBackend::PortAudioAsio => {
@@ -210,6 +223,9 @@ impl SessionAudioBackend {
                 Ok(Self::PortAudio {
                     audio,
                     capture: Vec::new(),
+                    playout: Vec::new(),
+                    capture_backlog_drops: 0,
+                    capture_timeouts: 0,
                 })
             }
         }
@@ -242,43 +258,120 @@ impl SessionAudioBackend {
                 audio.read_pcm_into(capture);
                 Ok(capture)
             }
-            Self::Alsa { audio, capture } => {
+            Self::Alsa { audio, capture, .. } => {
                 audio
                     .read_pcm_into(capture)
                     .map_err(|error| SessionError::AudioBackend(error.to_string()))?;
                 Ok(capture)
             }
-            Self::PortAudio { audio, capture } => {
+            Self::PortAudio {
+                audio,
+                capture,
+                capture_backlog_drops,
+                capture_timeouts,
+                ..
+            } => {
+                let queued = audio
+                    .callback_stats()
+                    .map_or(0, |stats| stats.capture_queued_blocks);
+                if queued > CAPTURE_BACKLOG_TRIM_ABOVE {
+                    *capture_backlog_drops += audio.discard_capture_backlog(1) as u64;
+                }
                 let callback_period = f64::from(audio.config().frames_per_buffer)
                     / f64::from(audio.config().sample_rate.max(1));
                 let timeout = Duration::from_secs_f64((callback_period * 4.0).clamp(0.002, 0.02));
-                audio
-                    .read_pcm_timeout_into(timeout, capture)
-                    .map_err(|error| SessionError::AudioBackend(error.to_string()))?;
+                match audio.read_pcm_timeout_into(timeout, capture) {
+                    Ok(()) => {}
+                    // A missed capture block is a skipped send, not a failure.
+                    Err(PortAudioError::CaptureUnavailable) => {
+                        *capture_timeouts += 1;
+                        capture.clear();
+                    }
+                    Err(error) => return Err(SessionError::AudioBackend(error.to_string())),
+                }
                 Ok(capture)
             }
         }
     }
 
-    pub(super) fn play_pcm(&mut self, pcm: &[u8]) -> Result<(), SessionError> {
+    /// Queues one remote block for playout. Returns whether an older queued
+    /// block had to be displaced to make room, which the caller reports as a
+    /// drop instead of a session failure: the device keeps the newest audio.
+    pub(super) fn play_pcm(&mut self, pcm: &[u8]) -> Result<bool, SessionError> {
         match self {
             Self::Inactive => Err(SessionError::Configuration(
                 "audio streams are disabled".into(),
             )),
-            Self::Diagnostic { .. } => Ok(()),
-            Self::Alsa { audio, .. } => audio
-                .write_pcm(pcm)
-                .map_err(|error| SessionError::AudioBackend(error.to_string())),
-            Self::PortAudio { audio, .. } => audio
-                .write_pcm(pcm)
-                .map_err(|error| SessionError::AudioBackend(error.to_string())),
+            Self::Diagnostic { .. } => Ok(false),
+            Self::Alsa { audio, playout, .. } => {
+                let config = audio.config();
+                let frame_bytes =
+                    usize::from(config.channels) * usize::from(config.bits_per_sample / 8);
+                let block_bytes = frame_bytes * config.frames_per_buffer as usize;
+                write_reblocked(playout, pcm, block_bytes, frame_bytes, |block| {
+                    audio
+                        .write_pcm(block)
+                        .map(|()| false)
+                        .map_err(|error| SessionError::AudioBackend(error.to_string()))
+                })
+            }
+            Self::PortAudio { audio, playout, .. } => {
+                let config = audio.config();
+                let frame_bytes = config.channels as usize * (config.bits_per_sample as usize / 8);
+                let block_bytes = frame_bytes * config.frames_per_buffer as usize;
+                write_reblocked(playout, pcm, block_bytes, frame_bytes, |block| {
+                    match audio.write_pcm(block) {
+                        Ok(()) => Ok(false),
+                        // The ring already replaced its oldest block with this
+                        // one; the session continues with the freshest audio.
+                        Err(PortAudioError::PlaybackQueueFull) => Ok(true),
+                        Err(error) => Err(SessionError::AudioBackend(error.to_string())),
+                    }
+                })
+            }
         }
     }
 
     pub(super) fn xruns(&self) -> Option<u64> {
         match self {
             Self::Alsa { audio, .. } => Some(audio.xruns()),
+            Self::PortAudio { audio, .. } => audio.callback_stats().map(|stats| {
+                stats.capture_overflow_blocks
+                    + stats.playback_underflow_callbacks
+                    + stats.portaudio_input_overflow_callbacks
+                    + stats.portaudio_output_underflow_callbacks
+            }),
             _ => None,
+        }
+    }
+
+    /// Complete capture blocks waiting in a callback-mode device queue;
+    /// `None` when the backend has no device-side queue to pace from.
+    pub(super) fn capture_blocks_ready(&self) -> Option<usize> {
+        match self {
+            Self::PortAudio { audio, .. } => audio
+                .callback_stats()
+                .map(|stats| stats.capture_queued_blocks),
+            _ => None,
+        }
+    }
+
+    pub(super) fn capture_backlog_drops(&self) -> u64 {
+        match self {
+            Self::PortAudio {
+                capture_backlog_drops,
+                ..
+            } => *capture_backlog_drops,
+            _ => 0,
+        }
+    }
+
+    pub(super) fn capture_timeouts(&self) -> u64 {
+        match self {
+            Self::PortAudio {
+                capture_timeouts, ..
+            } => *capture_timeouts,
+            _ => 0,
         }
     }
 
@@ -296,5 +389,86 @@ impl SessionAudioBackend {
                 .stop()
                 .map_err(|error| SessionError::Cleanup(format!("audio backend: {error}"))),
         }
+    }
+}
+
+/// Re-blocks remote audio to the local device block before it reaches the
+/// playout ring. LoLa negotiates sample rate, depth, and channels but not the
+/// frames per packet, so a 32-frame peer feeding a 64-frame device (or the
+/// reverse) must keep playing instead of failing the session. The staging
+/// buffer never retains more than one incomplete device block.
+fn write_reblocked(
+    staging: &mut Vec<u8>,
+    pcm: &[u8],
+    block_bytes: usize,
+    frame_bytes: usize,
+    mut write: impl FnMut(&[u8]) -> Result<bool, SessionError>,
+) -> Result<bool, SessionError> {
+    if block_bytes == 0
+        || frame_bytes == 0
+        || pcm.is_empty()
+        || !pcm.len().is_multiple_of(frame_bytes)
+    {
+        return Err(SessionError::Protocol(format!(
+            "remote audio block of {} bytes is not a whole number of {frame_bytes}-byte frames",
+            pcm.len()
+        )));
+    }
+    if staging.is_empty() && pcm.len() == block_bytes {
+        return write(pcm);
+    }
+    staging.extend_from_slice(pcm);
+    let mut displaced = false;
+    let mut offset = 0;
+    while staging.len() - offset >= block_bytes {
+        displaced |= write(&staging[offset..offset + block_bytes])?;
+        offset += block_bytes;
+    }
+    staging.drain(..offset);
+    Ok(displaced)
+}
+
+#[cfg(test)]
+mod reblock_tests {
+    use super::write_reblocked;
+
+    #[test]
+    fn exact_blocks_bypass_staging_and_partial_blocks_accumulate() {
+        let mut staging = Vec::new();
+        let mut written: Vec<Vec<u8>> = Vec::new();
+        let block: Vec<u8> = (0..8).collect();
+        write_reblocked(&mut staging, &block, 8, 2, |b| {
+            written.push(b.to_vec());
+            Ok(false)
+        })
+        .unwrap();
+        assert_eq!(written, vec![block.clone()]);
+        assert!(staging.is_empty());
+
+        for half in [&block[..4], &block[4..]] {
+            write_reblocked(&mut staging, half, 8, 2, |b| {
+                written.push(b.to_vec());
+                Ok(false)
+            })
+            .unwrap();
+        }
+        assert_eq!(written.len(), 2);
+        assert_eq!(written[1], block);
+        assert!(staging.is_empty());
+
+        let double: Vec<u8> = (0..16).collect();
+        write_reblocked(&mut staging, &double, 8, 2, |b| {
+            written.push(b.to_vec());
+            Ok(false)
+        })
+        .unwrap();
+        assert_eq!(written.len(), 4);
+        assert_eq!(written[3], double[8..]);
+        assert!(staging.is_empty());
+
+        write_reblocked(&mut staging, &double[..6], 8, 2, |_| Ok(false)).unwrap();
+        assert_eq!(staging.len(), 6);
+        assert!(write_reblocked(&mut staging, &double[..3], 8, 2, |_| Ok(false)).is_err());
+        assert!(write_reblocked(&mut staging, &[], 8, 2, |_| Ok(false)).is_err());
     }
 }

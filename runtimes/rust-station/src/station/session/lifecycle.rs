@@ -84,6 +84,7 @@ pub(super) fn record_cached_transport_stats(
         ("kernel_drops", stats.kernel_drops),
         ("backpressure_drops", stats.backpressure_drops),
         ("queue_replacement_drops", stats.queue_replacement_drops),
+        ("transient_receive_errors", stats.transient_receive_errors),
     ] {
         result.network_monitor.insert(name.into(), value as i64);
     }

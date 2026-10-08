@@ -4,15 +4,75 @@ use crate::net::{
     parse_mac_address, resolve_direct_lan_mac_via_ip_helper, resolve_mac_via_ip_helper, Udp,
 };
 use crate::protocol::{
-    build_control_datagram, build_osc15_control_datagram, MediaSettings as ProtocolMediaSettings,
-    MESG_CHAT, MESG_DISCONNECT, MESG_STOP_AUDIO_SIGNAL,
+    build_control_datagram, build_osc15_control_datagram, unescape_txt_field,
+    MediaSettings as ProtocolMediaSettings, MESG_CHAT, MESG_DISCONNECT, MESG_STOP_AUDIO_SIGNAL,
 };
 use crate::station::bounded::push_bounded;
+use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub(super) const STATUS_REPLY_KINDS: &[&str] = &["/MESG_CHECKLOLASTATUS_ACK"];
+
+/// Minimum spacing between re-sent acknowledgements. The initiator repeats
+/// QUICKCONN every 500 ms, so this only suppresses bursts and duplicates.
+const ACK_RESEND_INTERVAL: Duration = Duration::from_millis(100);
+
+/// The encoded `/MESG_QUICKCONN_ACK` kept so a lost acknowledgement can be
+/// repeated while media is already flowing. Without it the initiator keeps
+/// re-sending QUICKCONN until its deadline while the responder streams to a
+/// peer that never joined.
+pub(crate) struct QuickconnAckCache {
+    bytes: Vec<u8>,
+    last_resend: Mutex<Option<Instant>>,
+}
+
+impl QuickconnAckCache {
+    pub(crate) fn new(bytes: Vec<u8>) -> Self {
+        Self {
+            bytes,
+            last_resend: Mutex::new(None),
+        }
+    }
+
+    fn claim_resend(&self) -> bool {
+        let mut last = lock_unpoison(&self.last_resend);
+        let now = Instant::now();
+        if last.is_some_and(|sent| now.duration_since(sent) < ACK_RESEND_INTERVAL) {
+            return false;
+        }
+        *last = Some(now);
+        true
+    }
+
+    /// Re-sends the cached acknowledgement and records it in the shared result.
+    /// A failed re-send is not a session failure: the initiator repeats its
+    /// request and the next attempt answers it.
+    pub(crate) fn resend(
+        &self,
+        socket: &Udp,
+        peer: SocketAddr,
+        shared: &Arc<Mutex<SessionResult>>,
+    ) {
+        if !self.claim_resend() || send_control_datagram(socket, &self.bytes, peer).is_err() {
+            return;
+        }
+        push_bounded(
+            &mut lock_unpoison(shared).messages_sent,
+            "/MESG_QUICKCONN_ACK".into(),
+        );
+    }
+
+    /// `resend` for callers that hold the session result directly.
+    pub(crate) fn resend_into(&self, socket: &Udp, peer: SocketAddr, result: &mut SessionResult) {
+        if !self.claim_resend() || send_control_datagram(socket, &self.bytes, peer).is_err() {
+            return;
+        }
+        push_bounded(&mut result.messages_sent, "/MESG_QUICKCONN_ACK".into());
+    }
+}
 pub(super) const QUICKCONN_REPLY_KINDS: &[&str] = &["/MESG_QUICKCONN_ACK", "/MESG_REJECT"];
 
 /// Best-effort protocol cleanup for every successfully negotiated client session.
@@ -405,7 +465,7 @@ pub(super) fn apply_stream_control(
         "/MESG_SWITCH_OFF_BB" => result.bounce_back = Some(false),
         "/MESG_CHAT" => {
             if let Some(text) = message.fields.get("TXT") {
-                push_bounded(&mut result.chat_messages, text.clone());
+                push_bounded(&mut result.chat_messages, unescape_txt_field(text));
             }
         }
         "/MESG_SEND_AUDIO_SIGNAL" => result.audio_signal_active = Some(true),
@@ -421,12 +481,16 @@ pub(super) fn apply_stream_control(
     false
 }
 
+/// Services inbound stream controls. A repeated `/MESG_QUICKCONN` from the
+/// pinned peer means the initiator never saw the acknowledgement; it is
+/// answered again from `quickconn_ack` when the responder holds one.
 pub(super) fn pump_control(
     socket: &Udp,
     expected_sender: SocketAddr,
     settings: &StationSettings,
     result: &mut SessionResult,
     runtime_control: Option<&SessionRuntimeControl>,
+    quickconn_ack: Option<&QuickconnAckCache>,
 ) -> Result<bool, SessionError> {
     for _ in 0..64 {
         match socket.try_recv_vec() {
@@ -437,9 +501,16 @@ pub(super) fn pump_control(
                 let Ok(message) = crate::protocol::decode_mesg(&data) else {
                     continue;
                 };
-                if validate_control_source(&message, sender, expected_sender, settings).is_err()
-                    || !is_stream_control(&message)
-                {
+                if validate_control_source(&message, sender, expected_sender, settings).is_err() {
+                    continue;
+                }
+                if message.name == "/MESG_QUICKCONN" {
+                    if let Some(ack) = quickconn_ack {
+                        ack.resend_into(socket, sender, result);
+                    }
+                    continue;
+                }
+                if !is_stream_control(&message) {
                     continue;
                 }
                 if apply_stream_control(&message, result, runtime_control) {
@@ -451,4 +522,20 @@ pub(super) fn pump_control(
         }
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod chat_tests {
+    use super::*;
+
+    #[test]
+    fn incoming_chat_text_is_unescaped() {
+        let message = crate::protocol::Mesg {
+            name: "/MESG_CHAT".into(),
+            fields: [("TXT".to_string(), "hi%3A there%3B 100%25".to_string())].into(),
+        };
+        let mut result = SessionResult::default();
+        assert!(!apply_stream_control(&message, &mut result, None));
+        assert_eq!(result.chat_messages, vec!["hi: there; 100%".to_string()]);
+    }
 }

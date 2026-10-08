@@ -191,6 +191,17 @@ impl SessionRuntime {
             .and_then(SessionRuntimeControl::latest_video)
     }
 
+    #[cfg(feature = "gui")]
+    pub(crate) fn latest_local_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
+        let (lock, _) = &*self.inner;
+        lock_unpoison(lock)
+            .session_control
+            .as_ref()
+            .map_or(VideoPreviewUpdate::Empty, |control| {
+                control.latest_local_video_update(generation)
+            })
+    }
+
     #[cfg(any(feature = "gui", test))]
     pub(crate) fn latest_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
         let (lock, _) = &*self.inner;
@@ -263,6 +274,10 @@ impl SessionRuntime {
                 let mut inner = lock_unpoison(lock);
                 normalize_requested_stop(&mut result, inner.snapshot.stop_requested);
                 inner.snapshot.state = terminal_state(&result);
+                // A frozen last frame must not look live once the session ended.
+                if let Some(control) = inner.session_control.as_ref() {
+                    control.clear_video();
+                }
                 if result.rejected {
                     inner.snapshot.error = Some(result.reject_text.clone());
                 } else if !result.ok {

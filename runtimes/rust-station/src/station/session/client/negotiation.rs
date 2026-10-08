@@ -6,8 +6,8 @@ use super::super::{SessionOptions, SessionPhase, SessionResult};
 use crate::config::StationSettings;
 use crate::net::Udp;
 use crate::protocol::{
-    parse_quickconn_fields, MediaSettings as ProtocolMediaSettings, MESG_CHECKLOLASTATUS,
-    MESG_QUICKCONN,
+    parse_quickconn_fields, unescape_txt_field, MediaSettings as ProtocolMediaSettings,
+    MESG_CHECKLOLASTATUS, MESG_QUICKCONN,
 };
 use crate::station::monitor::NetworkMonitor;
 use crate::station::SessionError;
@@ -45,15 +45,16 @@ pub(super) fn negotiate_client(
         None,
     )
     .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
-    send_control_datagram(control_socket, &status, peer_addr)?;
-    result.messages_sent.push("/MESG_CHECKLOLASTATUS".into());
-    let status_reply = recv_valid_control_until(
+    let status_reply = send_control_with_retries(
         control_socket,
+        &status,
         peer_addr,
         settings,
         deadline,
         options.runtime_control.as_ref(),
         STATUS_REPLY_KINDS,
+        &mut result.messages_sent,
+        "/MESG_CHECKLOLASTATUS",
     )?;
     let rtt = checked_at.elapsed().as_secs_f64() * 1000.0;
     monitor.note_rtt(rtt);
@@ -79,20 +80,21 @@ pub(super) fn negotiate_client(
         Some(&requested_media),
     )
     .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
-    send_control_datagram(control_socket, &quickconn, peer_addr)?;
-    result.messages_sent.push("/MESG_QUICKCONN".into());
-    let reply = recv_valid_control_until(
+    let reply = send_control_with_retries(
         control_socket,
+        &quickconn,
         peer_addr,
         settings,
         deadline,
         options.runtime_control.as_ref(),
         QUICKCONN_REPLY_KINDS,
+        &mut result.messages_sent,
+        "/MESG_QUICKCONN",
     )?;
     result.messages_received.push(reply.name.clone());
     if reply.name == "/MESG_REJECT" {
         result.rejected = true;
-        result.reject_text = reply.fields.get("TXT").cloned().unwrap_or_default();
+        result.reject_text = reject_reason(&reply);
         result.states.push("REJECTED".into());
         return Ok(ClientNegotiation::Rejected);
     }
@@ -119,6 +121,66 @@ pub(super) fn negotiate_client(
         remote_video_bpp,
         capabilities,
     })
+}
+
+/// Interval after which an unanswered handshake datagram is sent again.
+/// LoLa control runs over UDP without acknowledgement of the request itself,
+/// so one lost datagram must not cost the whole negotiation window.
+pub(super) const HANDSHAKE_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Sends one handshake datagram and waits for an accepted reply, re-sending
+/// the same datagram at every retry interval until the deadline. Replies are
+/// validated by `recv_valid_control_until`. A re-sent status check is answered
+/// again by the responder; a re-sent `QUICKCONN` is re-acknowledged by the
+/// responder even after it has moved on to media.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn send_control_with_retries(
+    control_socket: &Udp,
+    datagram: &[u8],
+    peer_addr: SocketAddr,
+    settings: &StationSettings,
+    deadline: Instant,
+    runtime_control: Option<&super::super::SessionRuntimeControl>,
+    accepted_kinds: &[&str],
+    messages_sent: &mut Vec<String>,
+    message_name: &str,
+) -> Result<crate::protocol::Mesg, SessionError> {
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(SessionError::Timeout(format!(
+                "no reply to {message_name} before the negotiation deadline"
+            )));
+        }
+        send_control_datagram(control_socket, datagram, peer_addr)?;
+        messages_sent.push(message_name.into());
+        let attempt_deadline = deadline.min(now + HANDSHAKE_RETRY_INTERVAL);
+        match recv_valid_control_until(
+            control_socket,
+            peer_addr,
+            settings,
+            attempt_deadline,
+            runtime_control,
+            accepted_kinds,
+        ) {
+            Err(SessionError::Timeout(_)) if attempt_deadline < deadline => continue,
+            Err(SessionError::Timeout(_)) => {
+                return Err(SessionError::Timeout(format!(
+                    "no reply to {message_name} after {} attempt(s)",
+                    messages_sent
+                        .iter()
+                        .filter(|name| name.as_str() == message_name)
+                        .count()
+                )))
+            }
+            other => return other,
+        }
+    }
+}
+
+/// The peer's REJECT reason with its ASCII TXT escapes decoded.
+fn reject_reason(reply: &crate::protocol::Mesg) -> String {
+    unescape_txt_field(reply.fields.get("TXT").map_or("", String::as_str))
 }
 
 pub(super) fn set_client_phase(options: &SessionOptions, phase: SessionPhase) {
@@ -177,3 +239,7 @@ pub(super) fn apply_cleanup_result(
 #[cfg(test)]
 #[path = "negotiation/geometry_tests.rs"]
 mod geometry_tests;
+
+#[cfg(test)]
+#[path = "negotiation/retry_tests.rs"]
+mod retry_tests;

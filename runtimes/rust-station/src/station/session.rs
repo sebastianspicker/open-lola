@@ -14,13 +14,16 @@ mod lifecycle;
 mod media;
 mod npcap;
 mod peer;
+mod realtime;
 mod report;
 mod runner;
 mod scheduler;
 mod stream;
+mod stream_support;
 mod timing;
 mod types;
 mod video;
+mod video_decode;
 
 pub use runner::{run_check_only, run_default_session, run_reject_session, run_session};
 #[cfg(any(feature = "gui", test))]

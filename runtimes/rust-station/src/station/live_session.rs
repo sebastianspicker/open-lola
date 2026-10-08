@@ -97,6 +97,11 @@ impl LiveStationService {
     }
 
     #[cfg(feature = "gui")]
+    pub(crate) fn latest_local_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
+        self.runtime.latest_local_video_update(generation)
+    }
+
+    #[cfg(feature = "gui")]
     pub(crate) fn latest_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
         self.runtime.latest_video_update(generation)
     }

@@ -1,14 +1,14 @@
 use super::control::{
-    apply_stream_control, build_session_control, is_stream_control, send_control_datagram,
-    validate_incoming_control,
+    apply_stream_control, build_session_control, send_control_datagram, validate_incoming_control,
+    QuickconnAckCache,
 };
 use super::media::SessionMediaTransport;
 use super::{SessionOptions, SessionResult};
 use crate::config::{MediaTransportKind, StationSettings};
 use crate::net::Udp;
 use crate::protocol::{
-    decode_mesg, parse_quickconn_fields, MediaSettings as ProtocolMediaSettings,
-    MESG_CHECKLOLASTATUS_ACK, MESG_QUICKCONN_ACK, MESG_REJECT,
+    decode_mesg, MediaSettings as ProtocolMediaSettings, MESG_CHECKLOLASTATUS_ACK,
+    MESG_QUICKCONN_ACK, MESG_REJECT,
 };
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
@@ -17,14 +17,19 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod handshake;
 mod listen;
 #[cfg(test)]
 #[path = "peer/negotiation_tests.rs"]
 mod negotiation_tests;
 mod relay;
 
+use handshake::pump_peer_control;
+#[cfg(test)]
+use handshake::pump_peer_control_from;
+use handshake::{quickconn_capabilities, video_negotiated};
+
 const INITIAL_NEGOTIATION_KINDS: &[&str] = &["/MESG_CHECKLOLASTATUS", "/MESG_QUICKCONN"];
-const QUICKCONN_NEGOTIATION_KINDS: &[&str] = &["/MESG_QUICKCONN"];
 
 #[derive(Clone, Copy)]
 pub(super) struct PeerPorts {
@@ -133,7 +138,7 @@ fn peer_session_body_with_sockets(
         &options,
         &shared,
         &ctrl,
-        Instant::now() + Duration::from_secs_f64(to),
+        listener_negotiation_deadline(&options, Duration::from_secs_f64(to)),
     )?;
     let Some(negotiation) = negotiation else {
         return Ok(());
@@ -176,6 +181,20 @@ fn peer_session_body_with_sockets(
 struct PeerNegotiation {
     addr: SocketAddr,
     ack_media: ProtocolMediaSettings,
+    ack: QuickconnAckCache,
+}
+
+/// A persistent listener waits for its peer until the operator cancels it;
+/// its receive loop polls cancellation every 10 ms. Finite diagnostic runs
+/// keep the caller's timeout.
+fn listener_negotiation_deadline(options: &SessionOptions, timeout: Duration) -> Instant {
+    let now = Instant::now();
+    if options.persistent {
+        return now
+            .checked_add(Duration::from_secs(365 * 86_400))
+            .unwrap_or(now + timeout);
+    }
+    now + timeout
 }
 
 fn negotiate_peer(
@@ -197,7 +216,9 @@ fn negotiate_peer(
     lock_unpoison(shared)
         .messages_received
         .push(message.name.clone());
-    if message.name == "/MESG_CHECKLOLASTATUS" {
+    // The initiator re-sends an unanswered status check. Every repeat is
+    // acknowledged again so a lost acknowledgement cannot stall the handshake.
+    while message.name == "/MESG_CHECKLOLASTATUS" {
         acknowledge_status(control_socket, settings, shared, addr)?;
         (message, addr) = recv_peer_control_until(
             control_socket,
@@ -205,7 +226,7 @@ fn negotiate_peer(
             options,
             Some(control_peer),
             deadline,
-            QUICKCONN_NEGOTIATION_KINDS,
+            INITIAL_NEGOTIATION_KINDS,
         )?;
         lock_unpoison(shared)
             .messages_received
@@ -217,8 +238,14 @@ fn negotiate_peer(
             message.name
         )));
     }
-    let capabilities = parse_quickconn_fields(&message)
-        .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
+    let capabilities = match quickconn_capabilities(&message, options) {
+        Ok(capabilities) => capabilities,
+        Err(error) => {
+            let reason = format!("invalid media settings: {error}");
+            reject_peer(control_socket, settings, shared, addr, &reason)?;
+            return Ok(None);
+        }
+    };
     lock_unpoison(shared).capabilities = capabilities.clone();
     if let Some(reason) = peer_rejection_reason(settings, options, &capabilities) {
         reject_peer(control_socket, settings, shared, addr, reason)?;
@@ -238,7 +265,11 @@ fn negotiate_peer(
     lock_unpoison(shared)
         .messages_sent
         .push("/MESG_QUICKCONN_ACK".into());
-    Ok(Some(PeerNegotiation { addr, ack_media }))
+    Ok(Some(PeerNegotiation {
+        addr,
+        ack_media,
+        ack: QuickconnAckCache::new(ack),
+    }))
 }
 
 fn acknowledge_status(
@@ -280,7 +311,7 @@ fn peer_rejection_reason(
     if !audio_matches {
         return Some("audio settings mismatch");
     }
-    if options.audio_only || (!options.stream_tx_video && !options.stream_rx_video) {
+    if !video_negotiated(options) {
         return None;
     }
     if capabilities.get("FPS").and_then(Value::as_i64) != Some(i64::from(settings.video.fps)) {
@@ -426,6 +457,7 @@ fn run_listen_peer_media(
         n_frames,
         &negotiation.ack_media,
         media_transport,
+        Some(&negotiation.ack),
     );
     let cleanup = media_transport.shutdown();
     {
@@ -498,54 +530,4 @@ fn recv_peer_control_until(
             Err(error) => return Err(SessionError::Transport(error.to_string())),
         }
     }
-}
-
-fn pump_peer_control(
-    socket: &Udp,
-    expected_sender: SocketAddr,
-    settings: &StationSettings,
-    options: &SessionOptions,
-    shared: &Arc<Mutex<SessionResult>>,
-) -> Result<bool, SessionError> {
-    pump_peer_control_from(
-        || socket.try_recv_vec(),
-        expected_sender,
-        settings,
-        options,
-        shared,
-    )
-}
-
-fn pump_peer_control_from(
-    mut receive: impl FnMut() -> std::io::Result<Option<(Vec<u8>, SocketAddr)>>,
-    expected_sender: SocketAddr,
-    settings: &StationSettings,
-    options: &SessionOptions,
-    shared: &Arc<Mutex<SessionResult>>,
-) -> Result<bool, SessionError> {
-    for _ in 0..64 {
-        match receive() {
-            Ok(Some((data, sender))) => {
-                if sender != expected_sender {
-                    continue;
-                }
-                let Ok(message) = decode_mesg(&data) else {
-                    continue;
-                };
-                if validate_incoming_control(&message, sender, settings, Some(expected_sender))
-                    .is_err()
-                    || !is_stream_control(&message)
-                {
-                    continue;
-                }
-                let mut result = lock_unpoison(shared);
-                if apply_stream_control(&message, &mut result, options.runtime_control.as_ref()) {
-                    return Ok(true);
-                }
-            }
-            Ok(None) => return Ok(false),
-            Err(error) => return Err(SessionError::Transport(error.to_string())),
-        }
-    }
-    Ok(false)
 }

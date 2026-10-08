@@ -3,7 +3,7 @@ use super::super::media::{
     recv_media, send_audio_media, send_video_media, should_stream_more, SessionMediaTransport,
 };
 use super::super::{SessionOptions, SessionResult};
-use super::{pump_peer_control, PeerNegotiation, PeerPorts};
+use super::{pump_peer_control, PeerNegotiation, PeerPorts, QuickconnAckCache};
 use crate::config::StationSettings;
 use crate::net::Udp;
 use crate::protocol::{
@@ -38,6 +38,7 @@ pub(super) fn run_peer_relay(
         options,
         shared,
         control_socket,
+        ack: &negotiation.ack,
         peer: negotiation.addr,
         packet_size,
         video_compressed: negotiation.ack_media.compression == 1,
@@ -93,6 +94,7 @@ struct PeerRelay<'a> {
     options: &'a SessionOptions,
     shared: &'a Arc<Mutex<SessionResult>>,
     control_socket: &'a Udp,
+    ack: &'a QuickconnAckCache,
     peer: SocketAddr,
     packet_size: usize,
     video_compressed: bool,
@@ -176,6 +178,7 @@ fn relay_audio_phase(
 fn relay_control_disconnect(relay: &PeerRelay<'_>) -> Result<bool, SessionError> {
     pump_peer_control(
         relay.control_socket,
+        relay.ack,
         relay.peer,
         relay.settings,
         relay.options,

@@ -3,17 +3,31 @@
 use socket2::{Domain, Protocol, Socket, Type};
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-/// Limits kernel UDP buffering so queued media cannot grow without bound.
-const UDP_SOCKET_BUFFER_BYTES: usize = 256 * 1024;
-const MAX_UDP_DRAIN_DATAGRAMS: usize = 256;
+/// Bounded kernel UDP buffering. Raw video arrives in bursts of several
+/// hundred fragments per frame, so the first request is generous; the kernel
+/// may cap it (Linux `rmem_max`) or reject it (macOS `maxsockbuf`), in which
+/// case the next smaller bound is requested. The floor keeps one complete
+/// audio deadline plus scheduler slack queued without silent loss.
+const UDP_SOCKET_BUFFER_BYTES: &[usize] = &[
+    4 * 1024 * 1024,
+    2 * 1024 * 1024,
+    1024 * 1024,
+    512 * 1024,
+    256 * 1024,
+    64 * 1024,
+];
 
 #[derive(Debug)]
 pub struct Udp {
     sock: UdpSocket,
     receive_state: Mutex<ReceiveState>,
+    /// `ConnectionReset` receives (Windows ICMP port-unreachable) absorbed
+    /// as "no datagram" since the last `take_transient_receive_errors`.
+    transient_receive_errors: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -29,6 +43,7 @@ impl Udp {
         Ok(Self {
             sock,
             receive_state: Mutex::new(ReceiveState::new()),
+            transient_receive_errors: AtomicU64::new(0),
         })
     }
 
@@ -38,6 +53,7 @@ impl Udp {
         Ok(Self {
             sock,
             receive_state: Mutex::new(ReceiveState::new()),
+            transient_receive_errors: AtomicU64::new(0),
         })
     }
 
@@ -96,15 +112,7 @@ impl Udp {
             NonblockingReceive::enable_unless(&self.sock, state.permanently_nonblocking)?;
         let received = match self.recv_into_scratch(&mut state) {
             Ok((length, peer)) => Ok(Some((state.scratch[..length].to_vec(), peer))),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) =>
-            {
-                Ok(None)
-            }
-            Err(error) => Err(error),
+            Err(error) => self.absorb_empty_receive(error),
         };
         let restore_result = nonblocking.restore();
         match received {
@@ -124,15 +132,7 @@ impl Udp {
             NonblockingReceive::enable_unless(&self.sock, state.permanently_nonblocking)?;
         let received = match self.recv_into_scratch(&mut state) {
             Ok((length, peer)) => Ok(classify(&state.scratch[..length], peer)),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) =>
-            {
-                Ok(None)
-            }
-            Err(error) => Err(error),
+            Err(error) => self.absorb_empty_receive(error),
         };
         let restore_result = nonblocking.restore();
         match received {
@@ -141,52 +141,24 @@ impl Udp {
         }
     }
 
-    /// Nonblocking variant used by deadline schedulers. It drains at most one
-    /// bounded quantum after the first accepted datagram.
-    pub(crate) fn try_recv_latest<T, F>(&self, mut classify: F) -> io::Result<(Option<T>, u64)>
-    where
-        F: FnMut(&[u8], SocketAddr) -> Option<T>,
-    {
-        let mut state = self.lock_receive()?;
-        let mut nonblocking =
-            NonblockingReceive::enable_unless(&self.sock, state.permanently_nonblocking)?;
-        let first = match self.recv_into_scratch(&mut state) {
-            Ok(datagram) => Some(datagram),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) =>
-            {
-                None
+    /// Maps receive errors that carry no datagram to "nothing received". A
+    /// `ConnectionReset` is a Windows ICMP port-unreachable for an earlier
+    /// send and is counted instead of failing the poll.
+    fn absorb_empty_receive<T>(&self, error: io::Error) -> io::Result<Option<T>> {
+        match error.kind() {
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => Ok(None),
+            io::ErrorKind::ConnectionReset => {
+                self.transient_receive_errors
+                    .fetch_add(1, Ordering::Relaxed);
+                Ok(None)
             }
-            Err(error) => {
-                let _ = nonblocking.restore();
-                return Err(error);
-            }
-        };
-        let Some((length, peer)) = first else {
-            nonblocking.restore()?;
-            return Ok((None, 0));
-        };
-        let Some(mut latest) = classify(&state.scratch[..length], peer) else {
-            nonblocking.restore()?;
-            return Ok((None, 0));
-        };
-        let drain_result = drain_latest(&mut latest, || {
-            let (length, peer) = self.recv_into_scratch(&mut state)?;
-            Ok(classify(&state.scratch[..length], peer))
-        });
-        let restore_result = nonblocking.restore();
-        let replacements = match drain_result {
-            Ok(replacements) => replacements,
-            Err(error) => {
-                let _ = restore_result;
-                return Err(error);
-            }
-        };
-        restore_result?;
-        Ok((Some(latest), replacements))
+            _ => Err(error),
+        }
+    }
+
+    /// Returns and clears the count of absorbed transient receive errors.
+    pub(crate) fn take_transient_receive_errors(&self) -> u64 {
+        self.transient_receive_errors.swap(0, Ordering::Relaxed)
     }
 
     fn lock_receive(&self) -> io::Result<MutexGuard<'_, ReceiveState>> {
@@ -209,33 +181,6 @@ impl ReceiveState {
     }
 }
 
-fn drain_latest<T, R>(latest: &mut T, mut receive: R) -> io::Result<u64>
-where
-    R: FnMut() -> io::Result<Option<T>>,
-{
-    let mut replacements = 0;
-    for _ in 0..MAX_UDP_DRAIN_DATAGRAMS {
-        match receive() {
-            Ok(datagram) => {
-                if let Some(datagram) = datagram {
-                    *latest = datagram;
-                    replacements += 1;
-                }
-            }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) =>
-            {
-                break;
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(replacements)
-}
-
 fn bounded_udp_socket(addr: impl ToSocketAddrs) -> io::Result<UdpSocket> {
     let mut last_error = None;
     for addr in addr.to_socket_addrs()? {
@@ -254,10 +199,23 @@ fn bounded_udp_socket(addr: impl ToSocketAddrs) -> io::Result<UdpSocket> {
 
 fn bind_bounded_udp_socket(addr: SocketAddr) -> io::Result<UdpSocket> {
     let socket = Socket::new(Domain::for_address(addr), Type::DGRAM, Some(Protocol::UDP))?;
-    socket.set_recv_buffer_size(UDP_SOCKET_BUFFER_BYTES)?;
-    socket.set_send_buffer_size(UDP_SOCKET_BUFFER_BYTES)?;
+    set_bounded_buffer(|bytes| socket.set_recv_buffer_size(bytes))?;
+    set_bounded_buffer(|bytes| socket.set_send_buffer_size(bytes))?;
     socket.bind(&addr.into())?;
     Ok(socket.into())
+}
+
+/// Applies the largest acceptable bound from `UDP_SOCKET_BUFFER_BYTES`.
+/// Only the smallest bound is allowed to fail the bind.
+fn set_bounded_buffer(mut apply: impl FnMut(usize) -> io::Result<()>) -> io::Result<()> {
+    let mut last_error = None;
+    for bytes in UDP_SOCKET_BUFFER_BYTES {
+        match apply(*bytes) {
+            Ok(()) => return Ok(()),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| io::Error::other("no UDP socket buffer bound configured")))
 }
 
 /// Restores blocking mode even when a drain exits through an error path.
@@ -309,6 +267,22 @@ mod tests {
             assert_eq!(receiver.recv_vec().unwrap().0, payload);
             assert_eq!(receiver.lock_receive().unwrap().scratch.as_ptr(), scratch);
         }
+    }
+
+    #[test]
+    fn connection_reset_is_counted_as_an_empty_receive() {
+        let udp = Udp::bind("127.0.0.1", 0).unwrap();
+        let reset: io::Result<Option<()>> =
+            udp.absorb_empty_receive(io::ErrorKind::ConnectionReset.into());
+        assert_eq!(reset.unwrap(), None);
+        let empty: io::Result<Option<()>> =
+            udp.absorb_empty_receive(io::ErrorKind::WouldBlock.into());
+        assert_eq!(empty.unwrap(), None);
+        let fatal: io::Result<Option<()>> =
+            udp.absorb_empty_receive(io::ErrorKind::PermissionDenied.into());
+        assert!(fatal.is_err());
+        assert_eq!(udp.take_transient_receive_errors(), 1);
+        assert_eq!(udp.take_transient_receive_errors(), 0);
     }
 
     #[test]

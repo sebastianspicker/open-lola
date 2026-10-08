@@ -33,6 +33,25 @@ fn callback_ring_discards_oldest_block_when_full() {
 }
 
 #[test]
+fn callback_ring_producer_drops_instead_of_spinning_on_a_held_slot() {
+    let ring = CallbackRing::new(2, 1).expect("create ring");
+    assert!(!ring.push_from_ptr([1].as_ptr()));
+    assert!(!ring.push_from_ptr([2].as_ptr()));
+    // The session thread has claimed the oldest block but not yet released it.
+    let held = ring.claim_consumer_slot().expect("claim oldest block");
+
+    // The full ring cannot free the held slot: one reported drop, no hang.
+    assert!(ring.push_from_ptr([3].as_ptr()));
+    assert_eq!(ring.queued_blocks(), 0);
+
+    ring.release_consumer_slot(held.0, held.1);
+    assert!(!ring.push_from_ptr([4].as_ptr()));
+    let mut output = [0];
+    assert!(ring.pop_into(&mut output).expect("buffered capture"));
+    assert_eq!(output, [4]);
+}
+
+#[test]
 fn callback_ring_pop_into_reuses_caller_storage_without_changing_bytes() {
     let ring = CallbackRing::new(2, 4).expect("create ring");
     let first = [1, 2, 3, 4];

@@ -92,12 +92,15 @@ impl SessionRecorder {
             remote_video,
             preview_root.is_some(),
         );
-        if ACTIVE_WORKERS
+        // `fetch_update` is deprecated in favour of `try_update` on recent
+        // toolchains; the older name keeps the crate building on older stable.
+        #[allow(deprecated)]
+        let reserved = ACTIVE_WORKERS
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < 2).then_some(active + 1)
             })
-            .is_err()
-        {
+            .is_err();
+        if reserved {
             return Self {
                 sender: None,
                 worker: None,
@@ -268,14 +271,15 @@ impl SessionRecorder {
         });
     }
     fn reserve(&mut self) -> Option<QueueSlot> {
-        if self.sender.is_none()
+        #[allow(deprecated)]
+        let slot_unavailable = self.sender.is_none()
             || self
                 .pending
                 .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                     (count < QUEUE_CAPACITY).then_some(count + 1)
                 })
-                .is_err()
-        {
+                .is_err();
+        if slot_unavailable {
             self.dropped += 1;
             return None;
         }

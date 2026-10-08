@@ -84,6 +84,27 @@ impl SessionResult {
             "audio_malformed_drops".into(),
             json!(self.audio_malformed_drops),
         );
+        for (name, value) in [
+            (
+                "audio_device_paced_services",
+                self.audio_device_paced_services,
+            ),
+            (
+                "audio_capture_backlog_drops",
+                self.audio_capture_backlog_drops,
+            ),
+            ("audio_capture_timeouts", self.audio_capture_timeouts),
+            ("audio_send_drops", self.audio_send_drops),
+            ("audio_sequence_resyncs", self.audio_sequence_resyncs),
+            ("video_out_of_order_drops", self.video_out_of_order_drops),
+            (
+                "video_superseded_incomplete_frames",
+                self.video_superseded_incomplete_frames,
+            ),
+        ] {
+            object.insert(name.into(), json!(value));
+        }
+        object.insert("realtime_priority".into(), json!(self.realtime_priority));
         object.insert("cleanup_warnings".into(), json!(self.cleanup_warnings));
         value
     }

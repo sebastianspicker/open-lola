@@ -1,11 +1,12 @@
 use super::super::backends::SessionAudioBackend;
 use super::super::capture::CaptureWorker;
+use super::super::control::QuickconnAckCache;
 use super::super::control::{build_session_control, send_control_datagram};
 use super::super::lifecycle::record_transport_monitor;
 use super::super::media::{ReceivePrefillQueue, SessionMediaTransport};
 use super::super::stream::run_interleaved_stream;
 use super::super::types::now_us;
-use super::super::video::ReceivedVideoFrame;
+use super::super::video::VideoReceiveQueue;
 use super::super::{SessionOptions, SessionResult};
 use crate::config::StationSettings;
 use crate::net::Udp;
@@ -80,6 +81,7 @@ pub(super) fn run_listen_media(
     n_frames: u32,
     negotiated: &crate::protocol::MediaSettings,
     transport: &mut SessionMediaTransport,
+    quickconn_ack: Option<&QuickconnAckCache>,
 ) -> Result<(), SessionError> {
     let video_compressed = negotiated.compression == 1;
     let remote_video_bpp = negotiated.bits_per_pixel;
@@ -147,10 +149,13 @@ pub(super) fn run_listen_media(
         settings.network.audio_receive_queue_depth,
         settings.network.audio_receive_prefill,
     );
-    let mut video_queue: ReceivePrefillQueue<ReceivedVideoFrame> = ReceivePrefillQueue::new(
+    let mut video_queue = VideoReceiveQueue::new(
         settings.network.video_receive_queue_depth,
         settings.network.video_receive_prefill,
     );
+    if video_compressed {
+        video_queue = video_queue.with_decoder(stream_w, stream_h, remote_video_bpp);
+    }
     let mut previews = Vec::new();
     let primary = {
         let mut result = lock_unpoison(shared);
@@ -181,6 +186,7 @@ pub(super) fn run_listen_media(
             &mut audio_queue,
             &mut v_re,
             &mut video_queue,
+            quickconn_ack,
         )
     };
     // The responder uses the observed control source, not configured remote
