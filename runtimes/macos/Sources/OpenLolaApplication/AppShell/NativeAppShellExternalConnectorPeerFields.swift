@@ -89,7 +89,7 @@ public struct NativeAppShellExternalConnectorPeerFields: Codable, Equatable, Sen
             videoPort: 5_004,
             mediaMode: .audio
         ),
-        execution: Execution(outputPath: "/tmp/open-lola-app/jacktrip-session.json")
+        execution: Execution(outputPath: NativeAppShellExecutionPaths.defaultConnectorOutputPath(fileName: "jacktrip-session.json"))
     )
 
     public static let ultraGridAppDefault = NativeAppShellExternalConnectorPeerFields(
@@ -100,7 +100,7 @@ public struct NativeAppShellExternalConnectorPeerFields: Codable, Equatable, Sen
             videoPort: 5_004,
             mediaMode: .audioVideo
         ),
-        execution: Execution(outputPath: "/tmp/open-lola-app/ultragrid-session.json")
+        execution: Execution(outputPath: NativeAppShellExecutionPaths.defaultConnectorOutputPath(fileName: "ultragrid-session.json"))
     )
 
     public func validateAppSettings(connector: ExternalConnectorKind) throws {

@@ -13,12 +13,15 @@ use crate::protocol::{
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
 use serde_json::Value;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 mod handshake;
 mod listen;
+#[cfg(test)]
+#[path = "peer/listen_tests.rs"]
+mod listen_tests;
 #[cfg(test)]
 #[path = "peer/negotiation_tests.rs"]
 mod negotiation_tests;
@@ -129,10 +132,10 @@ fn peer_session_body_with_sockets(
         video,
     } = sockets;
     let to = timeout.max(5.0);
-    ctrl.set_timeout(to).ok();
+    SessionError::from_socket_timeout(ctrl.set_timeout(to))?;
     let media_timeout = if options.persistent { 0.1 } else { to };
-    audio.set_timeout(media_timeout).ok();
-    video.set_timeout(media_timeout).ok();
+    SessionError::from_socket_timeout(audio.set_timeout(media_timeout))?;
+    SessionError::from_socket_timeout(video.set_timeout(media_timeout))?;
     let negotiation = negotiate_peer(
         &settings,
         &options,
@@ -204,6 +207,21 @@ fn negotiate_peer(
     control_socket: &Udp,
     deadline: Instant,
 ) -> Result<Option<PeerNegotiation>, SessionError> {
+    negotiate_peer_with(settings, options, shared, control_socket, deadline, || {
+        super::preflight::preflight_devices(settings, options)
+    })
+}
+
+/// `negotiate_peer` with an injectable device preflight. A device that cannot open is
+/// refused with a REJECT carrying the reason instead of an ACK followed by DISCONNECT.
+fn negotiate_peer_with(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    shared: &Arc<Mutex<SessionResult>>,
+    control_socket: &Udp,
+    deadline: Instant,
+    preflight: impl FnOnce() -> Result<(), SessionError>,
+) -> Result<Option<PeerNegotiation>, SessionError> {
     let (mut message, mut addr) = recv_peer_control_until(
         control_socket,
         settings,
@@ -249,6 +267,18 @@ fn negotiate_peer(
     lock_unpoison(shared).capabilities = capabilities.clone();
     if let Some(reason) = peer_rejection_reason(settings, options, &capabilities) {
         reject_peer(control_socket, settings, shared, addr, reason)?;
+        return Ok(None);
+    }
+    if let Err(error) = preflight() {
+        // The peer gets a fixed ASCII reason; the device detail (names, links) stays local.
+        reject_peer_with_detail(
+            control_socket,
+            settings,
+            shared,
+            addr,
+            "device unavailable",
+            &format!("device unavailable: {error}"),
+        )?;
         return Ok(None);
     }
     let ack_media = peer_ack_media(&capabilities);
@@ -336,6 +366,18 @@ fn reject_peer(
     peer: SocketAddr,
     reason: &str,
 ) -> Result<(), SessionError> {
+    reject_peer_with_detail(control_socket, settings, shared, peer, reason, reason)
+}
+
+/// Send `reason` to the peer and record `detail` only in the local result.
+fn reject_peer_with_detail(
+    control_socket: &Udp,
+    settings: &StationSettings,
+    shared: &Arc<Mutex<SessionResult>>,
+    peer: SocketAddr,
+    reason: &str,
+    detail: &str,
+) -> Result<(), SessionError> {
     let rejection = build_session_control(
         settings,
         MESG_REJECT,
@@ -349,7 +391,7 @@ fn reject_peer(
     let mut result = lock_unpoison(shared);
     result.messages_sent.push("/MESG_REJECT".into());
     result.rejected = true;
-    result.reject_text = reason.into();
+    result.reject_text = detail.into();
     Ok(())
 }
 
@@ -377,7 +419,7 @@ fn receive_peer_control_extras(
     shared: &Arc<Mutex<SessionResult>>,
     peer: SocketAddr,
 ) -> Result<bool, SessionError> {
-    control_socket.set_timeout(0.15).ok();
+    SessionError::from_socket_timeout(control_socket.set_timeout(0.15))?;
     let deadline = Instant::now()
         + if options.control_extras {
             Duration::from_millis(400)
@@ -472,6 +514,23 @@ fn run_listen_peer_media(
     primary.and(cleanup)
 }
 
+/// Explain a listener deadline, naming datagrams dropped for coming from an unexpected IP.
+fn listener_timeout_message(
+    discarded: u64,
+    (foreign, last_foreign): (u64, Option<IpAddr>),
+    remote_ip: &str,
+) -> String {
+    let mut message = format!(
+        "listener control negotiation deadline elapsed after discarding {discarded} invalid control datagrams"
+    );
+    if let Some(sender) = last_foreign {
+        message.push_str(&format!(
+            "; ignored {foreign} datagram(s) from {sender}; expected remote_ip {remote_ip} (set --remote-ip)"
+        ));
+    }
+    message
+}
+
 fn recv_peer_control_until(
     socket: &Udp,
     settings: &StationSettings,
@@ -482,6 +541,7 @@ fn recv_peer_control_until(
 ) -> Result<(crate::protocol::Mesg, SocketAddr), SessionError> {
     const POLL: Duration = Duration::from_millis(10);
     let mut discarded = 0_u64;
+    let mut foreign = (0_u64, None);
     loop {
         if options
             .runtime_control
@@ -494,8 +554,10 @@ fn recv_peer_control_until(
         }
         let now = Instant::now();
         if now >= deadline {
-            return Err(SessionError::Timeout(format!(
-                "listener control negotiation deadline elapsed after discarding {discarded} invalid control datagrams"
+            return Err(SessionError::Timeout(listener_timeout_message(
+                discarded,
+                foreign,
+                &settings.network.remote_ip,
             )));
         }
         socket
@@ -503,8 +565,11 @@ fn recv_peer_control_until(
             .map_err(|error| SessionError::Transport(error.to_string()))?;
         match socket.recv_vec() {
             Ok((data, sender)) => {
+                if sender.ip().to_string() != settings.network.remote_ip {
+                    foreign = (foreign.0 + 1, Some(sender.ip()));
+                    continue;
+                }
                 if expected_sender.is_some_and(|expected| sender != expected)
-                    || sender.ip().to_string() != settings.network.remote_ip
                     || (!options.peer_mode.eq_ignore_ascii_case("loopback")
                         && sender.port() != settings.network.control_port)
                 {
@@ -525,7 +590,9 @@ fn recv_peer_control_until(
             Err(error)
                 if matches!(
                     error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
                 ) => {}
             Err(error) => return Err(SessionError::Transport(error.to_string())),
         }

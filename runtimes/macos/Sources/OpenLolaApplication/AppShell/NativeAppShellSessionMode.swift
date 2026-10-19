@@ -187,10 +187,8 @@ public extension NativeAppShellSessionMode {
 
     var usesPostRunValidationStart: Bool {
         switch self {
-        case .jackTrip, .ultraGrid:
+        case .directMacPeer, .windowsLoLa, .jackTrip, .ultraGrid:
             return true
-        case .directMacPeer, .windowsLoLa:
-            return false
         }
     }
 }
@@ -353,7 +351,11 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
         ports: .init(control: 7_000, audio: 19_788, video: 19_798),
         video: .init(mediaMode: .audioVideo, payloadMode: .generated, width: 640, height: 480, frameRate: 25, bitsPerPixel: 8),
         audio: .init(sampleRateHertz: 44_100, framesPerPacket: 64, channelCount: 2, compression: 0),
-        run: .init(durationSeconds: 20, outputPath: "/tmp/open-lola-app/windows-lola-session.json", bayer: 0)
+        run: .init(
+            durationSeconds: 20,
+            outputPath: NativeAppShellExecutionPaths.defaultConnectorOutputPath(fileName: "windows-lola-session.json"),
+            bayer: 0
+        )
     )
 
     public func mediaPacketCount() throws -> Int {

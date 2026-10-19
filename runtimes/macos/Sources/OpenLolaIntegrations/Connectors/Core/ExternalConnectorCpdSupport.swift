@@ -21,7 +21,40 @@ func parseExternalConnectorAudioCaptureSource(
     if value.hasPrefix("fixture:") {
         return .fixture(try parseFixtureBytes(value, field: "audioCapture"))
     }
+    // Plain `coreaudio` (UltraGrid's own default) stays synthetic: the in-process Core Audio
+    // bridge needs an explicit device UID and has no system-default-device mode.
     return value.hasPrefix("coreaudio:") ? .coreAudio : .synthetic
+}
+
+/// Returns the warning for an in-process audio source that silently falls back to synthetic, or nil when the choice was explicit.
+func externalConnectorAudioCaptureFallbackWarning(_ configuration: ExternalConnectorSessionConfiguration) -> String? {
+    guard configuration.mediaMode.hasAudio else { return nil }
+    let accepted = "accepted forms: synthetic, fixture:<hex>, coreaudio:<device-uid>"
+    guard let value = configuration.audioCapture else {
+        return "WARNING: --audio-capture was not given; the in-process audio source is SYNTHETIC (\(accepted))."
+    }
+    if value == "synthetic" || value.hasPrefix("fixture:") || value.hasPrefix("coreaudio:") { return nil }
+    return "WARNING: --audio-capture \(value) is not handled in-process; the in-process audio source is SYNTHETIC (\(accepted))."
+}
+
+/// Returns the warning for an in-process video source that silently falls back to synthetic, or nil when the choice was explicit.
+func externalConnectorVideoCaptureFallbackWarning(_ configuration: ExternalConnectorSessionConfiguration) -> String? {
+    guard configuration.mediaMode.hasVideo, configuration.lolaVideoPayload != .avFoundationRaw8 else { return nil }
+    let accepted = "accepted forms: synthetic, fixture:<hex>, avfoundation:<device>, avfoundation-raw8, auto"
+    guard let value = configuration.videoCapture else {
+        return "WARNING: --video-capture was not given; the in-process video source is SYNTHETIC (\(accepted))."
+    }
+    if value == "synthetic" || value == "avfoundation-raw8" || value == "auto"
+        || value.hasPrefix("fixture:") || value.hasPrefix("avfoundation:") { return nil }
+    return "WARNING: --video-capture \(value) is not handled in-process; the in-process video source is SYNTHETIC (\(accepted))."
+}
+
+/// Writes media fallback warnings to stderr and returns them as text to append to the report notes.
+func announceExternalConnectorMediaFallbackWarnings(_ warnings: [String]) -> String {
+    for warning in warnings {
+        FileHandle.standardError.write(Data((warning + "\n").utf8))
+    }
+    return warnings.map { " " + $0 }.joined()
 }
 
 struct ExternalConnectorLaunchExecutionDetails {

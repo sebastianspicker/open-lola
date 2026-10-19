@@ -4,6 +4,7 @@ use super::{DeviceChoice, InventoryState};
 use crate::audio::alsa::inventory_alsa_devices;
 use crate::audio::portaudio::load_portaudio;
 use crate::config::{AudioBackend, VideoBackend};
+use crate::video::mediafoundation::MfCamera;
 use crate::video::v4l2::V4l2Camera;
 
 pub(crate) struct InventoryResult {
@@ -88,6 +89,30 @@ fn video_devices(backend: VideoBackend) -> InventoryState {
                             .into_iter()
                             .map(|format| format.pixel_format)
                             .collect(),
+                    })
+                    .collect(),
+            ),
+            Err(error) => InventoryState::Error(error.to_string()),
+        },
+        VideoBackend::MediaFoundation => match MfCamera::inventory() {
+            Ok(devices) => InventoryState::Available(
+                devices
+                    .into_iter()
+                    .map(|device| {
+                        let mut formats: Vec<String> = Vec::new();
+                        for mode in &device.modes {
+                            let name = mode.subtype.to_string();
+                            if !formats.contains(&name) {
+                                formats.push(name);
+                            }
+                        }
+                        DeviceChoice {
+                            id: device.symbolic_link,
+                            label: device.name,
+                            supports_input: true,
+                            supports_output: false,
+                            formats,
+                        }
                     })
                     .collect(),
             ),

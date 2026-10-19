@@ -76,11 +76,12 @@ public struct IntegratedAudioMetrics: Codable, Equatable, Sendable {
     public var integratedCallbackMaxMicroseconds: Double
     public var baselinePlayoutTargetFrames: Int
     public var integratedPlayoutTargetFrames: Int
-    public var packetAge: UdpPcmPacketAgeMetrics
-    public var lostPackets: Int
-    public var latePackets: Int
-    public var underruns: Int
-    public var hiddenPlayoutGrowthDetected: Bool
+    // Packet health is nil when the run did not measure the audio lane, instead of reporting healthy constants.
+    public var packetAge: UdpPcmPacketAgeMetrics?
+    public var lostPackets: Int?
+    public var latePackets: Int?
+    public var underruns: Int?
+    public var hiddenPlayoutGrowthDetected: Bool?
 
     public struct Verdicts: Equatable, Sendable {
         public var baselineRouteReportId: String
@@ -128,18 +129,27 @@ public struct IntegratedAudioMetrics: Codable, Equatable, Sendable {
     }
 
     public struct PacketHealth: Equatable, Sendable {
-        public var packetAge: UdpPcmPacketAgeMetrics
-        public var lostPackets: Int
-        public var latePackets: Int
-        public var underruns: Int
-        public var hiddenPlayoutGrowthDetected: Bool
+        public var packetAge: UdpPcmPacketAgeMetrics?
+        public var lostPackets: Int?
+        public var latePackets: Int?
+        public var underruns: Int?
+        public var hiddenPlayoutGrowthDetected: Bool?
+
+        /// Packet health for a run that did not measure the audio lane.
+        public static let notMeasured = PacketHealth(
+            packetAge: nil,
+            lostPackets: nil,
+            latePackets: nil,
+            underruns: nil,
+            hiddenPlayoutGrowthDetected: nil
+        )
 
         public init(
-            packetAge: UdpPcmPacketAgeMetrics,
-            lostPackets: Int,
-            latePackets: Int,
-            underruns: Int,
-            hiddenPlayoutGrowthDetected: Bool
+            packetAge: UdpPcmPacketAgeMetrics?,
+            lostPackets: Int?,
+            latePackets: Int?,
+            underruns: Int?,
+            hiddenPlayoutGrowthDetected: Bool?
         ) {
             self.packetAge = packetAge
             self.lostPackets = lostPackets
@@ -324,17 +334,18 @@ public struct IntegratedSystemLoadMetrics: Codable, Equatable, Sendable {
     public var cpuStressEnabled: Bool
     public var gpuStressEnabled: Bool
     public var networkStressEnabled: Bool
-    public var cpuP99Percent: Double
-    public var gpuP99Percent: Double
-    public var networkMegabitsPerSecond: Double
+    // Load values are nil when no sampler measured them during the run.
+    public var cpuP99Percent: Double?
+    public var gpuP99Percent: Double?
+    public var networkMegabitsPerSecond: Double?
 
     public init(
         cpuStressEnabled: Bool,
         gpuStressEnabled: Bool,
         networkStressEnabled: Bool,
-        cpuP99Percent: Double,
-        gpuP99Percent: Double,
-        networkMegabitsPerSecond: Double
+        cpuP99Percent: Double?,
+        gpuP99Percent: Double?,
+        networkMegabitsPerSecond: Double?
     ) {
         self.cpuStressEnabled = cpuStressEnabled
         self.gpuStressEnabled = gpuStressEnabled

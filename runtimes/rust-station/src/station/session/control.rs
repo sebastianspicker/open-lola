@@ -5,7 +5,8 @@ use crate::net::{
 };
 use crate::protocol::{
     build_control_datagram, build_osc15_control_datagram, unescape_txt_field,
-    MediaSettings as ProtocolMediaSettings, MESG_CHAT, MESG_DISCONNECT, MESG_STOP_AUDIO_SIGNAL,
+    MediaSettings as ProtocolMediaSettings, MESG_CHAT, MESG_DISCONNECT, MESG_REJECT,
+    MESG_STOP_AUDIO_SIGNAL,
 };
 use crate::station::bounded::push_bounded;
 use crate::station::sync::lock_unpoison;
@@ -240,6 +241,25 @@ pub(super) fn verify_quickconn_ack_audio(
     Ok(())
 }
 
+/// Longest REJECT reason sent to a peer; escaping can triple it and the datagram is fixed size.
+const MAX_REJECT_REASON_CHARS: usize = 120;
+
+/// Reduce a REJECT reason to printable ASCII of a bounded length so that building the
+/// REJECT cannot fail with `NonAscii` or `TooLong`, whatever the local error said.
+fn sanitize_reject_reason(reason: &str) -> String {
+    reason
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && !c.is_ascii_control() {
+                c
+            } else {
+                '?'
+            }
+        })
+        .take(MAX_REJECT_REASON_CHARS)
+        .collect()
+}
+
 pub(super) fn build_session_control(
     settings: &StationSettings,
     kind: &str,
@@ -248,6 +268,13 @@ pub(super) fn build_session_control(
     txt: &str,
     media: Option<&ProtocolMediaSettings>,
 ) -> Result<Vec<u8>, crate::protocol::ProtocolError> {
+    let sanitized;
+    let txt = if kind == MESG_REJECT {
+        sanitized = sanitize_reject_reason(txt);
+        sanitized.as_str()
+    } else {
+        txt
+    };
     match settings.network.control_dialect {
         ControlDialect::Ascii => build_control_datagram(
             kind,
@@ -391,7 +418,9 @@ pub(super) fn recv_valid_control_until(
             Err(error)
                 if matches!(
                     error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
                 ) =>
             {
                 continue

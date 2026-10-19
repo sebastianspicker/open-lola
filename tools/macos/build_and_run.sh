@@ -8,6 +8,8 @@ APP_UI_NAME="Open LoLa"
 PRODUCT_NAME="open-lola-app"
 CLI_PRODUCT_NAME="open-lola"
 BUNDLE_ID="de.hfmt.open-lola.app"
+# The app and the CLI it launches log under these subsystems (see Logger(subsystem:) in runtimes/macos/Sources).
+TELEMETRY_PREDICATE='subsystem BEGINSWITH "de.hfmt.open-lola" OR subsystem == "org.openlola.app" OR subsystem == "open-lola.app"'
 MIN_SYSTEM_VERSION="14.0"
 VERIFY_EVIDENCE_DIR="${OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR:-}"
 
@@ -549,7 +551,7 @@ case "$MODE" in
     ;;
   --telemetry|telemetry)
     open_app
-    /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
+    /usr/bin/log stream --info --style compact --predicate "$TELEMETRY_PREDICATE"
     ;;
   --verify|verify)
     verify_launched_app_surface

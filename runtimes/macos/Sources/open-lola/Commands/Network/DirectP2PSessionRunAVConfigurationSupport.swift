@@ -135,6 +135,9 @@ func directP2PVideoCompression(_ value: String?) throws -> DirectPeerSessionVide
     guard let compression = DirectPeerSessionVideoCompression(rawValue: value) else {
         throw CommandError.invalidArgument("invalid --video-compression")
     }
+    if compression == .jpegXS && !JPEGXSReferenceCodec.isAvailable {
+        throw CommandError.invalidArgument("--video-compression jpeg-xs: \(JPEGXSReferenceCodec.notBuiltInMessage)")
+    }
     return compression
 }
 

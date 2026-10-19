@@ -54,13 +54,24 @@ private func handleMilestoneExternalConnectorNmpCommand(_ arguments: [String]) t
 }
 
 private func runExternalConnectorSessionCommand(_ args: [String]) throws {
+    if ["--help", "-h", "help"].contains(args.dropFirst().first ?? ""), args.count == 2 {
+        printExternalConnectorSessionRunUsage()
+        return
+    }
     let configuration = try ExternalConnectorSessionConfiguration.parse(Array(args.dropFirst()))
+    for notice in configuration.operatorNotices(durationSecondsWasExplicit: args.contains("--duration-seconds")) {
+        if configuration.dryRun { print(notice) }
+        FileHandle.standardError.write(Data((notice + "\n").utf8))
+    }
     let report = try ExternalConnectorAppKitSessionRunner.run(configuration: configuration)
     try writeValidatedReport(report, to: configuration.outputPath)
     print("external connector session report written: \(configuration.outputPath)")
     print("connector: \(report.connector.rawValue)")
     print("role: \(report.role.rawValue)")
     print("dry-run: \(report.dryRun)")
+    if let outcome = report.outcome {
+        print("outcome: \(outcome.kind.rawValue)" + (outcome.reason.map { " (\($0))" } ?? ""))
+    }
     printVerdict(report.verdict)
 }
 

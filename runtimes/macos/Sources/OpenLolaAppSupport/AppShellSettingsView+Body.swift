@@ -49,7 +49,6 @@ extension AppShellSettingsView {
 
             if visibleTabs.contains(.peers) {
                 AppPeersSettingsTab(
-                    role: roleBinding,
                     localPeer: textBinding(
                         \.localPeer,
                         surface: \.directPeerCommandFields,

@@ -7,15 +7,28 @@ import Foundation
 
 /// Runs NetworkDiagnosticsRunner while keeping its stateful execution separate from report validation.
 public enum NetworkDiagnosticsRunner {
+    /// Runs ping and traceroute against `configuration.peer`; a peer that is neither an IP literal nor a hostname
+    /// is refused before either tool starts, so it can never be read as an option.
     public static func run(configuration: NetworkDiagnosticsRunConfiguration) -> NetworkDiagnosticsReport {
+        guard isValidPeer(configuration.peer) else {
+            let refused = ProcessResult(
+                output: "",
+                exitCode: -1,
+                timedOut: false,
+                spawnError: "refused to run: peer \(configuration.peer.debugDescription) "
+                    + "is not an IP address or hostname"
+            )
+            return makeReport(configuration: configuration, pingProcess: refused, tracerouteProcess: refused)
+        }
+        // Both tools parse options with getopt, so "--" ends option parsing before the peer.
         let pingProcess = runNetworkDiagnosticsProcess(
             executable: "/sbin/ping",
-            arguments: ["-c", "\(configuration.pingCount)", "-n", configuration.peer],
+            arguments: ["-c", "\(configuration.pingCount)", "-n", "--", configuration.peer],
             timeoutSeconds: max(2, configuration.pingCount + 2)
         )
         let tracerouteProcess = runNetworkDiagnosticsProcess(
             executable: "/usr/sbin/traceroute",
-            arguments: ["-n", "-m", "\(configuration.maxHops)", configuration.peer],
+            arguments: ["-n", "-m", "\(configuration.maxHops)", "--", configuration.peer],
             timeoutSeconds: max(2, configuration.maxHops + 2)
         )
         return makeReport(
@@ -23,6 +36,28 @@ public enum NetworkDiagnosticsRunner {
             pingProcess: pingProcess,
             tracerouteProcess: tracerouteProcess
         )
+    }
+
+    /// True for an IPv4 or IPv6 literal, or an RFC 1123 hostname (letters, digits and inner hyphens per label, at
+    /// most 253 characters); anything starting with "-" or holding spaces or other characters is rejected.
+    public static func isValidPeer(_ peer: String) -> Bool {
+        var ipv4 = in_addr()
+        var ipv6 = in6_addr()
+        if inet_pton(AF_INET, peer, &ipv4) == 1 || inet_pton(AF_INET6, peer, &ipv6) == 1 {
+            return true
+        }
+        let name = peer.hasSuffix(".") ? String(peer.dropLast()) : peer
+        guard !name.isEmpty, name.utf8.count <= 253 else {
+            return false
+        }
+        return name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy(isValidHostnameLabel)
+    }
+
+    private static func isValidHostnameLabel(_ label: Substring) -> Bool {
+        guard (1...63).contains(label.utf8.count), label.first != "-", label.last != "-" else {
+            return false
+        }
+        return label.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
     }
 
     static func makeReport(

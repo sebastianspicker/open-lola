@@ -227,6 +227,7 @@ func startDirectPeerAVMediaLoopProductionResources(
     guard configuration.mediaSourceMode == .production else {
         return
     }
+    try DirectPeerAudioCapturePermission.require()
     let inventory = try CoreAudioInventoryReader().capture()
     let preflight = try DirectPeerRealtimeAudioGraph.preflight(
         configuration: resources.audioGraph.configuration,

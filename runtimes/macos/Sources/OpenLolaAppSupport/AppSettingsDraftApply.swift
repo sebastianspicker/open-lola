@@ -162,8 +162,7 @@ extension AppSettingsDraft {
         fields.videoWidth = positive(videoWidth)
         fields.videoHeight = positive(videoHeight)
         fields.videoPixelFormat = videoPixelFormat
-        fields.videoCompression =
-            DirectPeerSessionVideoCompression(rawValue: videoCompression) ?? .jpegXS
+        fields.videoCompression = AppVideoCompressionChoices.resolved(rawValue: videoCompression)
         fields.videoFrameRate = positive(videoFrameRate)
         fields.videoStreamID = positive(videoStreamID)
         fields.timeoutSeconds = positive(timeoutSeconds)

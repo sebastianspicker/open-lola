@@ -21,23 +21,12 @@ public func currentAVCaptureVideoDevices() -> [AVCaptureDevice] {
 }
 #endif
 
-public func resolveAVFoundationVideoPermission() -> AVFoundationPermissionStatus {
+/// Resolves camera authorization, asking the system once when it is undecided and waiting up to `timeoutSeconds`.
+public func resolveAVFoundationVideoPermission(
+    timeoutSeconds: TimeInterval = CapturePermissionPolicy.defaultRequestTimeoutSeconds
+) -> AVFoundationPermissionStatus {
     #if canImport(AVFoundation)
-    let current = AVCaptureDevice.authorizationStatus(for: .video)
-    guard current == .notDetermined else {
-        return AVFoundationPermissionStatus(authorizationStatus: current)
-    }
-
-    let semaphore = DispatchSemaphore(value: 0)
-    AVCaptureDevice.requestAccess(for: .video) { _ in
-        semaphore.signal()
-    }
-    guard semaphore.wait(timeout: .now() + 5.0) == .success else {
-        return .requestTimedOut
-    }
-    return AVFoundationPermissionStatus(
-        authorizationStatus: AVCaptureDevice.authorizationStatus(for: .video)
-    )
+    resolveAVFoundationPermission(mediaType: .video, timeoutSeconds: timeoutSeconds)
     #else
     return .unknown
     #endif

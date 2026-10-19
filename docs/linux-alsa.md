@@ -10,6 +10,18 @@ plug layer and transform formats, so they cannot satisfy exact native
 negotiation. See the
 [ALSA PCM interface](https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html).
 
+## Choosing the ALSA device
+
+With no device configured the station tries `hw:0` at exactly 44.1 kHz, 2
+channels, 16-bit and 64-frame periods; there is no automatic format negotiation
+(decision D-14). List the direct devices with `rusty-lola devices`
+(`audio.devices`) or `arecord -l` / `aplay -l`, and select one with
+`--input-device` / `--output-device` (connect/listen) or the settings keys
+`audio.input_device` / `audio.output_device`, for example `hw:CARD=USB,DEV=0`.
+Match `sample_rate`, `channels`, `bits_per_sample` and `buffer_samples` to what
+the hardware supports natively. When opening fails, the error lists the
+inventoried `hw:` devices.
+
 ## Deterministic checks
 
 Run on any software test host:
@@ -36,14 +48,15 @@ sample format, and exact period, and run:
 
 ```bash
 cargo run -p rusty-lola --no-default-features -- devices
-cargo test -p rusty-lola --no-default-features --test linux_native -- --ignored --nocapture
 ```
 
-The integration test reads `OPEN_LOLA_ALSA_CAPTURE` and `OPEN_LOLA_ALSA_PLAYBACK`
-for these explicitly selected `hw` identifiers. It opens the native adapter,
-writes and captures bounded quanta, cancels, and stops. Missing variables are a
-test failure when explicitly invoked. The virtual loopback demonstrates ALSA
-software integration, not physical latency.
+There is no automated native-ALSA integration test in the repository (no
+`linux_native` test target and no `OPEN_LOLA_ALSA_CAPTURE` or
+`OPEN_LOLA_ALSA_PLAYBACK` variables). Check manually: set `audio.input_device`
+and `audio.output_device` to the paired `hw` identifiers from the `devices`
+output, start a short local session, and confirm that audio opens, runs, and
+stops cleanly. The virtual loopback demonstrates ALSA software integration, not
+physical latency.
 
 ## Physical follow-up
 

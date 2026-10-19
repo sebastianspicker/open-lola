@@ -7,7 +7,11 @@ use std::path::PathBuf;
 
 mod diagnostics;
 mod handlers;
+mod interrupt;
+mod notices;
 mod operator;
+mod report;
+mod route;
 mod station;
 pub use operator::{CliPeerMode, OperatorSessionArgs};
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -34,6 +38,8 @@ pub enum CliVideoBackend {
     #[value(alias = "xiapi")]
     Ximea,
     V4l2,
+    #[value(name = "mediafoundation", alias = "mf")]
+    MediaFoundation,
     #[value(alias = "software")]
     Diagnostic,
 }
@@ -43,6 +49,7 @@ impl From<CliVideoBackend> for VideoBackend {
         match value {
             CliVideoBackend::Ximea => Self::Ximea,
             CliVideoBackend::V4l2 => Self::V4l2,
+            CliVideoBackend::MediaFoundation => Self::MediaFoundation,
             CliVideoBackend::Diagnostic => Self::Diagnostic,
         }
     }
@@ -109,6 +116,8 @@ pub enum Commands {
     },
     /// CHECK→QUICKCONN→A/V→extras→DISCONNECT session
     Station {
+        /// Seconds allowed for negotiation only; it does not limit the stream (use
+        /// --duration, or connect/listen --continuous, for that).
         #[arg(long, default_value_t = 3.0)]
         timeout: f64,
         #[arg(long)]
@@ -162,6 +171,9 @@ pub enum Commands {
     },
     /// Listen as the LoLa responder on the fixed LoLa ports.
     Listen {
+        /// Expected peer IP; datagrams from any other address are ignored.
+        #[arg(long)]
+        remote_ip: Option<String>,
         #[command(flatten)]
         options: OperatorSessionArgs,
     },
@@ -187,7 +199,8 @@ pub enum Commands {
         timeout: f64,
         #[arg(long, default_value_t = 3)]
         frames: u32,
-        #[arg(long)]
+        /// Unsupported: the UI has no multi-instance mode; the flag is rejected.
+        #[arg(long, hide = true)]
         allow_multiple: bool,
         #[arg(long)]
         camera_backend: Option<CliVideoBackend>,
@@ -296,6 +309,40 @@ mod tests {
             assert!(args.compress);
             assert!(args.list_modes);
         }
+    }
+
+    #[test]
+    fn allow_multiple_is_hidden_and_rejected_instead_of_ignored() {
+        let command = Cli::command();
+        let argument = command
+            .find_subcommand("ui")
+            .and_then(|ui| ui.get_arguments().find(|a| a.get_id() == "allow_multiple"))
+            .expect("ui --allow-multiple");
+        assert!(argument.is_hide_set());
+        assert_eq!(
+            run(Some(vec![
+                "rusty-lola".into(),
+                "ui".into(),
+                "--allow-multiple".into()
+            ])),
+            2
+        );
+    }
+
+    #[test]
+    fn listen_accepts_remote_ip_and_connect_keeps_its_positional() {
+        let parsed = Cli::try_parse_from(["rusty-lola", "listen", "--remote-ip", "192.168.1.20"])
+            .expect("parse listen");
+        let Some(Commands::Listen { remote_ip, .. }) = parsed.cmd else {
+            panic!("expected listen");
+        };
+        assert_eq!(remote_ip.as_deref(), Some("192.168.1.20"));
+        let parsed =
+            Cli::try_parse_from(["rusty-lola", "connect", "192.168.1.20"]).expect("parse connect");
+        let Some(Commands::Connect { remote_ip, .. }) = parsed.cmd else {
+            panic!("expected connect");
+        };
+        assert_eq!(remote_ip, "192.168.1.20");
     }
 
     #[test]

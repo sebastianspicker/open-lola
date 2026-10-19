@@ -18,6 +18,9 @@ pub use crate::station::SessionError;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
+
+mod guard;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionState {
@@ -213,7 +216,18 @@ impl SessionRuntime {
             })
     }
 
-    pub fn start(&self, mut config: SessionConfig) -> Result<SessionHandle, SessionError> {
+    pub fn start(&self, config: SessionConfig) -> Result<SessionHandle, SessionError> {
+        self.start_with(config, |config| {
+            run_session(config.settings, config.timeout_secs, config.options)
+        })
+    }
+
+    /// `start` with an injectable session body (the seam for worker-panic tests).
+    fn start_with(
+        &self,
+        mut config: SessionConfig,
+        run: impl FnOnce(SessionConfig) -> SessionResult + Send + 'static,
+    ) -> Result<SessionHandle, SessionError> {
         config.validate()?;
         let (lock, _) = &*self.inner;
         {
@@ -270,7 +284,7 @@ impl SessionRuntime {
                     inner.snapshot.state = SessionState::Negotiating;
                     cvar.notify_all();
                 }
-                let mut result = run_session(config.settings, config.timeout_secs, config.options);
+                let mut result = guard::run_guarded(|| run(config));
                 let mut inner = lock_unpoison(lock);
                 normalize_requested_stop(&mut result, inner.snapshot.stop_requested);
                 inner.snapshot.state = terminal_state(&result);
@@ -343,6 +357,23 @@ impl SessionHandle {
         cvar.notify_all();
         drop(inner);
         snapshot(&self.inner, true)
+    }
+
+    /// Block until the session is no longer active or `deadline` passes.
+    /// Returns true when the session has ended.
+    pub fn wait_inactive_until(&self, deadline: Instant) -> bool {
+        let (lock, cvar) = &*self.inner;
+        let mut inner = lock_unpoison(lock);
+        while inner.snapshot.is_active() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            inner = cvar
+                .wait_timeout(inner, remaining)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        true
     }
 
     /// Join the worker and return its final immutable snapshot. This is safe
@@ -437,7 +468,7 @@ fn terminal_state(result: &SessionResult) -> SessionState {
     }
 }
 
-fn normalize_requested_stop(result: &mut SessionResult, stop_requested: bool) {
+pub(crate) fn normalize_requested_stop(result: &mut SessionResult, stop_requested: bool) {
     if stop_requested
         && result.cleanup_warnings.is_empty()
         && (matches!(result.failure, Some(SessionError::PeerDisconnect(_)))
@@ -501,21 +532,26 @@ fn populate_backend_evidence(snapshot: &mut SessionSnapshot, result: &SessionRes
 
 fn reported_audio_backend(name: &str) -> Option<AudioBackend> {
     if is_diagnostic_backend(name) {
-        Some(AudioBackend::Diagnostic)
-    } else if name.is_empty() {
-        None
-    } else {
-        Some(AudioBackend::PortAudioAsio)
+        return Some(AudioBackend::Diagnostic);
+    }
+    match name {
+        "PortAudio ASIO" => Some(AudioBackend::PortAudioAsio),
+        "ALSA" => Some(AudioBackend::Alsa),
+        _ => None,
     }
 }
 
+/// Map the camera backend name a session reports (`SessionCameraBackend::name`) back to
+/// its kind; an unrecognised name is not guessed at.
 fn reported_video_backend(name: &str) -> Option<VideoBackend> {
     if is_diagnostic_backend(name) {
-        Some(VideoBackend::Diagnostic)
-    } else if name.is_empty() {
-        None
-    } else {
-        Some(VideoBackend::Ximea)
+        return Some(VideoBackend::Diagnostic);
+    }
+    match name {
+        "Ximea" => Some(VideoBackend::Ximea),
+        "V4L2" => Some(VideoBackend::V4l2),
+        "Media Foundation" => Some(VideoBackend::MediaFoundation),
+        _ => None,
     }
 }
 

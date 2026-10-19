@@ -16,6 +16,10 @@ public struct DirectPeerTwoPeerLocalRunReportRequest: Sendable {
     public var aggregateFailureReason: String?
     public var executionMode: DirectPeerTwoPeerRunExecutionMode
     public var remoteTargets: [String: String]
+    /// False when the operator skipped the connection preflight; such a run can never be PASS.
+    public var connectionPreflightRequired: Bool
+    /// Name of the signal (for example SIGTERM) that stopped the run; such a run is never PASS.
+    public var stoppedBySignal: String?
 
     public init(
         plan: DirectPeerTwoPeerRunPlanReport,
@@ -29,6 +33,8 @@ public struct DirectPeerTwoPeerLocalRunReportRequest: Sendable {
         self.aggregateFailureReason = nil
         self.executionMode = .local
         self.remoteTargets = [:]
+        self.connectionPreflightRequired = true
+        self.stoppedBySignal = nil
     }
 }
 
@@ -68,7 +74,9 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
                     notes: localRunNotes(
                         executed: request.executed,
                         executionMode: request.executionMode,
-                        aggregateFailureReason: request.aggregateFailureReason
+                        aggregateFailureReason: request.aggregateFailureReason,
+                        connectionPreflightRequired: request.connectionPreflightRequired,
+                        stoppedBySignal: request.stoppedBySignal
                     )
                 )
             )
@@ -101,9 +109,27 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
         let hasPassEvidence = request.aggregateExecuted
             && request.aggregateReportPath?.isEmpty == false
             && results.allSatisfy(DirectPeerTwoPeerChildArtifactResolver.hasCompleteArtifacts)
-        return request.executed && results.allSatisfy { $0.exitCode == 0 } && hasPassEvidence
+        return request.executed
+            && request.connectionPreflightRequired
+            && request.stoppedBySignal == nil
+            && results.allSatisfy { $0.exitCode == 0 }
+            && hasPassEvidence
+            && aggregateReportIsPass(for: request)
             ? .pass
             : .partial
+    }
+
+    /// Per-peer AV reports stay PARTIAL until measured, so a completed run can still aggregate to PARTIAL.
+    private static func aggregateReportIsPass(
+        for request: DirectPeerTwoPeerLocalRunReportRequest
+    ) -> Bool {
+        guard let path = request.aggregateReportPath, !path.isEmpty else {
+            return false
+        }
+        let url = path.hasPrefix("/")
+            ? URL(fileURLWithPath: path)
+            : URL(fileURLWithPath: request.plan.runDirectory, isDirectory: true).appendingPathComponent(path)
+        return (try? DirectPeerTwoPeerPrototypeReport.readValidated(from: url))?.verdict == .pass
     }
 
     private static func evidenceGates(for plan: DirectPeerTwoPeerRunPlanReport) -> [String] {
@@ -121,13 +147,22 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
     private static func localRunNotes(
         executed: Bool,
         executionMode: DirectPeerTwoPeerRunExecutionMode,
-        aggregateFailureReason: String?
+        aggregateFailureReason: String?,
+        connectionPreflightRequired: Bool,
+        stoppedBySignal: String? = nil
     ) -> String {
-        let base = executed
+        var base = executed
             ? "\(executionMode.rawValue) two-peer supervisor launched the planned child "
                 + "processes, recorded exit codes, and attempted aggregate report generation."
             : "Dry-run \(executionMode.rawValue) supervisor artifact; rerun with "
                 + "--execute true to launch child processes."
+        if !connectionPreflightRequired {
+            base += " Connection preflight was not required (--require-preflight false); "
+                + "a run without it is never PASS."
+        }
+        if let stoppedBySignal {
+            base += " Run stopped by operator (\(stoppedBySignal)); peers terminated."
+        }
         guard executed,
               let aggregateFailureReason,
               !aggregateFailureReason.isEmpty else {
@@ -181,6 +216,16 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
 
 /// Derives deterministic launch checks for peer count, role order, hosts, ports, routes, and optional SSH targets.
 public enum DirectPeerTwoPeerRunPreflight {
+    /// Whether a passing connection preflight report must be loaded before launching peer processes.
+    public static func requiresConnectionPreflight(execute: Bool, requirePreflight: Bool) -> Bool {
+        execute && requirePreflight
+    }
+
+    /// Only a same-Mac local run may skip the connection preflight; two-Mac SSH runs must keep it.
+    public static func connectionPreflightMayBeSkipped(executionMode: DirectPeerTwoPeerRunExecutionMode) -> Bool {
+        executionMode == .local
+    }
+
     public static func makeChecks(
         plan: DirectPeerTwoPeerRunPlanReport,
         executionMode: DirectPeerTwoPeerRunExecutionMode,

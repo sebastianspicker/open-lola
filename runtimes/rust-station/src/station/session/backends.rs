@@ -1,3 +1,4 @@
+use super::device_hints::{explain_alsa_failure, explain_v4l2_failure};
 use super::SessionOptions;
 use crate::audio::alsa::{AlsaAudio, AlsaConfig};
 use crate::audio::{
@@ -5,6 +6,7 @@ use crate::audio::{
 };
 use crate::config::{AudioBackend, CameraMode, StationSettings, VideoBackend};
 use crate::station::SessionError;
+use crate::video::mediafoundation::{MfCamera, MfConfig};
 use crate::video::v4l2::{V4l2Camera, V4l2Config};
 use crate::video::{open_ximea_strict, SoftwareCamera, StrictXimeaCamera, XimeaConfig};
 use std::time::Duration;
@@ -13,6 +15,7 @@ pub(super) enum SessionCameraBackend {
     Diagnostic(SoftwareCamera),
     Ximea(StrictXimeaCamera),
     V4l2(V4l2Camera),
+    MediaFoundation(MfCamera),
 }
 
 impl SessionCameraBackend {
@@ -67,13 +70,16 @@ impl SessionCameraBackend {
                         settings.video.pixel_format.clone()
                     },
                 };
-                let mut camera = V4l2Camera::open(config)
-                    .map_err(|error| SessionError::VideoBackend(error.to_string()))?;
-                camera
-                    .start()
-                    .map_err(|error| SessionError::VideoBackend(error.to_string()))?;
+                let explain =
+                    |error| SessionError::VideoBackend(explain_v4l2_failure(&error, &config));
+                let mut camera = V4l2Camera::open(config.clone()).map_err(explain)?;
+                camera.start().map_err(explain)?;
                 Ok(Self::V4l2(camera))
             }
+            VideoBackend::MediaFoundation => MfConfig::from_settings(&settings.video)
+                .and_then(MfCamera::open)
+                .map(Self::MediaFoundation)
+                .map_err(|error| SessionError::VideoBackend(error.to_string())),
             VideoBackend::Ximea => {
                 let config = XimeaConfig::from_mode(settings.video.local_camera_index, mode);
                 let mut camera = open_ximea_strict(config)
@@ -91,6 +97,7 @@ impl SessionCameraBackend {
             Self::Diagnostic(_) => "DiagnosticCamera (synthetic)",
             Self::Ximea(_) => "Ximea",
             Self::V4l2(_) => "V4L2",
+            Self::MediaFoundation(_) => "Media Foundation",
         }
     }
 
@@ -103,6 +110,9 @@ impl SessionCameraBackend {
             Self::Ximea(camera) => camera
                 .grab()
                 .map(|frame| (frame.pixels, frame.pixel_format))
+                .map_err(|error| SessionError::VideoBackend(error.to_string())),
+            Self::MediaFoundation(camera) => camera
+                .grab()
                 .map_err(|error| SessionError::VideoBackend(error.to_string())),
         }
     }
@@ -124,6 +134,9 @@ impl SessionCameraBackend {
                 .stop()
                 .map_err(|error| SessionError::Cleanup(format!("video backend: {error}"))),
             Self::Ximea(camera) => camera
+                .stop()
+                .map_err(|error| SessionError::Cleanup(format!("video backend: {error}"))),
+            Self::MediaFoundation(camera) => camera
                 .stop()
                 .map_err(|error| SessionError::Cleanup(format!("video backend: {error}"))),
         }
@@ -202,8 +215,9 @@ impl SessionAudioBackend {
                 let capacity = config.frames_per_buffer as usize
                     * config.channels as usize
                     * usize::from(config.bits_per_sample / 8);
-                let mut audio = AlsaAudio::open(config)
-                    .map_err(|error| SessionError::AudioBackend(error.to_string()))?;
+                let mut audio = AlsaAudio::open(config.clone()).map_err(|error| {
+                    SessionError::AudioBackend(explain_alsa_failure(&error, &config))
+                })?;
                 audio
                     .start()
                     .map_err(|error| SessionError::AudioBackend(error.to_string()))?;

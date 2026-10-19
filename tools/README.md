@@ -41,8 +41,12 @@ shell-to-C-parser routing, and duplication-baseline growth/tool-drift failures.
 output and never changes `code-duplication-baseline.json`. The checked-in
 baseline is deliberately compact but records its schema, detector settings,
 path table, clone fingerprints, occurrence counts, and covered-token counts.
-The detector groups clones in manifest path order, so moving or renaming source
-files reshuffles fingerprints even when no code is duplicated. After a move, review
+The detector finds maximal shared token runs for each pair of files, so a clone is
+reported or dropped only because of the files that contain it, never because of
+unrelated files or manifest order. Occurrences of the same run in several files
+are grouped under one fingerprint, and a group counts when its occurrences cover
+at least 140 tokens in total (two copies of 70 tokens, or more copies of less).
+Editing a file changes only the fingerprints of clones it takes part in. Review
 the `--print-duplication-baseline` output for clones that involve changed code,
 then replace the checked-in baseline with it in the same change.
 
@@ -75,10 +79,11 @@ Create an inspection candidate outside the checkout:
 bash tools/export-release-candidate.sh /private/tmp/open-lola-release
 ```
 
-Verify the exact candidate:
+Verify the exact candidate. Use the path printed as `release candidate staged
+at:`; the directory name carries a timestamp and process-id suffix:
 
 ```bash
-OPEN_LOLA_RELEASE_CANDIDATE=/private/tmp/open-lola-release/open-lola-source-candidate \
+OPEN_LOLA_RELEASE_CANDIDATE=/private/tmp/open-lola-release/open-lola-source-candidate-<stamp>-<pid> \
   bash tools/verify-release-hygiene.sh
 ```
 

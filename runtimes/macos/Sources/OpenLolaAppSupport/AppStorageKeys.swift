@@ -6,6 +6,7 @@ enum AppStorageKeys {
     // - Execution keys are read/written by AppShellSettingsView and hydrated through AppShellStoredDefaults.
     // - Peer, audio, video, and AV profile keys hydrate NativeAppShellDirectPeerCommandFields.
     // - Preview keys hydrate AppPreviewReceiverState.
+    // - Device keys hydrate the local selection and the imported remote inventory (AppShellStoredDefaults+Devices).
     static let selectedSection = "selectedAppShellSection"
     static let appearance = "openLola.appearance"
     static let selectedSettingsTab = "openLola.selectedSettingsTab"
@@ -33,6 +34,10 @@ enum AppStorageKeys {
     static let videoPort = "openLola.videoPort"
     static let metricsPort = "openLola.metricsPort"
     static let outputPath = "openLola.outputPath"
+    static let localAudioInputUID = "openLola.devices.local.audioInputUID"
+    static let localAudioOutputUID = "openLola.devices.local.audioOutputUID"
+    static let localVideoDeviceID = "openLola.devices.local.videoDeviceID"
+    static let remoteInventory = "openLola.devices.remote.inventory"
     static let channelCount = "openLola.channelCount"
     static let sampleRate = "openLola.sampleRate"
     static let frames = "openLola.frames"

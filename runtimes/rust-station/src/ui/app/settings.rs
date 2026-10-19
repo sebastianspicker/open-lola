@@ -306,6 +306,11 @@ fn backend_selector(ui: &mut egui::Ui, id: &str, label: &str, value: &mut String
             } else {
                 ui.selectable_value(value, "ximea".into(), format!("{label}: Ximea"));
                 ui.selectable_value(value, "v4l2".into(), format!("{label}: V4L2"));
+                ui.selectable_value(
+                    value,
+                    "mediafoundation".into(),
+                    format!("{label}: Media Foundation"),
+                );
             }
             ui.selectable_value(value, "diagnostic".into(), format!("{label}: diagnostic"));
         });

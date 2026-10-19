@@ -429,7 +429,9 @@ private func appendPreparedFragmentPayload(
         copyError = error
         return
       } catch {
-        preconditionFailure("unexpected prepared fragment offset error: \(error)")
+        // Only checked arithmetic throws here (always UdpPcmV2PacketizerError); map anything else rather than trap in the audio path.
+        copyError = .fragmentPlanMismatch("fragmentPayloadOffsets")
+        return
       }
     }
   }

@@ -50,8 +50,10 @@ pub fn shipped_ximea_colors() -> PathBuf {
     shipped_camera_modes_dir().join("XimeaColors.ini")
 }
 
-/// Optional vendor DLLs live next to the running executable, never in a
-/// former Cargo source tree.
+/// Staging directory `ship/` beside the running executable (never a former Cargo
+/// source tree), where the shipping helpers copy vendor DLLs. The loader itself searches
+/// the executable's own directory first, then the system and vendor directories listed in
+/// `native_loader`; it does not search this `ship/` subdirectory.
 pub fn ship_dir() -> PathBuf {
     std::env::current_exe()
         .ok()

@@ -106,19 +106,66 @@ public struct DirectPeerVideoPacketBudgetEstimate: Codable, Equatable, Sendable 
 public enum DirectPeerVideoPacketBudget {
     public static let maxUdpPacketBytes = 1_200
 
+    /// Carries the video geometry and profile inputs that decide the per-frame fragment budget.
+    public struct Shape: Equatable, Sendable {
+        public var width: Int
+        public var height: Int
+        public var pixelFormat: String
+        public var compression: DirectPeerSessionVideoCompression
+        public var frameRate: Int
+        public var avProfile: DirectPeerSessionAVProfile
+        public var rxBufferProfile: RxBufferProfile
+
+        public init(
+            width: Int,
+            height: Int,
+            pixelFormat: String,
+            compression: DirectPeerSessionVideoCompression,
+            frameRate: Int,
+            avProfile: DirectPeerSessionAVProfile,
+            rxBufferProfile: RxBufferProfile
+        ) {
+            self.width = width
+            self.height = height
+            self.pixelFormat = pixelFormat
+            self.compression = compression
+            self.frameRate = frameRate
+            self.avProfile = avProfile
+            self.rxBufferProfile = rxBufferProfile
+        }
+
+        init(_ configuration: DirectPeerSessionAVRunConfiguration) {
+            self.init(
+                width: configuration.videoWidth,
+                height: configuration.videoHeight,
+                pixelFormat: configuration.videoPixelFormat,
+                compression: configuration.videoCompression,
+                frameRate: configuration.videoFrameRate,
+                avProfile: configuration.avProfile,
+                rxBufferProfile: configuration.rxBufferProfile
+            )
+        }
+    }
+
+    /// Throws `unsupportedRXBufferProfile` when the profile pair has no packet budget.
     public static func estimate(
 _ configuration: DirectPeerSessionAVRunConfiguration
-) -> DirectPeerVideoPacketBudgetEstimate {
-        let normalizedPixelFormat = directPeerNormalizedVideoPixelFormat(configuration.videoPixelFormat)
+) throws -> DirectPeerVideoPacketBudgetEstimate {
+        try estimate(Shape(configuration))
+    }
+
+    /// Estimates the fragment budget; throws `unsupportedRXBufferProfile` for a profile pair without a budget.
+    public static func estimate(_ shape: Shape) throws -> DirectPeerVideoPacketBudgetEstimate {
+        let normalizedPixelFormat = directPeerNormalizedVideoPixelFormat(shape.pixelFormat)
         let rawPayloadBytes = MediaGeometrySizing.clampedRawFrameByteCount(
-            width: configuration.videoWidth,
-            height: configuration.videoHeight,
+            width: shape.width,
+            height: shape.height,
             bytesPerPixel: videoBytesPerPixel(for: normalizedPixelFormat)
         )
-        let payloadBytes = configuration.videoCompression == .jpegXS
+        let payloadBytes = shape.compression == .jpegXS
             ? directPeerJPEGXSEstimatedPayloadBytes(
-                width: configuration.videoWidth,
-                height: configuration.videoHeight
+                width: shape.width,
+                height: shape.height
             )
             : rawPayloadBytes
         let fingerprintBytes = "budget".utf8.count
@@ -132,11 +179,11 @@ _ configuration: DirectPeerSessionAVRunConfiguration
             payloadBytes: payloadBytes,
             maxFragmentPayloadBytes: maxFragmentPayloadBytes
         )
-        let profileMaxFragmentsPerFrame = rawVideoMaxFragmentsPerFrame(
-            avProfile: configuration.avProfile,
-            rxBufferProfile: configuration.rxBufferProfile
+        let profileMaxFragmentsPerFrame = try rawVideoMaxFragmentsPerFrame(
+            avProfile: shape.avProfile,
+            rxBufferProfile: shape.rxBufferProfile
         )
-        let maxFragmentsPerFrame = configuration.videoCompression == .jpegXS
+        let maxFragmentsPerFrame = shape.compression == .jpegXS
             ? max(
                 profileMaxFragmentsPerFrame,
                 directPeerJPEGXSFragmentCapacity(estimatedFragmentsPerFrame: fragmentsPerFrame)
@@ -147,12 +194,12 @@ _ configuration: DirectPeerSessionAVRunConfiguration
             estimatedFragmentsPerFrame: fragmentsPerFrame,
             estimatedFragmentsPerSecond: directPeerClampedProduct(
                 fragmentsPerFrame,
-                configuration.videoFrameRate
+                shape.frameRate
             ),
             maxFragmentsPerFrame: maxFragmentsPerFrame,
             maxFragmentsPerSecond: directPeerClampedProduct(
                 maxFragmentsPerFrame,
-                configuration.videoFrameRate
+                shape.frameRate
             )
         )
     }
@@ -160,8 +207,13 @@ _ configuration: DirectPeerSessionAVRunConfiguration
     public static func validate(
 _ configuration: DirectPeerSessionAVRunConfiguration
 ) throws -> DirectPeerVideoPacketBudgetEstimate {
-        let estimate = estimate(configuration)
-        guard configuration.videoCompression == .raw else {
+        try validate(Shape(configuration))
+    }
+
+    /// Throws `unsafeRawVideoPacketBudget` when raw video needs more fragments per frame than the profile allows.
+    public static func validate(_ shape: Shape) throws -> DirectPeerVideoPacketBudgetEstimate {
+        let estimate = try estimate(shape)
+        guard shape.compression == .raw else {
             return estimate
         }
         guard estimate.estimatedFragmentsPerFrame <= estimate.maxFragmentsPerFrame else {
@@ -176,7 +228,7 @@ _ configuration: DirectPeerSessionAVRunConfiguration
     private static func rawVideoMaxFragmentsPerFrame(
         avProfile: DirectPeerSessionAVProfile,
         rxBufferProfile: RxBufferProfile
-    ) -> Int {
+    ) throws -> Int {
         switch (avProfile, rxBufferProfile) {
         case (.fastest, .direct):
             128
@@ -187,7 +239,10 @@ _ configuration: DirectPeerSessionAVRunConfiguration
         case (.balanced, .stableWan):
             256
         default:
-            preconditionFailure("unsupported raw video packet budget profile combination")
+            throw DirectPeerSessionAVRuntimeError.unsupportedRXBufferProfile(
+                avProfile: avProfile,
+                rxBufferProfile: rxBufferProfile
+            )
         }
     }
 }

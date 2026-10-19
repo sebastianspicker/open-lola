@@ -17,20 +17,52 @@ let lolaAudioOnlyQuickConnectVideoFields = LoLaCompatibilityVideoFields(
     bayer: 0
 )
 
+/// Audio bit depth the connector carries: its PCM codec and Core Audio bridge
+/// move 16-bit samples only, although LoLa also announces 8, 24 and 32.
+let lolaConnectorAudioBitsPerSample = 16
+
+/// Bit depths a LoLa peer may announce in `BPS` (the Rust station accepts all).
+private let lolaAnnouncedAudioBitsPerSample: Set<Int> = [8, 16, 24, 32]
+
 /// Prefix of the error raised when a QUICKCONN carries audio settings this
 /// station cannot accept; `lolaQuickConnectRejectReason` maps it to REJECT text.
 private let lolaIncompatibleQuickConnectPrefix = "incompatible LoLa QuickConn "
 
+/// Prefix of the runtime mode raised for a valid LoLa bit depth other than 16.
+private let lolaUnsupportedAudioDepthPrefix = "lola-audio-bps-unsupported-"
+
+/// Prefix of the runtime mode raised for a video field this connector cannot carry.
+private let lolaVideoMismatchPrefix = "lola-video-settings-mismatch-"
+
+/// Video fields in the order a responder checks them, with the REJECT reason
+/// for each. FPS, BPP and BAYER come first and use the Rust station's reasons,
+/// so both runtimes refuse one tuple with the same text; COMP, X and Y are
+/// checked only here because this connector cannot re-encode or scale.
+private let lolaVideoFieldRejectReasons: [(key: String, reason: String)] = [
+    ("FPS", "video frame rate mismatch"),
+    ("BPP", "video pixel format mismatch"),
+    ("BAYER", "video Bayer format mismatch"),
+    ("COMP", "video compression mismatch"),
+    ("X", "video geometry mismatch"),
+    ("Y", "video geometry mismatch")
+]
+
 /// Maps a QUICKCONN acceptance error to the short REJECT reason the Rust
 /// station and the LoLa corpus send, instead of a Swift error description.
+/// Reasons are lower-case `<what> mismatch`, or `<reason>: <detail>`.
 func lolaQuickConnectRejectReason(_ error: Error) -> String {
     if case let ExternalConnectorSessionError.malformedLoLaControlMessage(text) = error,
        text.hasPrefix(lolaIncompatibleQuickConnectPrefix) {
         return "audio settings mismatch"
     }
-    if case let ExternalConnectorSessionError.unsupportedRuntimeMode(mode) = error,
-       mode.hasPrefix("lola-video-settings-mismatch-") {
-        return "video settings mismatch"
+    if case let ExternalConnectorSessionError.unsupportedRuntimeMode(mode) = error {
+        if mode.hasPrefix(lolaUnsupportedAudioDepthPrefix) {
+            return "unsupported audio bit depth: \(mode.dropFirst(lolaUnsupportedAudioDepthPrefix.count))"
+        }
+        if mode.hasPrefix(lolaVideoMismatchPrefix) {
+            let key = mode.dropFirst(lolaVideoMismatchPrefix.count)
+            return lolaVideoFieldRejectReasons.first { $0.key == key }?.reason ?? "video settings mismatch"
+        }
     }
     return "invalid media settings"
 }
@@ -112,9 +144,13 @@ private func lolaQuickConnectAckAudioFields(
     configuration: ExternalConnectorSessionConfiguration,
     receivedFields: [String: String]
 ) throws -> LoLaCompatibilityAudioFields {
+    if let depth = Int(receivedFields["BPS"] ?? ""), depth != lolaConnectorAudioBitsPerSample,
+       lolaAnnouncedAudioBitsPerSample.contains(depth) {
+        throw ExternalConnectorSessionError.unsupportedRuntimeMode("\(lolaUnsupportedAudioDepthPrefix)\(depth)")
+    }
     let expected = [
         "SR": configuration.sampleRateHertz,
-        "BPS": 16,
+        "BPS": lolaConnectorAudioBitsPerSample,
         "CHNLS": configuration.channels
     ]
     for (key, expectedValue) in expected where Int(receivedFields[key] ?? "") != expectedValue {
@@ -125,7 +161,7 @@ private func lolaQuickConnectAckAudioFields(
     }
     return LoLaCompatibilityAudioFields(
         sampleRateHertz: configuration.sampleRateHertz,
-        bitsPerSample: 16,
+        bitsPerSample: lolaConnectorAudioBitsPerSample,
         channels: configuration.channels
     )
 }
@@ -141,8 +177,8 @@ private func lolaQuickConnectAckVideoFields(
             "X": fallback.dimensions.width, "Y": fallback.dimensions.height,
             "COMP": fallback.compression, "BAYER": fallback.bayer
         ]
-        for (key, value) in expected where Int(receivedFields[key] ?? "") != value {
-            throw ExternalConnectorSessionError.unsupportedRuntimeMode("lola-video-settings-mismatch-\(key)")
+        for (key, _) in lolaVideoFieldRejectReasons where Int(receivedFields[key] ?? "") != expected[key] {
+            throw ExternalConnectorSessionError.unsupportedRuntimeMode("\(lolaVideoMismatchPrefix)\(key)")
         }
     }
     return LoLaCompatibilityVideoFields(
@@ -169,7 +205,7 @@ private func lolaQuickConnectMediaFields(
         ),
         audio: LoLaCompatibilityAudioFields(
             sampleRateHertz: configuration.sampleRateHertz,
-            bitsPerSample: 16,
+            bitsPerSample: lolaConnectorAudioBitsPerSample,
             channels: configuration.channels
         ),
         video: lolaQuickConnectVideoFields(configuration: configuration)

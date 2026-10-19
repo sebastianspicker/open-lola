@@ -37,10 +37,12 @@ and the hygiene checker independently verifies the resulting tree.
    bash tools/export-release-candidate.sh /private/tmp/open-lola-release
    ```
 
-6. Verify the exact export:
+6. Verify the exact export. The export prints `release candidate staged at:`
+   with the real directory name, which carries a timestamp and process-id
+   suffix; use that path (the export already runs this check once):
 
    ```bash
-   OPEN_LOLA_RELEASE_CANDIDATE=/private/tmp/open-lola-release/open-lola-source-candidate \
+   OPEN_LOLA_RELEASE_CANDIDATE=/private/tmp/open-lola-release/open-lola-source-candidate-<stamp>-<pid> \
      bash tools/verify-release-hygiene.sh
    ```
 

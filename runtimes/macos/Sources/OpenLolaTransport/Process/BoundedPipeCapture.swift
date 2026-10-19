@@ -14,6 +14,8 @@ package final class BoundedPipeCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var prefixData = Data()
     private var didFinish = false
+    private var failure: String?
+    private static let maxConsecutiveRetries = 1_000
 
     package init(pipe: Pipe, limit: Int = 65_536, mode: LimitMode = .bytes) {
         self.readHandle = pipe.fileHandleForReading
@@ -29,6 +31,13 @@ package final class BoundedPipeCapture: @unchecked Sendable {
         try? writeHandle.close()
     }
 
+    /// Why draining stopped before end of stream, or nil when the whole stream was read; `prefix()` also notes it.
+    package var readError: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return failure
+    }
+
     package func prefix(drainToEnd: Bool = true) -> String {
         if drainToEnd {
             finish()
@@ -38,14 +47,14 @@ package final class BoundedPipeCapture: @unchecked Sendable {
         }
         lock.lock()
         let data = prefixData
+        let readFailure = failure
         lock.unlock()
         let text = String(data: data, encoding: .utf8) ?? "<non-UTF8 output: \(data.count) bytes>"
-        switch mode {
-        case .bytes:
-            return text
-        case .characters:
-            return String(text.prefix(limit))
+        let bounded = mode == .characters ? String(text.prefix(limit)) : text
+        guard let readFailure else {
+            return bounded
         }
+        return bounded + "\n[output capture stopped early: \(readFailure)]"
     }
 
     private func finish() {
@@ -63,10 +72,51 @@ package final class BoundedPipeCapture: @unchecked Sendable {
             return
         }
         readHandle.readabilityHandler = nil
-        while let data = try? readHandle.read(upToCount: 64 * 1024), !data.isEmpty {
-            capture(data)
-        }
+        drain { try readHandle.read(upToCount: 64 * 1024) ?? Data() }
         try? readHandle.close()
+    }
+
+    /// Reads until an empty chunk, retrying EINTR and EAGAIN; any other error is recorded in `readError`.
+    func drain(retryDelay: TimeInterval = 0.002, read: () throws -> Data) {
+        var consecutiveRetries = 0
+        while true {
+            do {
+                let data = try read()
+                if data.isEmpty {
+                    return
+                }
+                consecutiveRetries = 0
+                capture(data)
+            } catch {
+                let code = Self.posixErrorCode(error)
+                consecutiveRetries += 1
+                guard code == EINTR || code == EAGAIN, consecutiveRetries <= Self.maxConsecutiveRetries else {
+                    recordFailure("\(error.localizedDescription) (\(code.map { "errno \($0)" } ?? "unknown errno"))")
+                    return
+                }
+                if code == EAGAIN {
+                    Thread.sleep(forTimeInterval: retryDelay)
+                }
+            }
+        }
+    }
+
+    private func recordFailure(_ message: String) {
+        lock.lock()
+        failure = message
+        lock.unlock()
+    }
+
+    private static func posixErrorCode(_ error: Error) -> Int32? {
+        let nsError = error as NSError
+        if nsError.domain == NSPOSIXErrorDomain {
+            return Int32(nsError.code)
+        }
+        guard let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+              underlying.domain == NSPOSIXErrorDomain else {
+            return nil
+        }
+        return Int32(underlying.code)
     }
 
     private func capture(_ data: Data) {

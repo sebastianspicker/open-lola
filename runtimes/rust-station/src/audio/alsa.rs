@@ -215,6 +215,8 @@ struct AlsaDriver<B: PcmBackend> {
     started: bool,
     xruns: u64,
     cancelled: Arc<AtomicBool>,
+    /// Per-transfer wall-clock budget; a field so tests can make it generous.
+    timeout: Duration,
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -234,6 +236,7 @@ impl<B: PcmBackend> AlsaDriver<B> {
             }
         }
         Ok(Self {
+            timeout: config.timeout(),
             config,
             backend,
             started: false,
@@ -270,7 +273,7 @@ impl<B: PcmBackend> AlsaDriver<B> {
         let frame_bytes = self.config.frame_bytes()?;
         output.clear();
         output.resize(block_bytes, 0);
-        let deadline = Instant::now() + self.config.timeout();
+        let deadline = Instant::now() + self.timeout;
         let cancelled = Arc::clone(&self.cancelled);
         let result = drive_transfer(
             &mut self.backend,
@@ -309,7 +312,7 @@ impl<B: PcmBackend> AlsaDriver<B> {
             });
         }
         let frame_bytes = self.config.frame_bytes()?;
-        let deadline = Instant::now() + self.config.timeout();
+        let deadline = Instant::now() + self.timeout;
         drive_transfer(
             &mut self.backend,
             &self.cancelled,

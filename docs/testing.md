@@ -3,6 +3,10 @@
 Status: active
 Verdict: PARTIAL
 
+Test sources (the Swift test targets and the Rust integration tests) are kept out
+of the published repository. Without them, `make swift-test`
+builds the package and prints a `SKIPPED:` line; Rust unit tests inside `src/` still run.
+
 Tests here protect observable behavior and architecture. A passing check proves
 only the named source, synthetic, localhost, or packaging scope; it does not
 establish hardware, reference-peer, security, signing, or distribution claims.
@@ -15,8 +19,14 @@ Run from the repository root:
 make verify
 ```
 
-The Make target sets the documented headless and raw-checkout residue skips, then
-runs the architecture, tracked-boundary, documentation, and source-comment
+The Make target sets the documented headless and raw-checkout residue skips
+(`OPEN_LOLA_SKIP_INTERACTIVE_APP=1`, `OPEN_LOLA_SKIP_LIVE_RESIDUE=1`) and the
+script prints a `SKIPPED:` line for each. Run `make verify-full` in a logged-in
+GUI session on a checkout without generated residue to run both gates too. The
+gate variables, including the `OPEN_LOLA_TEST_OPEN_LOLA_CLI` and
+`OPEN_LOLA_RELEASE_HYGIENE_LIVE_ROOT` redirects (which print a warning), are
+listed in [configuration.md](configuration.md#build-and-gate-variables). Either
+target runs the architecture, tracked-boundary, documentation, and source-comment
 checks; the first-party 600-line and CCN 19 budgets; ShellCheck; Python tooling
 lint, type, and verifier self-tests; Rust formatting, Clippy, tests, and
 selftest; release hygiene; the Swift build and tests; and the CLI evidence
@@ -75,7 +85,7 @@ corpora, archives, generated output, and vendored upstream code while retaining
 `third_party/opus/openlola_bridge/`. Every file is limited to 600 physical lines,
 and every Lizard-supported function to CCN 19. Shell paths deliberately use
 Lizard's C-like parser; the retired WSL PowerShell lane has no remaining runtime
-source. Normalized-token clones of 70 or more tokens are compared against the
+source. Normalized-token clones (shared runs between two files, 70 tokens or 140 summed over all copies) are compared against the
 reviewed `tools/code-duplication-baseline.json`, and the gate never rewrites that
 baseline. New, increased, grown, stale, schema, or tool-drifted entries fail for
 review. Any temporary file-size exception must be recorded with a reason in
@@ -132,7 +142,7 @@ acceptance thresholds must not appear as implemented capability.
 - Swift regression targets cover transport timing, direct-peer scheduling,
   media buffering and rendering, LoLa connector lifecycle and negotiation, and
   two concurrent synthetic peers using the full A/V loop and headless preview.
-  Run them with `make swift-test`; the full source gate runs them as well.
+  Run them with `make swift-test` in a checkout that has the test sources.
   The broader synthetic CLI probes remain separate from these regression tests.
   Core Audio lifetime tests inject HAL creation, startup, stop, and destruction
   failures, then exercise real callback functions after graph release, including

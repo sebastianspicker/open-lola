@@ -146,7 +146,11 @@ impl Udp {
     /// send and is counted instead of failing the poll.
     fn absorb_empty_receive<T>(&self, error: io::Error) -> io::Result<Option<T>> {
         match error.kind() {
-            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => Ok(None),
+            // A signal (Ctrl-C) interrupts timed receives with EINTR on Linux even with
+            // SA_RESTART; callers re-check cancellation at the top of their poll loop.
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
+                Ok(None)
+            }
             io::ErrorKind::ConnectionReset => {
                 self.transient_receive_errors
                     .fetch_add(1, Ordering::Relaxed);
@@ -282,6 +286,15 @@ mod tests {
             udp.absorb_empty_receive(io::ErrorKind::PermissionDenied.into());
         assert!(fatal.is_err());
         assert_eq!(udp.take_transient_receive_errors(), 1);
+        assert_eq!(udp.take_transient_receive_errors(), 0);
+    }
+
+    #[test]
+    fn signal_interrupted_receive_is_an_empty_receive() {
+        let udp = Udp::bind("127.0.0.1", 0).unwrap();
+        let interrupted: io::Result<Option<()>> =
+            udp.absorb_empty_receive(io::ErrorKind::Interrupted.into());
+        assert_eq!(interrupted.unwrap(), None);
         assert_eq!(udp.take_transient_receive_errors(), 0);
     }
 

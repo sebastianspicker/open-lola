@@ -5,6 +5,7 @@ enum AppExecutionPhase: Equatable {
     case idle
     case planWritten
     case dryRunRunning
+    case preflightRunning
     case supervisorRunning
     case stopRequested
     case validationRunning

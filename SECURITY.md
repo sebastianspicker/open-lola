@@ -36,9 +36,13 @@ The applications run with the current user's permissions.
   canonical root-owned, non-writable system libraries; V4L2 uses selected
   character-device nodes with bounded buffers and cancellation.
 - The Rust station loads XIMEA, PortAudio, and Npcap only from canonical direct
-  children of fixed system/vendor installation directories. Dependent DLL
-  lookup is limited to the selected DLL directory and System32; PATH, current
-  directory, executable-adjacent, build, and archive searches are excluded.
+  children of fixed system/vendor installation directories, then, as a last
+  fallback, of the running executable's directory (known library file names
+  only; refused on a UNC or network path). Media Foundation loads from System32
+  only. This allowlist applies to the top-level DLL only; its imports resolve
+  from that DLL's directory (`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`) and System32;
+  PATH, current
+  directory, other executable-adjacent, build, and archive searches are excluded.
   Diagnostic copying follows the same source policy. No signature or digest
   trust is established, so keep installation-directory permissions controlled
   and supply lawfully licensed libraries. See

@@ -8,7 +8,7 @@ func handlePerformanceCommand(_ arguments: [String]) throws -> Bool {
         try validateReport(at: args[1], as: PerformanceAuditReport.self, label: "performance audit report")
         return true
     case ["performance-audit-synthetic-smoke"]:
-        let report = try PerformanceAuditSyntheticSmoke.run()
+        let report = try runAtUserInitiatedQoS { try PerformanceAuditSyntheticSmoke.run() }
         try report.validate()
         print(try report.prettyJSONString())
         printVerdict(report.verdict)

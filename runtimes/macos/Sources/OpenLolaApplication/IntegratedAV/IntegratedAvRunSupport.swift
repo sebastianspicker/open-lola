@@ -121,12 +121,18 @@ func makeIntegratedAvReport(_ draft: IntegratedAvReportDraft) -> IntegratedAvRep
                 uiOwnsRealtimePaths: false,
                 recordingEnabled: false
             ),
-            audio: makeIntegratedAudioMetrics(baselineReportId: draft.baselineReportId),
+            audio: makeIntegratedAudioMetrics(
+                baselineReportId: draft.baselineReportId,
+                measured: draft.runMode == .measured
+            ),
             video: makeIntegratedVideoMetrics(
                 durationSeconds: draft.durationSeconds,
                 videoTransportReport: draft.videoTransportReport
             ),
-            systemLoad: makeIntegratedSystemLoadMetrics(videoTransportReport: draft.videoTransportReport),
+            systemLoad: makeIntegratedSystemLoadMetrics(
+                videoTransportReport: draft.videoTransportReport,
+                measured: draft.runMode == .measured
+            ),
             proof: draft.proof
         ),
         verdict: .partial,
@@ -134,7 +140,9 @@ func makeIntegratedAvReport(_ draft: IntegratedAvReportDraft) -> IntegratedAvRep
     )
 }
 
-func makeIntegratedAudioMetrics(baselineReportId: String) -> IntegratedAudioMetrics {
+// A measured run has no audio-lane sampler yet, so its packet health is reported as not measured;
+// only the synthetic smoke keeps the deterministic source-validation values.
+func makeIntegratedAudioMetrics(baselineReportId: String, measured: Bool) -> IntegratedAudioMetrics {
     IntegratedAudioMetrics(
         verdicts: IntegratedAudioMetrics.Verdicts(
             baselineRouteReportId: baselineReportId,
@@ -151,7 +159,7 @@ func makeIntegratedAudioMetrics(baselineReportId: String) -> IntegratedAudioMetr
             baselineFrames: 32,
             integratedFrames: 32
         ),
-        packetHealth: IntegratedAudioMetrics.PacketHealth(
+        packetHealth: measured ? .notMeasured : IntegratedAudioMetrics.PacketHealth(
             packetAge: SourceValidationMetrics.audioPacketAge,
             lostPackets: 0,
             latePackets: 0,
@@ -161,17 +169,20 @@ func makeIntegratedAudioMetrics(baselineReportId: String) -> IntegratedAudioMetr
     )
 }
 
+// A measured run has no CPU/GPU sampler yet, so those loads are nil; the network value is the
+// multi-video format estimate when one exists, never a fixed fallback.
 func makeIntegratedSystemLoadMetrics(
-    videoTransportReport: VideoTransportReport?
+    videoTransportReport: VideoTransportReport?,
+    measured: Bool
 ) -> IntegratedSystemLoadMetrics {
     IntegratedSystemLoadMetrics(
         cpuStressEnabled: false,
         gpuStressEnabled: false,
         networkStressEnabled: false,
-        cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
-        gpuP99Percent: 0,
+        cpuP99Percent: measured ? nil : SourceValidationMetrics.cpuP99Percent,
+        gpuP99Percent: measured ? nil : 0,
         networkMegabitsPerSecond: videoTransportReport?.multiVideo?.aggregateBandwidthMegabitsPerSecond
-            ?? 22.1184
+            ?? (measured ? nil : 22.1184)
     )
 }
 
@@ -181,7 +192,8 @@ func makeIntegratedAvNotes(videoTransportReport: VideoTransportReport?) -> Strin
     }
     return "Measured partial integrated A/V aggregate from a video transport report. Audio baseline, "
         + "RME hardware, Blackmagic/ATEM source, external control, and 30-minute physical evidence "
-        + "remain required for PASS."
+        + "remain required for PASS. Audio packet health and CPU/GPU load were not measured; "
+        + "systemLoad.networkMegabitsPerSecond is a video-format estimate, not a measured rate."
 }
 
 func makeIntegratedVideoMetrics(

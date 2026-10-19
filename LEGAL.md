@@ -20,6 +20,15 @@ the right to grant those permissions. Third-party components keep their own
 terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the license files
 inside the applicable third-party source directories.
 
+JPEG XS is an exception to what the default build contains. The vendored JPEG XS
+reference software is licensed for evaluation and testing only and grants no
+patent licence, so it is compiled only in an opt-in build
+(`OPEN_LOLA_ENABLE_JPEG_XS=1`) that must not be distributed. The first-party
+bridge to that code (`open_lola_jxs_bridge.*`) sits inside the vendored tree and
+is Apache-2.0 like the rest of the project. The Rust station's crates.io
+dependencies and the runtime-loaded PortAudio, Npcap, and XIMEA libraries are
+listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Original LoLa Licensing Check
 
 The official LoLa website identifies the original LoLa Low Latency Audio Visual

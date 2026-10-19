@@ -28,18 +28,43 @@ public extension RawBGRAPreviewSink {
     func close() {}
 }
 
-/// Requires a UI-owned destination that can present validated BGRA frames.
+/// Validates and counts frames without a window, retaining only the most recent few so a long run stays bounded in memory.
 public final class RawBGRATestablePreviewSink: RawBGRAPreviewSink, @unchecked Sendable {
-    public private(set) var submittedFrames: [RawCapturedVideoFrame] = []
+    public static let defaultRetainedFrameLimit = 4
 
-    public init() {}
+    private let lock = NSLock()
+    private let retainedFrameLimit: Int
+    private var retainedFrames: [RawCapturedVideoFrame] = []
+    private var submittedCount = 0
+
+    public init(retainedFrameLimit: Int = RawBGRATestablePreviewSink.defaultRetainedFrameLimit) {
+        self.retainedFrameLimit = max(1, retainedFrameLimit)
+    }
+
+    /// The newest accepted frames, oldest first, never more than the retained-frame limit.
+    public var submittedFrames: [RawCapturedVideoFrame] {
+        lock.lock()
+        defer { lock.unlock() }
+        return retainedFrames
+    }
 
     public func submit(frame: RawCapturedVideoFrame) throws {
         try RawBGRAImageFactory.validate(frame: frame)
-        submittedFrames.append(frame)
+        lock.lock()
+        defer { lock.unlock() }
+        retainedFrames.append(frame)
+        if retainedFrames.count > retainedFrameLimit {
+            retainedFrames.removeFirst(retainedFrames.count - retainedFrameLimit)
+        }
+        submittedCount += 1
     }
 
-    public var renderedFrameCount: Int { submittedFrames.count }
+    /// Counts every accepted frame, including those no longer retained.
+    public var renderedFrameCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return submittedCount
+    }
 }
 
 /// Builds preview-ready images only from validated BGRA frame bytes.

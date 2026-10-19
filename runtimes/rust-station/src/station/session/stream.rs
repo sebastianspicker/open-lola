@@ -10,6 +10,7 @@ use super::media::{SessionMediaTransport, VideoSendDisposition};
 use super::scheduler::{DeadlineScheduler, PreparedVideoMailbox, VideoTxCursor};
 use super::stream_support::{note_realtime_priority, record_audio_backend_counters};
 use super::video::{consume_prepared_capture, receive_video_datagram_step, VideoReceiveQueue};
+use super::watchdog::PeerWatchdog;
 use super::{SessionOptions, SessionResult};
 use crate::config::StationSettings;
 use crate::net::{MediaKind, Udp};
@@ -58,6 +59,7 @@ pub(super) fn run_interleaved_stream(
         n_frames,
     );
     let mut audio_writer = AudioDatagramWriter::new();
+    let mut watchdog = PeerWatchdog::new(settings, options, Instant::now());
     note_realtime_priority(result);
     while phase.should_continue(options, result, started) {
         if stream_cancelled(options) {
@@ -73,7 +75,13 @@ pub(super) fn run_interleaved_stream(
                 .is_some_and(|blocks| blocks > 0);
         let audio_due = (device_ready && phase.scheduler.service_device_block(now))
             || phase.scheduler.audio_due(now);
-        if phase.control_service_due(now, audio_due)
+        let service_due = phase.control_service_due(now, audio_due);
+        if service_due && watchdog.is_armed() {
+            let activity =
+                transport.stats().received_datagrams + result.messages_received.len() as u64;
+            watchdog.check(activity, now)?;
+        }
+        if service_due
             && process_controls(
                 control_socket,
                 control_peer,
@@ -174,7 +182,7 @@ struct StreamPhase<'a> {
     audio_sequence: u32,
     finite_drain_deadline: Option<Instant>,
     n_frames: u64,
-    /// Prepared frames older than this are discarded unsent.
+    /// Prepared frames older than this are discarded before their first datagram.
     video_age_limit: Duration,
     /// A cursor blocked by socket backpressure for longer than this is
     /// discarded; shorter stalls simply retry on the next quantum.
@@ -243,12 +251,13 @@ impl<'a> StreamPhase<'a> {
             .finite_drain_deadline
             .get_or_insert_with(|| now + Duration::from_secs(1))
     }
+    /// Only a frame whose first datagram has not left is discarded for age. A
+    /// fragmented frame already on the wire is finished, or the receiver sees
+    /// nothing but incomplete frames whenever transmission outlasts the limit.
     fn expire_stale_video(&mut self, now: Instant) {
-        if self
-            .cursor
-            .as_ref()
-            .is_some_and(|cursor| cursor.expired(now, self.video_age_limit))
-        {
+        if self.cursor.as_ref().is_some_and(|cursor| {
+            !cursor.has_started() && cursor.expired(now, self.video_age_limit)
+        }) {
             self.scheduler.drop_video_for_deadline(&mut self.cursor);
             self.blocked_since = None;
         }
@@ -553,3 +562,11 @@ fn copy_scheduler_counters(result: &mut SessionResult, scheduler: &DeadlineSched
     result.video_deadline_drops = scheduler.counters.video_deadline_drops;
     result.audio_device_paced_services = scheduler.counters.audio_device_paced_services;
 }
+
+#[cfg(test)]
+#[path = "stream_watchdog_tests.rs"]
+mod watchdog_tests;
+
+#[cfg(test)]
+#[path = "stream_video_tests.rs"]
+mod video_tests;

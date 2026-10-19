@@ -214,23 +214,7 @@ fn ping_result(
     command_succeeded: bool,
     text: &str,
 ) -> ReachabilityResult {
-    // Parse RTT values from common ping formats
-    let mut rtts = Vec::new();
-    for line in text.lines() {
-        // Windows: time=12ms or time<1ms
-        if let Some(idx) = line.to_ascii_lowercase().find("time") {
-            let rest = &line[idx..];
-            if let Some(num) = extract_first_number(rest) {
-                rtts.push(num);
-            }
-        }
-        // Unix: time=12.3 ms
-        if line.contains("time=") {
-            if let Some(num) = extract_first_number_after(line, "time=") {
-                rtts.push(num);
-            }
-        }
-    }
+    let rtts: Vec<f64> = text.lines().filter_map(reply_rtt_ms).collect();
 
     let received = if !rtts.is_empty() {
         rtts.len() as u32
@@ -268,27 +252,36 @@ fn ping_result(
     }
 }
 
-fn extract_first_number(s: &str) -> Option<f64> {
-    let mut num = String::new();
-    let mut started = false;
-    for c in s.chars() {
-        if c.is_ascii_digit() || (c == '.' && started) {
-            num.push(c);
-            started = true;
-        } else if started {
-            break;
+/// RTT of one echo-reply line, independent of the ping tool's language: a reply carries a
+/// TTL field (every locale keeps `TTL`/`ttl`), and its time is a number followed by `ms`
+/// after `=` or `<` (`time=12.3 ms`, `Zeit<1ms`, `temps=12 ms`). Statistics lines
+/// (`Minimum = 12ms`, `time 3003ms`) have no TTL and are skipped, so each reply counts once.
+fn reply_rtt_ms(line: &str) -> Option<f64> {
+    if !line.to_ascii_lowercase().contains("ttl") {
+        return None;
+    }
+    let bytes = line.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'=' || *byte == b'<' {
+            if let Some(value) = number_before_ms(&line[index + 1..]) {
+                return Some(value);
+            }
         }
     }
-    if num.is_empty() {
-        None
-    } else {
-        num.parse().ok()
-    }
+    None
 }
 
-fn extract_first_number_after(s: &str, marker: &str) -> Option<f64> {
-    let idx = s.find(marker)?;
-    extract_first_number(&s[idx + marker.len()..])
+/// `12.3 ms`, `1ms` or `0,5 ms` at the start of `text` (after optional spaces).
+fn number_before_ms(text: &str) -> Option<f64> {
+    let text = text.trim_start();
+    let end = text
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
+        .unwrap_or(text.len());
+    let (number, rest) = text.split_at(end);
+    if !rest.trim_start().to_ascii_lowercase().starts_with("ms") {
+        return None;
+    }
+    number.replace(',', ".").parse().ok()
 }
 
 #[cfg(test)]
@@ -310,5 +303,51 @@ mod tests {
         assert_eq!(report.rtt_ms, Some(3.0));
         assert_eq!(report.rtt_avg_ms, Some(5.0));
         assert!(report.reason.is_empty());
+    }
+
+    fn rtts(text: &str) -> Vec<f64> {
+        text.lines().filter_map(reply_rtt_ms).collect()
+    }
+
+    #[test]
+    fn unix_replies_are_counted_once_and_the_statistics_line_is_ignored() {
+        let linux = "PING 192.0.2.1 (192.0.2.1) 56(84) bytes of data.\n\
+64 bytes from 192.0.2.1: icmp_seq=1 ttl=64 time=0.412 ms\n\
+64 bytes from 192.0.2.1: icmp_seq=2 ttl=64 time=0.380 ms\n\n\
+--- 192.0.2.1 ping statistics ---\n\
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms\n\
+rtt min/avg/max/mdev = 0.380/0.396/0.412/0.016 ms\n";
+        assert_eq!(rtts(linux), vec![0.412, 0.380]);
+        let result = ping_result("h", "192.0.2.1", 2, true, linux);
+        assert_eq!(result.received, 2);
+        let macos = "64 bytes from 192.0.2.1: icmp_seq=0 ttl=64 time=1.5 ms\n";
+        assert_eq!(rtts(macos), vec![1.5]);
+    }
+
+    #[test]
+    fn windows_rtts_parse_in_english_german_and_french() {
+        let english = "Reply from 192.0.2.1: bytes=32 time=12ms TTL=57\n\
+Reply from 192.0.2.1: bytes=32 time<1ms TTL=57\n\
+    Minimum = 1ms, Maximum = 12ms, Average = 6ms\n";
+        assert_eq!(rtts(english), vec![12.0, 1.0]);
+        let german = "Antwort von 192.0.2.1: Bytes=32 Zeit=14ms TTL=57\n\
+Antwort von 192.0.2.1: Bytes=32 Zeit<1ms TTL=57\n\
+    Minimum = 1ms, Maximum = 14ms, Mittelwert = 7ms\n";
+        assert_eq!(rtts(german), vec![14.0, 1.0]);
+        let french = "R\u{e9}ponse de 192.0.2.1 : octets=32 temps=15 ms TTL=57\n\
+R\u{e9}ponse de 192.0.2.1 : octets=32 temps<1 ms TTL=57\n\
+    Minimum = 1 ms, Maximum = 15 ms, Moyenne = 8 ms\n";
+        assert_eq!(rtts(french), vec![15.0, 1.0]);
+        let result = ping_result("h", "192.0.2.1", 2, true, german);
+        assert_eq!(result.received, 2);
+        assert_eq!(result.rtt_ms, Some(1.0));
+        assert_eq!(result.rtt_avg_ms, Some(7.5));
+    }
+
+    #[test]
+    fn lines_without_a_ttl_or_an_ms_time_are_not_rtts() {
+        assert_eq!(reply_rtt_ms("Request timed out."), None);
+        assert_eq!(reply_rtt_ms("Reply from 192.0.2.1: bytes=32 TTL=57"), None);
+        assert_eq!(reply_rtt_ms("time=5 ms without the reply marker"), None);
     }
 }

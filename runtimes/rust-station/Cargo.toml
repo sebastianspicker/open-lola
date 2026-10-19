@@ -3,7 +3,7 @@ name = "rusty-lola"
 version = "0.1.0"
 edition = "2021"
 description = "Windows and native Linux Rust implementation of the recovered LoLa 2.0 protocol"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 readme = "README.md"
 default-run = "rusty-lola"
 

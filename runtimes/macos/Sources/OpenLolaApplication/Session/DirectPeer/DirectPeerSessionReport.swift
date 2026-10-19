@@ -16,6 +16,12 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
     public var metrics: DirectPeerSessionReportMetrics
     public var avRuntime: DirectPeerSessionAVRuntimeMetadata?
     public var measuredEvidence: DirectPeerSessionMeasuredEvidence?
+    /// Process CPU and memory sampled during the run; nil in reports written before sampling existed.
+    public var resources: DirectPeerSessionResourceUsage?
+    /// Media byte and packet-order counters; nil in reports written before they were counted.
+    public var mediaTraffic: DirectPeerSessionMediaTraffic?
+    /// Machine model, chip and OS version of the peer; nil in reports written before they were recorded.
+    public var host: DirectPeerSessionHostIdentity?
     public var verdict: MeasurementVerdict
     public var notes: String
 
@@ -26,6 +32,9 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
         metrics: DirectPeerSessionReportMetrics,
         avRuntime: DirectPeerSessionAVRuntimeMetadata? = nil,
         measuredEvidence: DirectPeerSessionMeasuredEvidence? = nil,
+        resources: DirectPeerSessionResourceUsage? = nil,
+        mediaTraffic: DirectPeerSessionMediaTraffic? = nil,
+        host: DirectPeerSessionHostIdentity? = nil,
         verdict: MeasurementVerdict,
         notes: String
     ) {
@@ -35,6 +44,9 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
         self.metrics = metrics
         self.avRuntime = avRuntime
         self.measuredEvidence = measuredEvidence
+        self.resources = resources
+        self.mediaTraffic = mediaTraffic
+        self.host = host
         self.verdict = verdict
         self.notes = notes
     }

@@ -20,6 +20,7 @@ use crate::IDENTITY;
 use crate::VERSION;
 use std::path::PathBuf;
 
+use super::notices;
 use super::operator::run_operator_command;
 
 pub(super) fn run_command(command: Option<Commands>) -> i32 {
@@ -53,8 +54,15 @@ pub(super) fn run_command(command: Option<Commands>) -> i32 {
         Some(Commands::Connect { remote_ip, options }) => {
             run_operator_command(Some(remote_ip), "remote", options)
         }
-        Some(Commands::Listen { options }) => run_operator_command(None, "listen", options),
-        Some(Commands::Emulate { args }) | Some(Commands::Tester { args }) => {
+        Some(Commands::Listen { remote_ip, options }) => {
+            run_operator_command(remote_ip, "listen", options)
+        }
+        Some(Commands::Emulate { args }) => {
+            eprintln!("{}", notices::emulation_notice("emulate"));
+            emulation_command(args)
+        }
+        Some(Commands::Tester { args }) => {
+            eprintln!("{}", notices::emulation_notice("tester"));
             emulation_command(args)
         }
         Some(command @ Commands::Ui { .. }) => ui_command(command),
@@ -125,6 +133,9 @@ fn station_command(command: Commands) -> i32 {
             return 1;
         }
     };
+    if let Some(notice) = notices::station_demo_notice(peer_mode) {
+        eprintln!("{notice}");
+    }
     apply_station_overrides(
         &mut settings,
         camera_mode_id,
@@ -133,6 +144,11 @@ fn station_command(command: Commands) -> i32 {
         compress,
         record.as_ref(),
     );
+    if let Some(notice) =
+        notices::synthetic_media_notice("station", settings.audio.backend, settings.video.backend)
+    {
+        eprintln!("{notice}");
+    }
     let result = if reject {
         run_reject_session(settings, timeout)
     } else {
@@ -160,7 +176,10 @@ fn station_command(command: Commands) -> i32 {
     if result.ok {
         0
     } else {
-        eprintln!("station failed: {}", result.error);
+        eprintln!(
+            "station failed: {}",
+            super::report::printable(&result.error)
+        );
         1
     }
 }
@@ -274,13 +293,17 @@ fn ui_command(command: Commands) -> i32 {
         run_connect,
         timeout,
         frames,
-        allow_multiple: _,
+        allow_multiple,
         camera_backend,
         audio_backend,
     } = command
     else {
         unreachable!("UI handler receives only the UI command");
     };
+    if allow_multiple {
+        eprintln!("--allow-multiple is not supported: the UI has no multi-instance mode");
+        return 2;
+    }
     if headless || run_check || run_connect {
         return headless_ui_command(
             run_check,

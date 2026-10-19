@@ -20,21 +20,30 @@ public extension DirectPeerSessionSocketRunner {
         try runManualAddressAudioVideo(configuration: configuration, onReady: nil)
     }
 
+    /// Runs one A/V peer until `durationSeconds` elapses, the peer pauses, or `stopRequest` is set.
+    ///
+    /// A stopped run still tears down normally and returns a PARTIAL report that names the stop signal.
     static func runManualAddressAudioVideo(
         configuration: DirectPeerSessionAVRunConfiguration,
-        onReady: (() -> Void)?
+        onReady: (() -> Void)?,
+        stopRequest: DirectPeerSessionStopRequest = DirectPeerSessionStopRequest()
     ) throws -> DirectPeerSessionReport {
         try validateAVConfiguration(configuration)
         let readyCallback = DirectPeerAVSessionCallbackBox(onReady)
         return try runDirectPeerAVSessionOnDedicatedThread(previewMode: configuration.preview) {
-            try runManualAddressAudioVideoSession(configuration: configuration, onReady: readyCallback)
+            try runManualAddressAudioVideoSession(
+                configuration: configuration,
+                onReady: readyCallback,
+                stopRequest: stopRequest
+            )
         }
     }
 }
 
 private func runManualAddressAudioVideoSession(
     configuration: DirectPeerSessionAVRunConfiguration,
-    onReady: DirectPeerAVSessionCallbackBox
+    onReady: DirectPeerAVSessionCallbackBox,
+    stopRequest: DirectPeerSessionStopRequest
 ) throws -> DirectPeerSessionReport {
     let control = try DirectPeerSessionControlSocket.bindIPv4(
         host: configuration.manual.localHost,
@@ -45,34 +54,44 @@ private func runManualAddressAudioVideoSession(
 
     var runner = try makeManualAVPeerSessionRunner(configuration: configuration, control: control)
     defer { runner.shutdown(reason: "manual-address audio-video run complete") }
+    let resourceRecorder = DirectPeerSessionResourceRecorder()
+    resourceRecorder.start(attachingTo: &runner)
+    defer { resourceRecorder.sampler.stop() }
     onReady.invoke()
 
-    let remoteControl = manualAVRemoteControlEndpoint(configuration)
+    let session = DirectPeerManualAVSession(
+        control: control,
+        remoteControl: manualAVRemoteControlEndpoint(configuration),
+        configuration: configuration,
+        stopRequest: stopRequest
+    )
     let avRuntime: DirectPeerSessionAVRuntimeResult
     switch configuration.manual.role {
     case .initiator:
-        avRuntime = try runManualAVInitiator(
-            runner: &runner,
-            control: control,
-            remoteControl: remoteControl,
-            configuration: configuration
-        )
+        avRuntime = try runManualAVInitiator(runner: &runner, session: session)
     case .responder:
-        avRuntime = try runManualAVResponder(
-            runner: &runner,
-            control: control,
-            remoteControl: remoteControl,
-            configuration: configuration
-        )
+        avRuntime = try runManualAVResponder(runner: &runner, session: session)
     }
-    try validateUsefulMediaMoved(runtime: avRuntime, policy: configuration.qualityPolicy)
+    // A stopped run reports what moved so far; the useful-media gate applies to full-length runs only.
+    if !stopRequest.isRequested {
+        try validateUsefulMediaMoved(runtime: avRuntime, policy: configuration.qualityPolicy)
+    }
 
-    return try buildAVReport(
+    return stopRequest.annotating(try buildAVReport(
         configuration: configuration,
         runner: runner,
         control: control,
-        runtime: avRuntime
-    )
+        runtime: avRuntime,
+        resourceRecorder: resourceRecorder
+    ))
+}
+
+/// Sockets, configuration and stop flag shared by the control and media phases of one A/V peer run.
+private struct DirectPeerManualAVSession {
+    var control: DirectPeerSessionControlSocket
+    var remoteControl: SessionNetworkEndpoint
+    var configuration: DirectPeerSessionAVRunConfiguration
+    var stopRequest: DirectPeerSessionStopRequest
 }
 
 func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
@@ -165,12 +184,41 @@ private func validateProductionAVPreflight(_ configuration: DirectPeerSessionAVR
             inventory: inventory
         )
         if configuration.avProfile == .fastest, !preflight.canStart {
-            throw DirectPeerAudioGraphError.unsupportedFrameSize(
-                uid: configuration.audioDeviceUID,
-                framesPerBuffer: configuration.framesPerPacket
-            )
+            throw productionPreflightFailure(preflight, configuration: configuration)
         }
     }
+}
+
+/// Names the first real mismatch (sample rate, duplex, frame size, channels) the preflight found.
+private func productionPreflightFailure(
+    _ preflight: DirectPeerRealtimeAudioGraphPreflight,
+    configuration: DirectPeerSessionAVRunConfiguration
+) -> DirectPeerAudioGraphError {
+    let uid = configuration.audioDeviceUID
+    if !preflight.sampleRateSupported {
+        return .unsupportedSampleRate(uid: uid, sampleRateHertz: configuration.sampleRateHertz)
+    }
+    if !preflight.fullDuplexSupported {
+        return .deviceNotFullDuplex(uid)
+    }
+    if !preflight.frameSizeSupported {
+        return .unsupportedFrameSize(uid: uid, framesPerBuffer: configuration.framesPerPacket)
+    }
+    if let device = preflight.device, configuration.inputChannels.count > device.inputChannelCount {
+        return .channelMapOutOfRange(
+            scope: .input,
+            index: configuration.inputChannels.count - 1,
+            available: device.inputChannelCount
+        )
+    }
+    if let device = preflight.outputDevice, configuration.outputChannels.count > device.outputChannelCount {
+        return .channelMapOutOfRange(
+            scope: .output,
+            index: configuration.outputChannels.count - 1,
+            available: device.outputChannelCount
+        )
+    }
+    return .unsupportedFrameSize(uid: uid, framesPerBuffer: configuration.framesPerPacket)
 }
 
 private func validateAcceptedVideoStream(
@@ -247,10 +295,10 @@ private func manualAVRemoteControlEndpoint(
 
 private func runManualAVInitiator(
     runner: inout PeerSessionRunner,
-    control: DirectPeerSessionControlSocket,
-    remoteControl: SessionNetworkEndpoint,
-    configuration: DirectPeerSessionAVRunConfiguration
+    session: DirectPeerManualAVSession
 ) throws -> DirectPeerSessionAVRuntimeResult {
+    let control = session.control
+    let remoteControl = session.remoteControl
     try DirectPeerSessionSocketRunner.send(try runner.beginHandshake(), from: control, to: remoteControl)
     try runner.receiveControlMessages(try control.receiveMessages(
         count: 2,
@@ -258,19 +306,14 @@ private func runManualAVInitiator(
         expectedSource: remoteControl
     ))
     try control.send(
-        try makeManualAVSessionProposal(runner: &runner, configuration: configuration),
+        try makeManualAVSessionProposal(runner: &runner, configuration: session.configuration),
         to: remoteControl
     )
     try runner.receiveControlMessages([try control.receiveMessage(
         label: "session accept",
         expectedSource: remoteControl
     )])
-    return try finishManualAVSession(
-        runner: &runner,
-        control: control,
-        remoteControl: remoteControl,
-        configuration: configuration
-    )
+    return try finishManualAVSession(runner: &runner, session: session)
 }
 
 private func makeManualAVSessionProposal(
@@ -296,34 +339,28 @@ private func makeManualAVSessionProposal(
 
 private func runManualAVResponder(
     runner: inout PeerSessionRunner,
-    control: DirectPeerSessionControlSocket,
-    remoteControl: SessionNetworkEndpoint,
-    configuration: DirectPeerSessionAVRunConfiguration
+    session: DirectPeerManualAVSession
 ) throws -> DirectPeerSessionAVRuntimeResult {
-    try runner.receiveControlMessages(try control.receiveMessages(
+    try runner.receiveControlMessages(try session.control.receiveMessages(
         count: 2,
         label: "initiator handshake",
-        expectedSource: remoteControl
+        expectedSource: session.remoteControl
     ))
     try DirectPeerSessionSocketRunner.completeResponderControlHandshake(
         runner: &runner,
-        control: control,
-        remoteControl: remoteControl
+        control: session.control,
+        remoteControl: session.remoteControl
     )
-    return try finishManualAVSession(
-        runner: &runner,
-        control: control,
-        remoteControl: remoteControl,
-        configuration: configuration
-    )
+    return try finishManualAVSession(runner: &runner, session: session)
 }
 
 private func finishManualAVSession(
     runner: inout PeerSessionRunner,
-    control: DirectPeerSessionControlSocket,
-    remoteControl: SessionNetworkEndpoint,
-    configuration: DirectPeerSessionAVRunConfiguration
+    session: DirectPeerManualAVSession
 ) throws -> DirectPeerSessionAVRuntimeResult {
+    let control = session.control
+    let remoteControl = session.remoteControl
+    let configuration = session.configuration
     try validateAcceptedAudioStream(configuration: configuration, accepted: runner.acceptedConfiguration)
     try validateAcceptedVideoStream(configuration: configuration, accepted: runner.acceptedConfiguration)
     try DirectPeerSessionSocketRunner.publishAndExchangeAudioMetadata(
@@ -336,20 +373,18 @@ private func finishManualAVSession(
         control: control,
         remoteControl: remoteControl
     )
-    return try runAVMediaLoops(
-        runner: &runner,
-        control: control,
-        remoteControl: remoteControl,
-        configuration: configuration
-    )
+    return try runAVMediaLoops(runner: &runner, session: session)
 }
 
 private func runAVMediaLoops(
     runner: inout PeerSessionRunner,
-    control: DirectPeerSessionControlSocket,
-    remoteControl: SessionNetworkEndpoint,
-    configuration: DirectPeerSessionAVRunConfiguration
+    session: DirectPeerManualAVSession
 ) throws -> DirectPeerSessionAVRuntimeResult {
+    let control = session.control
+    let remoteControl = session.remoteControl
+    let configuration = session.configuration
+    // From here a stop runs the pause exchange and resource teardown below instead of exiting at once.
+    session.stopRequest.markMediaStarted()
     var resources = try makeDirectPeerAVMediaLoopResources(configuration)
     var lifecycle = DirectPeerAVMediaLoopLifecycle()
     defer { stopDirectPeerAVMediaLoopResources(resources, lifecycle: lifecycle) }
@@ -372,7 +407,8 @@ private func runAVMediaLoops(
         timing: timing
     )
     var stopReason: DirectPeerAVControlStopReason?
-    while DispatchTime.now().uptimeNanoseconds < timing.deadlineNanoseconds {
+    // A stop request ends the loop as if the duration had elapsed, so the pause exchange and teardown still run.
+    while DispatchTime.now().uptimeNanoseconds < timing.deadlineNanoseconds, !session.stopRequest.isRequested {
         stopReason = try runDirectPeerAVMediaLoopIteration(
             runner: &runner,
             resources: &resources,
@@ -388,7 +424,9 @@ private func runAVMediaLoops(
             runner: &runner,
             control: control,
             remoteControl: remoteControl,
-            peerMediaPauseReceived: stopReason == .peerMediaPause
+            peerMediaPauseReceived: stopReason == .peerMediaPause,
+            reason: session.stopRequest.signalName.map { "audio-video run stopped by signal (\($0))" }
+                ?? "audio-video run duration complete"
         )
     }
     finishDirectPeerAVMediaLoop(resources: &resources, state: &state)

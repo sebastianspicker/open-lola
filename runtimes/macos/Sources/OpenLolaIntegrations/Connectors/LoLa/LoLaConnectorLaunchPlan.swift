@@ -64,6 +64,7 @@ private func lolaConnectorArguments(
     var arguments = [
         transportCommand,
         "--role", configuration.role.rawValue,
+        "--lola-control-side", configuration.effectiveLoLaControlSide.rawValue,
         "--control-transport", configuration.controlTransport.rawValue,
         "--control-port", String(configuration.controlPort),
         "--audio-port", String(configuration.audioPort),
@@ -114,6 +115,8 @@ private func lolaProtocolFacts(
         "tx-rx mode is explicit simultaneous bidirectional source contract; it initiates " +
         "control like TX while attaching combined media TX generation and " +
         "RX envelope-validation evidence",
+        "control side is independent of media role: this plan runs the LoLa control " +
+        "\(configuration.effectiveLoLaControlSide.rawValue) (default: TX and TX-RX initiate, RX responds)",
         "when raw-link options are supplied, LoLa media TX/RX uses macOS BPF raw-link " +
         "runner shared lola-raw-link-* commands RX bounded by session duration"
     ]

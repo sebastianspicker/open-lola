@@ -66,6 +66,13 @@ func parseExternalConnectorSessionRole(_ value: String) throws -> ExternalConnec
     }
 }
 
+func parseLoLaControlSide(_ value: String) throws -> LoLaControlSide {
+    guard let side = LoLaControlSide(rawValue: value) else {
+        throw ExternalConnectorSessionError.invalidLoLaControlSide(value)
+    }
+    return side
+}
+
 func parseExternalConnectorControlTransport(_ value: String) throws -> ExternalConnectorControlTransport {
     switch value {
     case "udp":

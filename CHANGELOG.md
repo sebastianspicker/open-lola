@@ -39,8 +39,9 @@ publish releases; these entries describe repository state and preparation only.
   rendering keeps the latest frame per stream, rejects stale sequences, checks
   deadlines again at delivery using local receive time, and preserves continuity
   across queued frames. Raw preview rejects invalid dimensions safely.
-- Swift regression suites are tracked and run by `make swift-test`, CI, and
-  `make verify`. Removed obsolete duplication-baseline entries without increasing
+- Test sources are no longer published: the Swift and Rust integration test
+  trees stay local, Package.swift declares a test target only when its source
+  directory exists, and `make swift-test` builds instead when it does not. Removed obsolete duplication-baseline entries without increasing
   the accepted duplication budget. Hardware latency and reference-peer behavior
   remain separate validation requirements.
 - Rust station scheduling: the interleaved loop sends up to 16 video fragments
@@ -78,11 +79,9 @@ publish releases; these entries describe repository state and preparation only.
   present and labels local capture as not received video, the preview keeps
   its aspect ratio, the idle placeholder is rendered once, and both previews
   are cleared when a session ends instead of showing the last frame as live.
-- Interop corpus: `cargo test --test lola2_compatibility` now exists and
-  replays all 25 manifest cases and all 110 migration-oracle observations
-  against the Rust codec (the README had claimed this test since the corpus
-  was added); `.gitignore` re-includes that one file under
-  `runtimes/rust-station/tests/`.
+- Interop corpus: a Rust compatibility test replays all 25 manifest cases and
+  all 110 migration-oracle observations against the Rust codec (its source is
+  not published).
 - macOS LoLa connector interop with the Rust station: the initiator accepts
   the peer's `/MESG_REJECT` as a terminal answer and reports its reason
   (`peer rejected QUICKCONN: …`) instead of re-sending `QUICKCONN` until the

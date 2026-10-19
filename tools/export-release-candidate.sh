@@ -222,6 +222,7 @@ release_paths=(
   ".gitignore"
   ".python-version"
   "Cargo.toml"
+  "rust-toolchain.toml"
   "Cargo.lock"
   "Makefile"
   "Package.swift"

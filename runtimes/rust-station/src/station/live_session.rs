@@ -17,6 +17,15 @@ use crate::station::sync::lock_unpoison;
 use serde_json::{json, Map, Value};
 use std::sync::Mutex;
 
+/// Caller options win; the default options use catalog geometry only for XIMEA.
+fn base_options(options: Option<SessionOptions>, settings: &StationSettings) -> SessionOptions {
+    options.unwrap_or_else(|| {
+        let mut options = SessionOptions::demo();
+        options.use_catalog_geometry = settings.video.backend == VideoBackend::Ximea;
+        options
+    })
+}
+
 #[derive(Debug)]
 struct LiveConfig {
     settings: StationSettings,
@@ -195,12 +204,11 @@ impl LiveStationService {
             config.continuous = continuous;
             (config.settings.clone(), config.test_signal_mode.clone())
         };
-        let mut options = options.unwrap_or_else(SessionOptions::demo);
+        let mut options = base_options(options, &settings);
         options.control_extras = control_extras;
         options.stream_frames = stream_frames.max(1);
         options.camera_backend = settings.video.backend;
         options.audio_backend = settings.audio.backend;
-        options.use_catalog_geometry = settings.video.backend != VideoBackend::Diagnostic;
         if test_signal_mode != "none" {
             options.test_signal_mode = test_signal_mode;
         }
@@ -260,5 +268,36 @@ fn status_name(snapshot: &SessionSnapshot) -> String {
             "error:{}",
             snapshot.error.as_deref().unwrap_or("session_failed")
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings_with(backend: VideoBackend) -> StationSettings {
+        let mut settings = default_settings();
+        settings.video.backend = backend;
+        settings
+    }
+
+    #[test]
+    fn caller_options_keep_their_geometry_choice_for_v4l2() {
+        let mut caller = SessionOptions::demo();
+        caller.use_catalog_geometry = false;
+        let options = base_options(Some(caller), &settings_with(VideoBackend::V4l2));
+        assert!(!options.use_catalog_geometry);
+    }
+
+    #[test]
+    fn default_options_use_catalog_geometry_only_for_ximea() {
+        for (backend, expected) in [
+            (VideoBackend::Ximea, true),
+            (VideoBackend::V4l2, false),
+            (VideoBackend::Diagnostic, false),
+        ] {
+            let options = base_options(None, &settings_with(backend));
+            assert_eq!(options.use_catalog_geometry, expected, "{backend:?}");
+        }
     }
 }

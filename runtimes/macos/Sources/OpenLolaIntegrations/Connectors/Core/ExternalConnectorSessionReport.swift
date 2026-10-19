@@ -23,6 +23,7 @@ public struct ExternalConnectorSessionReportInput: Equatable, Sendable {
   public var lolaMedia: LoLaCompatibilityMediaSessionReport?
   public var ultraGridMedia: UltraGridCompatibilityMediaReport?
   public var jackTripMedia: JackTripCompatibilityMediaReport?
+  public var outcome: ExternalConnectorSessionOutcome?
   public var verdict: MeasurementVerdict
   public var notes: String
 
@@ -66,6 +67,8 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
     public var jackTripMedia: JackTripCompatibilityMediaReport?
     public var runtimeError: String?
     public var runtimeErrorFree: Bool?
+    /// How a live session ended; nil for dry runs and connectors that do not record it.
+    public var outcome: ExternalConnectorSessionOutcome?
     public var verdict: MeasurementVerdict
     public var notes: String
 
@@ -85,6 +88,7 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
     self.jackTripMedia = input.jackTripMedia
     self.runtimeError = input.runtimeError
     self.runtimeErrorFree = input.runtimeErrorFree ?? (input.runtimeError == nil)
+    self.outcome = input.outcome
     self.verdict = input.verdict
     self.notes = input.notes
   }
@@ -111,6 +115,7 @@ extension ExternalConnectorSessionReport {
         if verdict == .fail {
             try requireExternalConnectorSessionNonEmpty(runtimeError ?? "", "runtimeError")
         }
+        try validateOutcome()
         try lolaMedia?.validate()
         try ultraGridMedia?.validate()
         try jackTripMedia?.validate()
@@ -125,6 +130,21 @@ extension ExternalConnectorSessionReport {
         try requireExternalConnectorSessionNonEmptyList(plan.protocolFacts, "plan.protocolFacts")
         try requireExternalConnectorSessionNonEmptyList(plan.sourceReferences, "plan.sourceReferences")
         try validateSourceReferences()
+    }
+
+    private func validateOutcome() throws {
+        guard let outcome else { return }
+        if dryRun {
+            throw ExternalConnectorSessionError.invalidOutcome("dry run has no outcome")
+        }
+        if (outcome.kind == .failed) != (runtimeError != nil) {
+            throw ExternalConnectorSessionError.invalidOutcome(
+                "outcome \(outcome.kind.rawValue) disagrees with runtimeError"
+            )
+        }
+        if outcome.kind != .completed {
+            try requireExternalConnectorSessionNonEmpty(outcome.reason ?? "", "outcome.reason")
+        }
     }
 
     private func validateTransmitPeer() throws {

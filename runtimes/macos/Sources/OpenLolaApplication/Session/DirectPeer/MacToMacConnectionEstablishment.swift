@@ -7,6 +7,8 @@ import OpenLolaMediaPlatform
 import Foundation
 
 /// Selects how two Macs establish the route used by a direct-peer session.
+///
+/// `manualDirect` marks a route proven by on-link LAN evidence instead of NAT traversal probing.
 public enum MacToMacConnectionSetupMode: String, Codable, Equatable, Sendable {
     case ipNatProbe
     case manualDirect
@@ -32,6 +34,9 @@ public enum MacToMacConnectionEstablishmentValidationError: Error, Equatable, Se
     case passWithoutNatRoute
     case passWithNonPassNatRoute
     case passWithoutDirectUdpIPRoute
+    case passWithoutDirectLANBasis
+    case passWithManualDirectAndNatRoute
+    case passWithInconsistentDirectLANBasis
     case passWithRelayFallback
     case passWithSSHFallback
     case passWithBlockers
@@ -72,19 +77,22 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
         public var networkDiagnostics: NetworkDiagnosticsReport?
         public var natRoute: NatFriendlyRouteReport?
         public var routeCertification: MacToMacRouteCertificationReport?
+        public var directLANBasis: DirectLANRouteBasis?
 
         public init(
             setupMode: MacToMacConnectionSetupMode,
             selectedRoute: MacToMacConnectionSelectedRoute,
             networkDiagnostics: NetworkDiagnosticsReport? = nil,
             natRoute: NatFriendlyRouteReport? = nil,
-            routeCertification: MacToMacRouteCertificationReport? = nil
+            routeCertification: MacToMacRouteCertificationReport? = nil,
+            directLANBasis: DirectLANRouteBasis? = nil
         ) {
             self.setupMode = setupMode
             self.selectedRoute = selectedRoute
             self.networkDiagnostics = networkDiagnostics
             self.natRoute = natRoute
             self.routeCertification = routeCertification
+            self.directLANBasis = directLANBasis
         }
     }
 
@@ -120,6 +128,8 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
     public var networkDiagnostics: NetworkDiagnosticsReport?
     public var natRoute: NatFriendlyRouteReport?
     public var routeCertification: MacToMacRouteCertificationReport?
+    /// Present only when a PASS rests on an on-link LAN route instead of NAT route evidence; older reports omit it.
+    public var directLANBasis: DirectLANRouteBasis?
     public var sshFallbackExplicitlySelected: Bool
     public var sshFallbackReason: String?
     public var blockers: [String]
@@ -144,6 +154,7 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
         self.networkDiagnostics = routeEvidence.networkDiagnostics
         self.natRoute = routeEvidence.natRoute
         self.routeCertification = routeEvidence.routeCertification
+        self.directLANBasis = routeEvidence.directLANBasis
         self.sshFallbackExplicitlySelected = fallback.explicitlySelected
         self.sshFallbackReason = fallback.reason
         self.blockers = outcome.blockers
@@ -205,7 +216,7 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
     }
 
     private func validatePassRouteSelection() throws {
-        guard setupMode == .ipNatProbe else {
+        guard setupMode == .ipNatProbe || setupMode == .manualDirect else {
             throw MacToMacConnectionEstablishmentValidationError.passWithoutIPNatProbe
         }
         guard selectedRoute == .directUdpIp else {
@@ -216,6 +227,10 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
     private func validatePassSubordinateEvidence() throws {
         guard let networkDiagnostics else {
             throw MacToMacConnectionEstablishmentValidationError.passWithoutNetworkDiagnostics
+        }
+        if setupMode == .manualDirect {
+            try validatePassDirectLANEvidence(networkDiagnostics)
+            return
         }
         guard networkDiagnostics.verdict == .pass else {
             throw MacToMacConnectionEstablishmentValidationError.passWithNonPassNetworkDiagnostics
@@ -228,6 +243,31 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
         }
         if natRoute.compatibilityMode == .relayFallback || natRoute.traversal.relayUsed {
             throw MacToMacConnectionEstablishmentValidationError.passWithRelayFallback
+        }
+    }
+
+    /// A LAN PASS carries no NAT route; it needs the recorded on-link basis and a lossless ping instead.
+    ///
+    /// The recorded traceroute basis must be the one the diagnostics and prefix length still yield, so a
+    /// report cannot claim a one-hop trace or a narrow subnet the evidence does not show.
+    private func validatePassDirectLANEvidence(_ networkDiagnostics: NetworkDiagnosticsReport) throws {
+        guard natRoute == nil else {
+            throw MacToMacConnectionEstablishmentValidationError.passWithManualDirectAndNatRoute
+        }
+        guard let directLANBasis else {
+            throw MacToMacConnectionEstablishmentValidationError.passWithoutDirectLANBasis
+        }
+        guard let ping = networkDiagnostics.ping, ping.received > 0, ping.packetLossPercent == 0 else {
+            throw MacToMacConnectionEstablishmentValidationError.passWithNonPassNetworkDiagnostics
+        }
+        let traceroute = DirectLANRoute.tracerouteDecision(
+            peer: directLANBasis.peerAddress,
+            diagnostics: networkDiagnostics,
+            prefixLength: directLANBasis.prefixLength
+        )
+        guard directLANBasis.peerAddress == networkDiagnostics.peer,
+              traceroute == .accepted(directLANBasis.tracerouteBasis) else {
+            throw MacToMacConnectionEstablishmentValidationError.passWithInconsistentDirectLANBasis
         }
     }
 

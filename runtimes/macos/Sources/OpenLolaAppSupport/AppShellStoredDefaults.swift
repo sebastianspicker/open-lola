@@ -9,7 +9,8 @@ enum AppShellStoredDefaults {
 
     static func placeholderOperatorSurface(
         commandIntent: NativeAppShellOperatorCommandIntent = .idle,
-        remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder()
+        remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder(),
+        localSelection: NativeAppShellLocalMediaSelection = localMediaSelection()
     ) -> NativeAppShellOperatorPrototypeState {
         NativeAppShellOperatorPrototypeState(
             workflow: NativeAppShellOperatorWorkflow(sessionMode: sessionMode(), controlMode: controlMode(), commandIntent: commandIntent, remoteOrchestrationEnabled: false, startsLongRunningProcess: false),
@@ -18,11 +19,7 @@ enum AppShellStoredDefaults {
                 hostName: "local-peer",
                 audioDevices: [],
                 videoDevices: [],
-                selection: NativeAppShellLocalMediaSelection(
-                    audioInputUID: nil,
-                    audioOutputUID: nil,
-                    videoDeviceID: nil
-                ),
+                selection: localSelection,
                 inventoryErrors: ["Local media inventory refresh pending."]
             ), remote: remoteInventory),
             peerFields: NativeAppShellOperatorPeerFields(directPeer: directPeerCommandFields(), windowsLoLa: windowsLoLaPeerFields(), jackTrip: jackTripPeerFields(), ultraGrid: ultraGridPeerFields())
@@ -37,6 +34,7 @@ enum AppShellStoredDefaults {
             sessionMode: sessionMode(),
             controlMode: controlMode(),
             commandIntent: commandIntent,
+            localSelection: localMediaSelection(),
             remoteInventory: remoteInventory,
             directPeerCommandFields: directPeerCommandFields(),
             windowsLoLaPeerFields: windowsLoLaPeerFields(),
@@ -116,41 +114,6 @@ enum AppShellStoredDefaults {
         previewState.showSafeFrame = storedDefaults.showSafeFrame
         previewState.monitorGain = storedDefaults.monitorGain
         previewState.videoScale = storedDefaults.videoScale
-    }
-
-    static func validatedOrDefault(
-        _ fields: NativeAppShellDirectPeerCommandFields
-    ) -> NativeAppShellDirectPeerCommandFields {
-        do {
-            try fields.validateAppSettings()
-            return fields
-        } catch {
-            return .appDefault
-        }
-    }
-
-    static func validatedOrDefault(
-        _ fields: NativeAppShellWindowsLoLaPeerFields
-    ) -> NativeAppShellWindowsLoLaPeerFields {
-        do {
-            try fields.validateAppSettings()
-            return fields
-        } catch {
-            return .appDefault
-        }
-    }
-
-    static func validatedOrDefault(
-        _ fields: NativeAppShellExternalConnectorPeerFields,
-        connector: ExternalConnectorKind,
-        fallback: NativeAppShellExternalConnectorPeerFields
-    ) -> NativeAppShellExternalConnectorPeerFields {
-        do {
-            try fields.validateAppSettings(connector: connector)
-            return fields
-        } catch {
-            return fallback
-        }
     }
 
     static func intDefault(_ key: String, fallback: Int, defaults: UserDefaults = .standard) -> Int {

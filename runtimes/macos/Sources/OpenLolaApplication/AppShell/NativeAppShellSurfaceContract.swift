@@ -310,10 +310,24 @@ public enum NativeAppShellSurfaceValidationError: Error, Equatable, Sendable {
     case missingRemoteCommandSelection(String)
     case invalidCommandField(String)
     case duplicateCommandPort(String)
+    case unsafeVideoPacketBudget(estimatedFragmentsPerFrame: Int, maxFragmentsPerFrame: Int)
     case operatorEnablesRemoteOrchestration
     case operatorStartsLongRunningProcess
     // swiftlint:disable:next identifier_name
     case actionRunIntentWithoutExternalRealtimeMarker(String)
     case passWithoutLaunchedSurfaceEvidence
     case passWhileLaunchProbeBlocksFieldReady
+}
+
+extension NativeAppShellSurfaceValidationError: LocalizedError {
+    /// Describes the failure in operator-readable text; other cases fall back to the case dump.
+    public var errorDescription: String? {
+        switch self {
+        case .unsafeVideoPacketBudget(let estimated, let maximum):
+            "The video size is too large for raw UDP video: one frame needs about \(estimated) packets, "
+                + "but the selected profile allows \(maximum). Lower the video width or height, or use another profile."
+        default:
+            String(describing: self)
+        }
+    }
 }

@@ -39,7 +39,6 @@ struct AppShellDetailView: View {
                 )
             case .session:
                 AppSessionSectionView(
-                    report: report,
                     phase: sessionPhase,
                     previewState: previewState,
                     operatorSurface: $operatorSurface,

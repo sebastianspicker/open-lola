@@ -3,7 +3,10 @@ import Foundation
 import OpenLolaCore
 
 extension AppShellStoredDefaults {
-    static func windowsLoLaPeerFields(defaults: UserDefaults = .standard) -> NativeAppShellWindowsLoLaPeerFields {
+    /// Loads the stored LoLa connector fields together with a note for each field that had to be reset.
+    static func windowsLoLaPeerFieldsLoad(
+        defaults: UserDefaults = .standard
+    ) -> AppStoredSettingsLoad<NativeAppShellWindowsLoLaPeerFields> {
         var fields = NativeAppShellWindowsLoLaPeerFields.appDefault
         applyWindowsLoLaConnectionFields(to: &fields, defaults: defaults)
         applyWindowsLoLaVideoFields(to: &fields, defaults: defaults)
@@ -112,7 +115,10 @@ extension AppShellStoredDefaults {
             ?? fields.audioDeviceMode
     }
 
-    static func jackTripPeerFields(defaults: UserDefaults = .standard) -> NativeAppShellExternalConnectorPeerFields {
+    /// Loads the stored JackTrip fields together with a note for each field that had to be reset.
+    static func jackTripPeerFieldsLoad(
+        defaults: UserDefaults = .standard
+    ) -> AppStoredSettingsLoad<NativeAppShellExternalConnectorPeerFields> {
         externalConnectorPeerFields(
             defaultsPrefix: .jackTrip,
             fallback: .jackTripAppDefault,
@@ -121,7 +127,10 @@ extension AppShellStoredDefaults {
         )
     }
 
-    static func ultraGridPeerFields(defaults: UserDefaults = .standard) -> NativeAppShellExternalConnectorPeerFields {
+    /// Loads the stored UltraGrid fields together with a note for each field that had to be reset.
+    static func ultraGridPeerFieldsLoad(
+        defaults: UserDefaults = .standard
+    ) -> AppStoredSettingsLoad<NativeAppShellExternalConnectorPeerFields> {
         externalConnectorPeerFields(
             defaultsPrefix: .ultraGrid,
             fallback: .ultraGridAppDefault,
@@ -135,7 +144,7 @@ extension AppShellStoredDefaults {
         fallback: NativeAppShellExternalConnectorPeerFields,
         connector: ExternalConnectorKind,
         defaults: UserDefaults
-    ) -> NativeAppShellExternalConnectorPeerFields {
+    ) -> AppStoredSettingsLoad<NativeAppShellExternalConnectorPeerFields> {
         var fields = fallback
         fields.executablePath = defaults.string(forKey: AppStorageKeys.executablePath) ?? fields.executablePath
         fields.localHost = defaults.string(forKey: defaultsPrefix.localHost) ?? fields.localHost

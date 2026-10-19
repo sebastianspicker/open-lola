@@ -318,11 +318,7 @@ struct AppPeerNetworkFieldsView: View {
     var body: some View {
         DesignPanel(title: "Peer network fields", systemImage: "network.badge.shield.half.filled") {
             VStack(alignment: .leading, spacing: AppSpacing.s) {
-                Picker("Role", selection: roleBinding) {
-                    Text("Initiator").tag(DirectPeerSessionManualRole.initiator)
-                    Text("Responder").tag(DirectPeerSessionManualRole.responder)
-                }
-                .pickerStyle(.segmented)
+                LabeledContent("Role", value: AppSessionRunLabels.directPeerRoleSummary)
 
                 AppDirectPeerConnectionGrid(
                     fields: $operatorSurface.directPeerCommandFields,
@@ -388,16 +384,6 @@ struct AppPeerNetworkFieldsView: View {
             }
             .frame(maxWidth: 680, alignment: .leading)
         }
-    }
-
-    private var roleBinding: Binding<DirectPeerSessionManualRole> {
-        Binding(
-            get: { operatorSurface.directPeerCommandFields.role },
-            set: {
-                operatorSurface.directPeerCommandFields.role = $0
-                appSettings.role = $0.rawValue
-            }
-        )
     }
 
     private func uint16Binding(

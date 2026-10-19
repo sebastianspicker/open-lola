@@ -1,6 +1,7 @@
 // swift-tools-version: 6.0
 // Declares OpenLola package products and target wiring, keeping build boundaries explicit for local and release builds.
 
+import Foundation
 import PackageDescription
 
 #if os(Linux)
@@ -20,6 +21,41 @@ func executableInfoPlistLinkerSettings(_ path: String) -> [LinkerSetting] {
     ]
 }
 
+// Test sources are not published. A test target is declared only when its directory exists
+// in this checkout, so a public clone resolves and builds without them.
+func localTestTarget(name: String, dependencies: [Target.Dependency]) -> [Target] {
+    let path = "runtimes/macos/Tests/\(name)"
+    let directory = URL(fileURLWithPath: Context.packageDirectory).appendingPathComponent(path).path
+    guard FileManager.default.fileExists(atPath: directory) else { return [] }
+    return [.testTarget(name: name, dependencies: dependencies, path: path)]
+}
+
+let localTestTargets: [Target] =
+    localTestTarget(name: "OpenLolaTransportTests", dependencies: ["OpenLolaTransport"])
+    + localTestTarget(name: "OpenLolaApplicationTests", dependencies: ["OpenLolaApplication", "OpenLolaTransport"])
+    + localTestTarget(name: "OpenLolaMediaPlatformTests", dependencies: ["OpenLolaMediaPlatform"])
+    + localTestTarget(name: "OpenLolaIntegrationsTests", dependencies: ["OpenLolaIntegrations"])
+    + localTestTarget(name: "OpenLolaAppSupportTests", dependencies: ["OpenLolaAppSupport"])
+
+// JPEG XS is opt-in. The vendored reference code is evaluation-only (no patent licence;
+// see third_party/jpeg-xs/LICENSE.md), so it is compiled only when the package is resolved
+// with OPEN_LOLA_ENABLE_JPEG_XS=1. The default build contains none of it.
+let jpegXSEnabled = Context.environment["OPEN_LOLA_ENABLE_JPEG_XS"] == "1"
+let jpegXSProductTargets: [String] = jpegXSEnabled ? ["CJpegXSReference"] : []
+let jpegXSDependencies: [Target.Dependency] = jpegXSEnabled ? ["CJpegXSReference"] : []
+let jpegXSSwiftSettings: [SwiftSetting] = jpegXSEnabled ? [.define("OPEN_LOLA_JPEG_XS")] : []
+let jpegXSTargetDeclarations: [Target] = jpegXSEnabled ? [
+    .target(
+        name: "CJpegXSReference",
+        path: "third_party/jpeg-xs/libjxs",
+        exclude: ["CMakeLists.txt", "src/msbpack.c"],
+        publicHeadersPath: "public",
+        cSettings: [
+            .headerSearchPath("src")
+        ]
+    )
+] : []
+
 let package = Package(
     name: "open-lola",
     platforms: [
@@ -28,7 +64,7 @@ let package = Package(
     products: [
         .library(
             name: "OpenLolaCore",
-            targets: ["OpenLolaCore", "COpenLolaAtomics", "CJpegXSReference", "COpus"]
+            targets: ["OpenLolaCore", "COpenLolaAtomics", "COpus"] + jpegXSProductTargets
         ),
         .library(
             name: "OpenLolaContracts",
@@ -48,26 +84,6 @@ let package = Package(
         )
     ],
     targets: [
-        .testTarget(
-            name: "OpenLolaTransportTests",
-            dependencies: ["OpenLolaTransport"],
-            path: "runtimes/macos/Tests/OpenLolaTransportTests"
-        ),
-        .testTarget(
-            name: "OpenLolaApplicationTests",
-            dependencies: ["OpenLolaApplication", "OpenLolaTransport"],
-            path: "runtimes/macos/Tests/OpenLolaApplicationTests"
-        ),
-        .testTarget(
-            name: "OpenLolaMediaPlatformTests",
-            dependencies: ["OpenLolaMediaPlatform"],
-            path: "runtimes/macos/Tests/OpenLolaMediaPlatformTests"
-        ),
-        .testTarget(
-            name: "OpenLolaIntegrationsTests",
-            dependencies: ["OpenLolaIntegrations"],
-            path: "runtimes/macos/Tests/OpenLolaIntegrationsTests"
-        ),
         .target(
             name: "OpenLolaContracts",
             path: "runtimes/macos/Sources/OpenLolaContracts"
@@ -95,10 +111,10 @@ let package = Package(
                 "OpenLolaEvidenceModels",
                 "OpenLolaTransport",
                 "COpenLolaAtomics",
-                "CJpegXSReference",
                 "COpus"
-            ],
-            path: "runtimes/macos/Sources/OpenLolaMediaPlatform"
+            ] + jpegXSDependencies,
+            path: "runtimes/macos/Sources/OpenLolaMediaPlatform",
+            swiftSettings: jpegXSSwiftSettings
         ),
         .target(
             name: "OpenLolaEvidenceModels",
@@ -142,9 +158,8 @@ let package = Package(
                 "OpenLolaEvidenceModels",
                 "OpenLolaIntegrations",
                 "COpenLolaAtomics",
-                "CJpegXSReference",
                 "COpus"
-            ],
+            ] + jpegXSDependencies,
             path: "runtimes/macos/Sources/OpenLolaApplication",
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -166,15 +181,6 @@ let package = Package(
             name: "COpenLolaAtomics",
             path: "runtimes/macos/Sources/COpenLolaAtomics",
             publicHeadersPath: "include"
-        ),
-        .target(
-            name: "CJpegXSReference",
-            path: "third_party/jpeg-xs/libjxs",
-            exclude: ["CMakeLists.txt", "src/msbpack.c"],
-            publicHeadersPath: "public",
-            cSettings: [
-                .headerSearchPath("src")
-            ]
         ),
         .target(
             name: "COpus",
@@ -345,5 +351,5 @@ let package = Package(
             exclude: ["Info.plist", "open-lola-app.entitlements"],
             linkerSettings: executableInfoPlistLinkerSettings("runtimes/macos/Sources/open-lola-app/Info.plist")
         )
-    ]
+    ] + jpegXSTargetDeclarations + localTestTargets
 )

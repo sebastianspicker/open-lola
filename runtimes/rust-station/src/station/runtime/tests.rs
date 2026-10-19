@@ -82,3 +82,97 @@ fn status_snapshot_omits_pixels_while_public_preview_boundary_materializes_them(
         VideoPreviewUpdate::Unchanged
     ));
 }
+
+fn failing_session_config() -> SessionConfig {
+    let mut config = SessionConfig::default();
+    config.options.peer_mode = "no-such-peer-mode".into();
+    config
+}
+
+#[test]
+fn wait_inactive_until_returns_as_soon_as_the_session_fails() {
+    let runtime = SessionRuntime::new();
+    let started = std::time::Instant::now();
+    let handle = runtime.start(failing_session_config()).expect("start");
+    assert!(handle.wait_inactive_until(started + std::time::Duration::from_secs(30)));
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert_eq!(handle.wait().state, SessionState::Failed);
+}
+
+#[test]
+fn wait_inactive_until_times_out_while_the_session_stays_active() {
+    let runtime = SessionRuntime::new();
+    let handle = SessionHandle {
+        inner: Arc::clone(&runtime.inner),
+    };
+    let (lock, _) = &*runtime.inner;
+    lock_unpoison(lock).snapshot.state = SessionState::Streaming;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
+    assert!(!handle.wait_inactive_until(deadline));
+    assert!(std::time::Instant::now() >= deadline);
+}
+
+#[test]
+fn worker_panic_becomes_a_failed_terminal_state_and_allows_a_restart() {
+    let runtime = SessionRuntime::new();
+    let handle = runtime
+        .start_with(SessionConfig::default(), |_| panic!("boom in worker"))
+        .expect("start");
+    let snapshot = handle.wait();
+    assert_eq!(snapshot.state, SessionState::Failed);
+    assert!(!snapshot.is_active());
+    let error = snapshot.error.expect("panic message");
+    assert!(
+        error.contains("session worker panicked: boom in worker"),
+        "{error}"
+    );
+    runtime
+        .start_with(SessionConfig::default(), |_| SessionResult {
+            ok: true,
+            ..Default::default()
+        })
+        .expect("restart after panic")
+        .wait();
+}
+
+#[test]
+fn guard_reports_string_and_non_string_panic_payloads() {
+    let formatted = guard::run_guarded(|| panic!("code {}", 7));
+    assert!(formatted.error.contains("code 7"), "{}", formatted.error);
+    let opaque = guard::run_guarded(|| std::panic::panic_any(5_u8));
+    assert!(opaque.error.contains("non-string panic payload"));
+    assert!(guard::run_guarded(SessionResult::default).error.is_empty());
+}
+
+#[test]
+fn reported_video_backend_names_the_real_camera_backend() {
+    for (name, expected) in [
+        ("Ximea", Some(VideoBackend::Ximea)),
+        ("V4L2", Some(VideoBackend::V4l2)),
+        ("Media Foundation", Some(VideoBackend::MediaFoundation)),
+        (
+            "DiagnosticCamera (synthetic)",
+            Some(VideoBackend::Diagnostic),
+        ),
+        ("", None),
+        ("SomethingElse", None),
+    ] {
+        assert_eq!(reported_video_backend(name), expected, "{name}");
+    }
+}
+
+#[test]
+fn reported_audio_backend_names_the_real_audio_backend() {
+    for (name, expected) in [
+        ("PortAudio ASIO", Some(AudioBackend::PortAudioAsio)),
+        ("ALSA", Some(AudioBackend::Alsa)),
+        (
+            "DiagnosticAudio (synthetic)",
+            Some(AudioBackend::Diagnostic),
+        ),
+        ("", None),
+        ("SomethingElse", None),
+    ] {
+        assert_eq!(reported_audio_backend(name), expected, "{name}");
+    }
+}

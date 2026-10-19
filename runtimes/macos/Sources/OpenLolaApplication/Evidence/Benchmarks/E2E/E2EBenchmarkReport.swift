@@ -69,6 +69,7 @@ public enum E2EBenchmarkValidationError: Error, Equatable, Sendable,
     case passWithoutCleanShutdown
     case passWithLeakedCallbacks(Int)
     case passWithoutMethodologyReference(String)
+    case passRequiresMeasuredField(String)
 }
 
 /// Captures hardware and endpoint identity required to validate, interpret, and reproduce an end-to-end benchmark result.
@@ -115,7 +116,7 @@ public struct E2EBenchmarkAudioMetrics: Codable, Equatable, Sendable {
     public var underruns: Int
     public var overruns: Int
     public var configuredChannelCount: Int
-    public var hiddenBufferGrowthDetected: Bool
+    public var hiddenBufferGrowthDetected: Bool?
     public var audioP99DeltaFromBaselineMicroseconds: Double
 }
 
@@ -127,19 +128,20 @@ public struct E2EBenchmarkVideoMetrics: Codable, Equatable, Sendable {
     public var frameRate: Double
     public var captureLatency: UdpPcmPacketAgeMetrics
     public var encodePacketizationLatency: PerformanceCounterSummary
-    public var receiveRenderLatency: UdpPcmPacketAgeMetrics
+    public var receiveRenderLatency: UdpPcmPacketAgeMetrics?
     public var droppedFrames: Int
     public var blackmagicCaptureReportId: String
     public var renderOutputReportId: String
 }
 
 /// Stores transport throughput, loss, ordering, and jitter metrics; provenance belongs to the enclosing run.
+/// Optional metrics are nil when no input report measured them.
 public struct E2EBenchmarkNetworkMetrics: Codable, Equatable, Sendable {
-    public var throughputMegabitsPerSecond: Double
+    public var throughputMegabitsPerSecond: Double?
     public var lostPackets: Int
     public var latePackets: Int
-    public var reorderedPackets: Int
-    public var duplicatePackets: Int
+    public var reorderedPackets: Int?
+    public var duplicatePackets: Int?
     public var packetLossPercent: Double
     public var jitter: UdpPcmPacketAgeMetrics
     public var dscpClassification: UdpPcmDscpClassification
@@ -148,7 +150,7 @@ public struct E2EBenchmarkNetworkMetrics: Codable, Equatable, Sendable {
 /// Stores resource-use counters for one benchmark profile; provenance belongs to the enclosing run.
 public struct E2EBenchmarkResourceMetrics: Codable, Equatable, Sendable {
     public var cpuP99Percent: Double
-    public var gpuP99Percent: Double
+    public var gpuP99Percent: Double?
     public var residentMemoryMegabytes: Double
     public var hotPathAllocationWarnings: Int
 }
@@ -181,14 +183,42 @@ public struct E2EBenchmarkImpairmentRun: Codable, Equatable, Sendable {
     public var notes: String
 }
 
-/// Stores reconnect and shutdown outcomes; provenance belongs to the enclosing run.
+/// Stores reconnect and shutdown outcomes; `measured` is false when no recovery run supplied them.
 public struct E2EBenchmarkRecoveryMetrics: Codable, Equatable, Sendable {
+    public var measured: Bool
     public var reconnectEvents: Int
-    public var reconnectP99Microseconds: Double
+    public var reconnectP99Microseconds: Double?
     public var cleanShutdownObserved: Bool
     public var leakedRealtimeCallbacksAfterShutdown: Int
     public var recoveryReportId: String
     public var shutdownReportId: String
+
+    enum CodingKeys: String, CodingKey {
+        case measured
+        case reconnectEvents
+        case reconnectP99Microseconds
+        case cleanShutdownObserved
+        case leakedRealtimeCallbacksAfterShutdown
+        case recoveryReportId
+        case shutdownReportId
+    }
+}
+
+extension E2EBenchmarkRecoveryMetrics {
+    /// Decodes recovery metrics; reports written before `measured` existed decode as not measured.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.measured = try container.decodeIfPresent(Bool.self, forKey: .measured) ?? false
+        self.reconnectEvents = try container.decode(Int.self, forKey: .reconnectEvents)
+        self.reconnectP99Microseconds = try container.decodeIfPresent(Double.self, forKey: .reconnectP99Microseconds)
+        self.cleanShutdownObserved = try container.decode(Bool.self, forKey: .cleanShutdownObserved)
+        self.leakedRealtimeCallbacksAfterShutdown = try container.decode(
+            Int.self,
+            forKey: .leakedRealtimeCallbacksAfterShutdown
+        )
+        self.recoveryReportId = try container.decode(String.self, forKey: .recoveryReportId)
+        self.shutdownReportId = try container.decode(String.self, forKey: .shutdownReportId)
+    }
 }
 
 /// Captures acceptance thresholds required to validate, interpret, and reproduce an end-to-end benchmark result.

@@ -226,13 +226,32 @@ extension IntegratedAvReport {
                 integrated: audio.integratedPlayoutTargetFrames
             )
         }
-        if audio.lostPackets > 0 || audio.latePackets > 0 {
+        try validatePassAudioPacketHealth()
+    }
+
+    private func validatePassAudioPacketHealth() throws {
+        guard audio.packetAge != nil else {
+            throw IntegratedAvValidationError.passRequiresMeasuredField("audio.packetAge")
+        }
+        guard let lostPackets = audio.lostPackets else {
+            throw IntegratedAvValidationError.passRequiresMeasuredField("audio.lostPackets")
+        }
+        guard let latePackets = audio.latePackets else {
+            throw IntegratedAvValidationError.passRequiresMeasuredField("audio.latePackets")
+        }
+        guard let underruns = audio.underruns else {
+            throw IntegratedAvValidationError.passRequiresMeasuredField("audio.underruns")
+        }
+        guard let hiddenPlayoutGrowthDetected = audio.hiddenPlayoutGrowthDetected else {
+            throw IntegratedAvValidationError.passRequiresMeasuredField("audio.hiddenPlayoutGrowthDetected")
+        }
+        if lostPackets > 0 || latePackets > 0 {
             throw IntegratedAvValidationError.passWithAudioLossOrLatePackets
         }
-        if audio.underruns > 0 {
-            throw IntegratedAvValidationError.passWithUnderruns(audio.underruns)
+        if underruns > 0 {
+            throw IntegratedAvValidationError.passWithUnderruns(underruns)
         }
-        if audio.hiddenPlayoutGrowthDetected {
+        if hiddenPlayoutGrowthDetected {
             throw IntegratedAvValidationError.passWithHiddenPlayoutGrowth
         }
     }

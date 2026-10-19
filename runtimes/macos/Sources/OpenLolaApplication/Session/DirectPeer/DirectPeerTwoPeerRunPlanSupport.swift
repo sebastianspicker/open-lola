@@ -373,6 +373,9 @@ func directPeerTwoPeerVideoCompression(_ value: String?) throws -> DirectPeerSes
     guard let compression = DirectPeerSessionVideoCompression(rawValue: value) else {
         throw DirectPeerTwoPeerRunPlanError.invalidEnumValue("--video-compression")
     }
+    if compression == .jpegXS {
+        try JPEGXSReferenceCodec.requireAvailable()
+    }
     return compression
 }
 

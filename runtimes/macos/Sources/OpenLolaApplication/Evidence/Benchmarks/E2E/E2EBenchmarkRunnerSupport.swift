@@ -36,44 +36,51 @@ func e2eVerdict(
     return .partial
 }
 
+// Input reports identify only the machine that recorded them, so that machine is reported as the source peer;
+// a direct-peer session report's host block names its own peer's machine and takes precedence. The receiver peer
+// and fields no input carries stay "unknown" (a placeholder that blocks PASS).
 func hardware(
     from audioBenchmark: LatencyBenchmarkReport,
     videoTransport: VideoTransportReport,
-    physical: Bool
+    performanceAudit: PerformanceAuditReport,
+    sessions: E2EBenchmarkSessionInputs = E2EBenchmarkSessionInputs()
 ) -> E2EBenchmarkHardwareIdentity {
-    E2EBenchmarkHardwareIdentity(
-        sourcePeer: peer("source", audioBenchmark: audioBenchmark, videoTransport: videoTransport, physical: physical),
-        receiverPeer: peer(
-"receiver",
-audioBenchmark: audioBenchmark,
-videoTransport: videoTransport,
-physical: physical
-),
+    let sourceHost = sessions.sourceHost
+    let receiverHost = sessions.receiverHost
+    return E2EBenchmarkHardwareIdentity(
+        sourcePeer: E2EBenchmarkPeerIdentity(
+            peerId: "m13-source-peer",
+            machineModel: sourceHost.map { e2eKnownValue($0.machineModel) } ?? audioBenchmark.hardware.referenceMac,
+            chipName: e2eKnownValue(sourceHost?.chipName ?? performanceAudit.processContext.chipName),
+            osVersion: sourceHost.map { e2eKnownValue($0.osVersion) } ?? audioBenchmark.hardware.osVersion,
+            audioInterface: audioBenchmark.hardware.audioInterface,
+            audioDeviceUID: "source-audio-device-uid-required",
+            videoDevice: videoTransport.source.label,
+            networkInterface: e2eUnknownValue
+        ),
+        receiverPeer: E2EBenchmarkPeerIdentity(
+            peerId: "m13-receiver-peer",
+            machineModel: e2eKnownValue(receiverHost?.machineModel ?? ""),
+            chipName: e2eKnownValue(receiverHost?.chipName ?? ""),
+            osVersion: e2eKnownValue(receiverHost?.osVersion ?? ""),
+            audioInterface: e2eUnknownValue,
+            audioDeviceUID: "receiver-audio-device-uid-required",
+            videoDevice: e2eUnknownValue,
+            networkInterface: e2eUnknownValue
+        ),
         rmeMadiIdentity: audioBenchmark.hardware.audioInterface,
         blackmagicIdentity: videoTransport.source.label,
         routeLabel: audioBenchmark.route.label,
         networkTopology: audioBenchmark.route.topology,
         packetCapturePoint: videoTransport.routeEvidence?.packetCapturePoint ?? "m13-packet-capture-required",
-        clockAlignmentMethod: physical ? "measured clock-alignment evidence" : "m13-clock-alignment-required"
+        clockAlignmentMethod: e2eUnknownValue
     )
 }
 
-func peer(
-    _ role: String,
-    audioBenchmark: LatencyBenchmarkReport,
-    videoTransport: VideoTransportReport,
-    physical: Bool
-) -> E2EBenchmarkPeerIdentity {
-    E2EBenchmarkPeerIdentity(
-        peerId: "m13-\(role)-peer",
-        machineModel: audioBenchmark.hardware.referenceMac,
-        chipName: physical ? "Apple Silicon" : "Apple Silicon required",
-        osVersion: audioBenchmark.hardware.osVersion,
-        audioInterface: audioBenchmark.hardware.audioInterface,
-        audioDeviceUID: "\(role)-audio-device-uid-required",
-        videoDevice: videoTransport.source.label,
-        networkInterface: physical ? "measured-interface" : "m13-network-interface-required"
-    )
+let e2eUnknownValue = "unknown"
+
+func e2eKnownValue(_ value: String) -> String {
+    value.isEmpty ? e2eUnknownValue : value
 }
 
 struct E2EBenchmarkProfileBuildContext {
@@ -81,6 +88,7 @@ struct E2EBenchmarkProfileBuildContext {
     let integratedAv: IntegratedAvReport
     let videoTransport: VideoTransportReport
     let performanceAudit: PerformanceAuditReport
+    let sessions: E2EBenchmarkSessionInputs
     let measured: Bool
     let physicalEvidence: Bool
     let verdict: MeasurementVerdict
@@ -89,56 +97,44 @@ struct E2EBenchmarkProfileBuildContext {
 struct E2EBenchmarkProfileRowContext {
     let audio: E2EBenchmarkAudioMetrics
     let video: E2EBenchmarkVideoMetrics?
+    let network: E2EBenchmarkNetworkMetrics
+    let resources: E2EBenchmarkResourceMetrics
     let measured: Bool
     let physicalEvidence: Bool
     let verdict: MeasurementVerdict
 }
 
 func profiles(context: E2EBenchmarkProfileBuildContext) -> [E2EBenchmarkProfileRun] {
-    let audio = audioMetrics(from: context.audioBenchmark, performanceAudit: context.performanceAudit, delta: 0)
+    let audio = audioMetrics(
+        from: context.audioBenchmark,
+        integratedAv: context.integratedAv,
+        performanceAudit: context.performanceAudit
+    )
     let video = videoMetrics(from: context.videoTransport)
-    return [
-        profile(
-            .audioOnlyDirect,
+    let network = networkMetrics(from: context.audioBenchmark, sessions: context.sessions)
+    // Session reports measure a direct route, so the WAN row keeps throughput and packet order unmeasured.
+    let wanNetwork = networkMetrics(from: context.audioBenchmark, sessions: E2EBenchmarkSessionInputs())
+    let rows: [(E2EBenchmarkProfile, E2EBenchmarkVideoMetrics?)] = [
+        (.audioOnlyDirect, nil),
+        (.audioVideoDirect, video),
+        (.audioMultiVideoDirect, multiVideoMetrics(from: context.videoTransport)),
+        (.wanStable, video)
+    ]
+    return rows.map { benchmarkProfile, rowVideo in
+        let wanStable = benchmarkProfile == .wanStable
+        return profile(
+            benchmarkProfile,
             context: E2EBenchmarkProfileRowContext(
                 audio: audio,
-                video: nil,
-                measured: context.measured,
+                video: rowVideo,
+                network: wanStable ? wanNetwork : network,
+                resources: resourceMetrics(context: context, video: rowVideo),
+                measured: wanStable ? context.measured && context.integratedAv.verdict == .pass : context.measured,
                 physicalEvidence: context.physicalEvidence,
-                verdict: context.verdict
-            )
-        ),
-        profile(
-            .audioVideoDirect,
-            context: E2EBenchmarkProfileRowContext(
-                audio: audio,
-                video: video,
-                measured: context.measured,
-                physicalEvidence: context.physicalEvidence,
-                verdict: context.verdict
-            )
-        ),
-        profile(
-            .audioMultiVideoDirect,
-            context: E2EBenchmarkProfileRowContext(
-                audio: audio,
-                video: multiVideoMetrics(from: context.videoTransport),
-                measured: context.measured,
-                physicalEvidence: context.physicalEvidence,
-                verdict: context.verdict
-            )
-        ),
-        profile(
-            .wanStable,
-            context: E2EBenchmarkProfileRowContext(
-                audio: audioMetrics(from: context.audioBenchmark, performanceAudit: context.performanceAudit, delta: 0),
-                video: video,
-                measured: context.measured && context.integratedAv.verdict == .pass,
-                physicalEvidence: context.physicalEvidence,
-                verdict: context.physicalEvidence ? context.verdict : .partial
+                verdict: wanStable && !context.physicalEvidence ? .partial : context.verdict
             )
         )
-    ]
+    }
 }
 
 func profile(
@@ -152,24 +148,35 @@ func profile(
         physicalEvidence: context.physicalEvidence,
         audio: context.audio,
         video: context.video,
-        network: networkMetrics(measured: context.measured),
-        resources: E2EBenchmarkResourceMetrics(
-            cpuP99Percent: context.measured
-                ? E2EBenchmarkRunnerMeasuredDefaults.cpuP99Percent
-                : SourceValidationMetrics.cpuP99Percent,
-            gpuP99Percent: context.video == nil ? 0 : 20,
-            residentMemoryMegabytes: context.video == nil ? 360 : 540,
-            hotPathAllocationWarnings: 0
-        ),
+        network: context.network,
+        resources: context.resources,
         verdict: context.verdict,
         notes: context.measured ? "Measured aggregate row." : "Physical two-peer evidence remains open."
     )
 }
 
+// CPU is the worst P99 any input or session measured; GPU comes only from a measured integrated A/V load sample
+// and only applies to video rows; memory is the largest of the audio benchmark and session peaks, and hot-path
+// allocations come from the performance audit.
+func resourceMetrics(
+    context: E2EBenchmarkProfileBuildContext,
+    video: E2EBenchmarkVideoMetrics?
+) -> E2EBenchmarkResourceMetrics {
+    let audioCpu = context.audioBenchmark.resources.cpuP99Percent
+    let cpuValues = [audioCpu, context.integratedAv.systemLoad.cpuP99Percent, context.sessions.cpuP99Percent]
+    let memory = context.audioBenchmark.resources.residentMemoryMegabytes
+    return E2EBenchmarkResourceMetrics(
+        cpuP99Percent: cpuValues.compactMap { $0 }.max() ?? audioCpu,
+        gpuP99Percent: video == nil ? nil : context.integratedAv.systemLoad.gpuP99Percent,
+        residentMemoryMegabytes: max(memory, context.sessions.residentMemoryPeakMegabytes ?? memory),
+        hotPathAllocationWarnings: context.performanceAudit.counters.allocationWarningCount
+    )
+}
+
 func audioMetrics(
     from report: LatencyBenchmarkReport,
-    performanceAudit: PerformanceAuditReport,
-    delta: Double
+    integratedAv: IntegratedAvReport,
+    performanceAudit: PerformanceAuditReport
 ) -> E2EBenchmarkAudioMetrics {
     let audioMode = report.mediaMode.audio ?? AudioMode(
         sampleRateHertz: 48_000,
@@ -184,20 +191,27 @@ func audioMetrics(
         callbackDuration: performanceAudit.counters.callbackDuration,
         oneWayLatencyMicroseconds: report.timing.oneWayEstimateMicroseconds,
         roundTripLatencyMicroseconds: report.timing.roundTripMicroseconds,
-        jitter: UdpPcmPacketAgeMetrics(
-            p50Microseconds: report.timing.jitter.p50Microseconds,
-            p95Microseconds: report.timing.jitter.p95Microseconds,
-            p99Microseconds: report.timing.jitter.p99Microseconds,
-            maxMicroseconds: report.timing.jitter.maxMicroseconds
-        ),
+        jitter: e2ePacketAge(from: report.timing.jitter),
         underruns: report.faults.underruns,
         overruns: report.faults.overruns,
         configuredChannelCount: audioMode.channelCount,
-        hiddenBufferGrowthDetected: false,
-        audioP99DeltaFromBaselineMicroseconds: delta
+        hiddenBufferGrowthDetected: integratedAv.audio.hiddenPlayoutGrowthDetected,
+        audioP99DeltaFromBaselineMicroseconds: integratedAv.audio.integratedCallbackP99Microseconds
+            - integratedAv.audio.baselineCallbackP99Microseconds
     )
 }
 
+func e2ePacketAge(from jitter: LatencyJitterMetrics) -> UdpPcmPacketAgeMetrics {
+    UdpPcmPacketAgeMetrics(
+        p50Microseconds: jitter.p50Microseconds,
+        p95Microseconds: jitter.p95Microseconds,
+        p99Microseconds: jitter.p99Microseconds,
+        maxMicroseconds: jitter.maxMicroseconds
+    )
+}
+
+// The video transport report measures capture-to-receive frame age but no receive-to-render latency, so the
+// render latency stays nil rather than reusing the capture value.
 func videoMetrics(from report: VideoTransportReport) -> E2EBenchmarkVideoMetrics {
     E2EBenchmarkVideoMetrics(
         streamCount: 1,
@@ -206,7 +220,7 @@ func videoMetrics(from report: VideoTransportReport) -> E2EBenchmarkVideoMetrics
         frameRate: report.format.nominalFrameRate,
         captureLatency: report.frameAge,
         encodePacketizationLatency: report.performanceCounters?.packetizationDuration ?? .empty,
-        receiveRenderLatency: report.frameAge,
+        receiveRenderLatency: nil,
         droppedFrames: report.receiver.droppedFrames,
         blackmagicCaptureReportId: report.id,
         renderOutputReportId: report.id
@@ -215,59 +229,64 @@ func videoMetrics(from report: VideoTransportReport) -> E2EBenchmarkVideoMetrics
 
 func multiVideoMetrics(from report: VideoTransportReport) -> E2EBenchmarkVideoMetrics {
     var metrics = videoMetrics(from: report)
-    metrics.streamCount = max(2, report.multiVideo?.streams.count ?? 2)
+    metrics.streamCount = report.multiVideo?.streams.count ?? 1
     return metrics
 }
 
-enum E2EBenchmarkRunnerMeasuredDefaults {
-    static let cpuP99Percent: Double = 35
-    static let networkJitterP50Microseconds: Double = 60
-    static let networkJitterP95Microseconds: Double = 100
-    static let networkJitterP99Microseconds: Double = 140
-    static let networkJitterMaxMicroseconds: Double = 180
-}
-
-func networkMetrics(measured: Bool) -> E2EBenchmarkNetworkMetrics {
+// Network jitter uses the audio benchmark's packet jitter: it is a jitter measurement of the same UDP route,
+// whereas the integrated A/V packet age is an end-to-end age that may be unmeasured. Throughput, reordering,
+// and duplication come only from direct-peer session reports and stay nil without them.
+func networkMetrics(
+    from audioBenchmark: LatencyBenchmarkReport,
+    sessions: E2EBenchmarkSessionInputs
+) -> E2EBenchmarkNetworkMetrics {
     E2EBenchmarkNetworkMetrics(
-        throughputMegabitsPerSecond: 940,
-        lostPackets: 0,
-        latePackets: 0,
-        reorderedPackets: 0,
-        duplicatePackets: 0,
-        packetLossPercent: 0,
-        jitter: UdpPcmPacketAgeMetrics(
-            p50Microseconds: measured
-                ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP50Microseconds
-                : SourceValidationMetrics.jitter.p50Microseconds,
-            p95Microseconds: measured
-                ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP95Microseconds
-                : SourceValidationMetrics.jitter.p95Microseconds,
-            p99Microseconds: measured
-                ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP99Microseconds
-                : SourceValidationMetrics.jitter.p99Microseconds,
-            maxMicroseconds: measured
-                ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterMaxMicroseconds
-                : SourceValidationMetrics.jitter.maxMicroseconds
-        ),
+        throughputMegabitsPerSecond: sessions.throughputMegabitsPerSecond,
+        lostPackets: audioBenchmark.loss.lostPackets,
+        latePackets: audioBenchmark.loss.latePackets,
+        reorderedPackets: sessions.reorderedPackets,
+        duplicatePackets: sessions.duplicatePackets,
+        packetLossPercent: audioBenchmark.loss.lossPercent,
+        jitter: e2ePacketAge(from: audioBenchmark.timing.jitter),
         dscpClassification: .notTested
     )
 }
 
-func impairments(measured: Bool, verdict: MeasurementVerdict) -> [E2EBenchmarkImpairmentRun] {
+// No input report runs injected impairments, so every impairment row is reported as not measured.
+func impairments() -> [E2EBenchmarkImpairmentRun] {
     E2EBenchmarkImpairmentProfile.allCases.map { profile in
         E2EBenchmarkImpairmentRun(
             profile: profile,
             reportId: "m13-\(profile.rawValue)-impairment-aggregate",
-            measured: measured,
+            measured: false,
             injectedPackets: 0,
             observedPackets: 0,
             recoveredPackets: 0,
             audioUnderruns: 0,
             videoDroppedFrames: 0,
-            verdict: measured ? verdict : .partial,
-            notes: measured ? "Measured impairment aggregate." : "Impairment run not measured yet."
+            verdict: .partial,
+            notes: "Impairment run not measured yet."
         )
     }
+}
+
+// PASS needs every gating field measured; GPU, impairment, reconnect, and receive-render fields still have no
+// source, so a physical run stops at PARTIAL and the notes name the fields that withheld PASS.
+func withholdingUnmeasuredPass(_ report: E2EBenchmarkReport) -> E2EBenchmarkReport {
+    var report = report
+    for index in report.profiles.indices
+        where report.profiles[index].verdict == .pass && !report.profiles[index].unmeasuredFields.isEmpty {
+        report.profiles[index].verdict = .partial
+    }
+    let unmeasured = report.unmeasuredPassFields
+        + report.impairments.filter { !$0.measured }.map { "impairments[\($0.profile.rawValue)]" }
+    guard report.verdict == .pass, !unmeasured.isEmpty else {
+        return report
+    }
+    report.verdict = .partial
+    report.notes += " PASS withheld because these fields were not measured: "
+        + unmeasured.joined(separator: ", ") + "."
+    return report
 }
 
 func requiredE2EBenchmarkRunString(

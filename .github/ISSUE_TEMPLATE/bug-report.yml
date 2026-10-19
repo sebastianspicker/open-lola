@@ -40,15 +40,43 @@ body:
       description: Include minimal public commands, inputs, and results only.
     validations:
       required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      description: Which part of Open LoLa were you running?
+      options:
+        - macOS operator app (open-lola-app)
+        - macOS CLI (open-lola)
+        - Rust station CLI on Windows (rusty-lola)
+        - Rust station CLI on Linux (rusty-lola)
+        - Rust station GUI (rusty-lola ui)
+        - Build or repository tooling
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Source revision
+      description: Output of `git rev-parse --short HEAD` in your checkout.
+      placeholder: 3da8dea
+    validations:
+      required: true
   - type: textarea
     id: environment
     attributes:
       label: Environment
-      description: Platform, revision, and relevant public configuration; omit hostnames and identifiers.
+      description: |
+        OS and version, CPU architecture, and toolchain versions
+        (`swift --version`, `cargo --version`, `uv --version`, Xcode version), plus
+        the audio/video devices involved. Omit hostnames and identifiers.
     validations:
       required: true
   - type: textarea
     id: evidence
     attributes:
-      label: Sanitized evidence
-      description: Attach only redacted logs or non-sensitive output. State what remains unmeasured.
+      label: Logs, reports, and sanitized evidence
+      description: |
+        Attach redacted logs and the report JSON for the failing run; SUPPORT.md
+        lists where each runtime writes them. State what remains unmeasured.

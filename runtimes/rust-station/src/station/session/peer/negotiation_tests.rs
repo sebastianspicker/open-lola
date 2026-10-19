@@ -315,6 +315,94 @@ fn negotiate_against(
     (outcome, thread.join().unwrap())
 }
 
+fn reject_for_device_error(
+    error: String,
+) -> (
+    Option<PeerNegotiation>,
+    crate::protocol::Mesg,
+    SessionResult,
+) {
+    let settings = loopback_settings();
+    let mut options = SessionOptions::demo();
+    options.peer_mode = "loopback".into();
+    options.audio_only = true;
+    let media = super::super::control::protocol_media_settings(&settings);
+    let datagram = quickconn_datagram(&settings, &media);
+    let control = Udp::bind("127.0.0.1", 0).unwrap();
+    let listener = control.local_addr().unwrap();
+    let initiator = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    initiator
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let thread = std::thread::spawn(move || {
+        let mut buffer = [0; 2048];
+        initiator.send_to(&datagram, listener).unwrap();
+        let (size, _) = initiator.recv_from(&mut buffer).unwrap();
+        decode_mesg(&buffer[..size]).unwrap()
+    });
+    let shared = Arc::new(Mutex::new(SessionResult::default()));
+    let outcome = negotiate_peer_with(
+        &settings,
+        &options,
+        &shared,
+        &control,
+        Instant::now() + Duration::from_secs(5),
+        || Err(SessionError::AudioBackend(error)),
+    );
+    let reply = thread.join().unwrap();
+    let result = shared.lock().unwrap().clone();
+    (outcome.unwrap(), reply, result)
+}
+
+#[test]
+fn listener_rejects_with_a_fixed_reason_when_a_device_cannot_open() {
+    let (outcome, reply, result) = reject_for_device_error("hw:9 missing".into());
+    assert!(outcome.is_none());
+    assert_eq!(reply.name, "/MESG_REJECT");
+    let reason = crate::protocol::unescape_txt_field(reply.fields.get("TXT").unwrap());
+    assert_eq!(reason, "device unavailable");
+    assert!(result.rejected);
+    assert!(result.reject_text.contains("hw:9 missing"));
+    assert!(!result
+        .messages_sent
+        .contains(&"/MESG_QUICKCONN_ACK".to_string()));
+}
+
+#[test]
+fn a_non_ascii_oversized_device_error_still_produces_a_reject_without_local_detail() {
+    let detail = format!(
+        "Kamera \u{e4}\u{f6}\u{fc} \\\\?\\usb#vid:1;{}",
+        ":;".repeat(2000)
+    );
+    let (outcome, reply, result) = reject_for_device_error(detail.clone());
+    assert!(outcome.is_none());
+    assert_eq!(reply.name, "/MESG_REJECT");
+    let reason = crate::protocol::unescape_txt_field(reply.fields.get("TXT").unwrap());
+    assert_eq!(reason, "device unavailable");
+    assert!(!reason.contains("usb#vid"));
+    assert!(result.rejected);
+    assert!(result.reject_text.contains(&detail));
+}
+
+#[test]
+fn a_hostile_reject_reason_is_sanitised_to_a_buildable_datagram() {
+    let settings = loopback_settings();
+    let reason = format!("caf\u{e9} {}", ":;".repeat(5000));
+    let datagram = super::super::control::build_session_control(
+        &settings,
+        crate::protocol::MESG_REJECT,
+        &settings.network.local_ip,
+        &settings.network.remote_ip,
+        &reason,
+        None,
+    )
+    .unwrap();
+    let message = decode_mesg(&datagram).unwrap();
+    let text = crate::protocol::unescape_txt_field(message.fields.get("TXT").unwrap());
+    assert!(text.starts_with("caf? "), "{text}");
+    assert!(text.len() <= 120);
+}
+
 #[test]
 fn invalid_quickconn_media_is_rejected_instead_of_failing_the_listener() {
     let settings = loopback_settings();
@@ -403,5 +491,50 @@ fn repeated_quickconn_during_streaming_resends_the_ack_once() {
             .filter(|name| name.as_str() == "/MESG_QUICKCONN_ACK")
             .count(),
         1
+    );
+}
+
+#[test]
+fn listener_timeout_message_names_foreign_senders_only_when_seen() {
+    let plain = listener_timeout_message(2, (0, None), "127.0.0.1");
+    assert!(plain.ends_with("after discarding 2 invalid control datagrams"));
+    let sender: IpAddr = "192.168.1.20".parse().unwrap();
+    let message = listener_timeout_message(0, (12, Some(sender)), "127.0.0.1");
+    assert!(message.contains(
+        "ignored 12 datagram(s) from 192.168.1.20; expected remote_ip 127.0.0.1 (set --remote-ip)"
+    ));
+}
+
+/// The macOS connector's default QUICKCONN video tuple is this station's
+/// default (runtimes/macos `testDefaultVideoTupleMatchesRustStationDefault`).
+/// Off Linux the default Ximea camera is a raw-Bayer sensor (`bayer = 1`),
+/// so that station needs `--bayer 0` to offer the same Mono8 tuple.
+#[test]
+fn default_video_tuple_matches_the_macos_connector() {
+    let mut settings = crate::config::default_settings();
+    let video = &settings.video;
+    assert_eq!(
+        (
+            video.width,
+            video.height,
+            video.fps,
+            video.bpp,
+            video.compression
+        ),
+        (1280, 720, 60, 8, false)
+    );
+    assert_eq!(video.bayer, u32::from(!cfg!(target_os = "linux")));
+    settings.video.bayer = 0;
+    let options = SessionOptions::demo();
+    let mut media = requested(&settings, 1280, 720);
+    media.bits_per_pixel = 8;
+    assert_eq!(
+        (media.fps, media.bits_per_pixel, media.width, media.height),
+        (60, 8, 1280, 720)
+    );
+    assert_eq!((media.compression, media.bayer), (0, 0));
+    assert_eq!(
+        peer_rejection_reason(&settings, &options, &capabilities(&media)),
+        None
     );
 }

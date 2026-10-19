@@ -13,3 +13,6 @@ mod types;
 
 pub use persistence::{default_settings, load_settings, save_settings, SettingsError};
 pub use types::*;
+
+#[cfg(test)]
+mod tests;

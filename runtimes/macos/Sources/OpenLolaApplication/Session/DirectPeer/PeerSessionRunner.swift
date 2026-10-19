@@ -65,6 +65,8 @@ public struct PeerSessionRunner: Sendable {
     var sessionIDNonceGenerator: @Sendable () throws -> [UInt8] = secureSessionIDNonce
     var peerMediaStarted = false
     var remoteMetricsMessagesRejected = 0
+    /// Process sampler whose newest reading fills the CPU and memory fields of published peer metrics.
+    var resourceSampler: ProcessResourceSampler?
     var audioMetadataControlState = RmeMatrixMetadataControlState(
         minUpdateIntervalNanoseconds: 1_000_000_000
     )

@@ -189,17 +189,17 @@ public struct NativeAppShellDirectPeerCommandFields: Codable, Equatable, Sendabl
     }
 
     public static let appDefault = NativeAppShellDirectPeerCommandFields(
-        execution: .init(outputPath: "/tmp/open-lola-app/direct-p2p-session-local.json", durationSeconds: 30, timeoutSeconds: 30),
+        execution: .init(outputPath: NativeAppShellExecutionPaths.defaultRunDirectory() + "/direct-p2p-session-local.json", durationSeconds: 30, timeoutSeconds: 30),
         participants: .init(role: .initiator, localPeer: "mac-a", remotePeer: "mac-b"),
-        network: .init(localHost: "192.0.2.10", remoteHost: "192.0.2.20", controlPort: 57_000, remoteControlPort: 57_010, audioPort: 57_001, videoPort: 57_002, metricsPort: 57_003),
+        network: .init(localHost: "127.0.0.1", remoteHost: "127.0.0.1", controlPort: 57_000, remoteControlPort: 57_010, audioPort: 57_001, videoPort: 57_002, metricsPort: 57_003),
         audio: .init(
-            channelCount: 64,
+            channelCount: 2,
             sampleRateHertz: 48_000,
-            framesPerPacket: 32,
+            framesPerPacket: 64,
             sampleFormat: "float32",
             transport: DirectPeerSessionAudioCompression.raw.audioTransport
         ),
-        video: .init(width: 1_280, height: 720, pixelFormat: "bgra8", frameRate: 30, streamID: 101),
+        video: .init(width: 160, height: 90, pixelFormat: "bgra8", frameRate: 30, streamID: 101),
         runtime: .init(avProfile: .fastest, rxBufferProfile: .direct, preview: .on)
     )
 

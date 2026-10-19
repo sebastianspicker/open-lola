@@ -3,7 +3,10 @@ import Foundation
 import OpenLolaCore
 
 extension AppShellStoredDefaults {
-    static func directPeerCommandFields(defaults: UserDefaults = .standard) -> NativeAppShellDirectPeerCommandFields {
+    /// Loads the stored direct-peer fields together with a note for each field that had to be reset.
+    static func directPeerCommandFieldsLoad(
+        defaults: UserDefaults = .standard
+    ) -> AppStoredSettingsLoad<NativeAppShellDirectPeerCommandFields> {
         var fields = NativeAppShellDirectPeerCommandFields.appDefault
         applyDirectPeerIdentityFields(to: &fields, defaults: defaults)
         applyDirectPeerPortFields(to: &fields, defaults: defaults)

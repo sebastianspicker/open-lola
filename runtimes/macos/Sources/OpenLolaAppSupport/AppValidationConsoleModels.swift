@@ -199,7 +199,7 @@ struct AppValidationPreflightModel: Equatable {
         }
         return AppValidationPreflightModel(
             verdict: .readyToValidate,
-            detail: "Current report artifact is ready for validation. Run Validate before Start can enable.",
+            detail: "Current report artifact is ready for validation. Run Validate to review the last run.",
             blockers: []
         )
     }

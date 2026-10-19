@@ -19,7 +19,7 @@ extension AppExecutionController {
             lastError = nil
             return true
         } catch {
-            lastError = String(describing: error)
+            lastError = AppRunFailureMessage.describe(error)
             status = "Plan write failed."
             phase = .runFailed
             return false

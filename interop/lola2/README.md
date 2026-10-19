@@ -32,3 +32,11 @@ The additional `migration-control-oracle.json` records 110 synthetic ASCII and
 OSC15 parser observations generated before Python retirement. Rust tests consume
 this frozen oracle; Python is not a runtime or test dependency of the Cargo
 package. Native device tests and hardware evidence remain separate.
+
+Two consumers replay the corpus: a Rust station compatibility test and a macOS
+connector corpus test. Test sources are kept out of the published tree.
+The macOS test compares encoded control datagrams, audio fragments and video
+packets with the corpus byte for byte and decodes the corpus bytes back. It
+re-encodes every accepted ASCII oracle observation. It skips the 55 OSC15
+observations, because only the Rust station implements that dialect, and
+asserts that list.

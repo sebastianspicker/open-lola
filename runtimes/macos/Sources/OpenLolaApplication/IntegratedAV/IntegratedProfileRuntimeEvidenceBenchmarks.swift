@@ -131,7 +131,7 @@ private func integratedProfileMetrics(from report: LatencyBenchmarkReport) -> In
         ),
         videoControl: IntegratedProfileBenchmarkMetrics.VideoControl(
             droppedVideoFrames: report.faults.droppedFrames,
-            cueTimingP99Microseconds: 0
+            cueTimingP99Microseconds: nil
         ),
         resources: IntegratedProfileBenchmarkMetrics.Resources(
             cpuP99Percent: report.resources.cpuP99Percent,
@@ -147,29 +147,31 @@ private func integratedProfileMetrics(from report: LatencyBenchmarkReport) -> In
 
 private func integratedProfileMetrics(from report: IntegratedAvReport) -> IntegratedProfileBenchmarkMetrics {
     IntegratedProfileBenchmarkMetrics(
+        // Integrated A/V reports carry no memory, cue-timing, allocation, or thread-scheduling samples, and
+        // packet health or CPU load may be unmeasured upstream; those metrics stay nil instead of zero.
         audio: IntegratedProfileBenchmarkMetrics.Audio(
             latencyP99Microseconds: max(
                 report.audio.integratedCallbackP99Microseconds,
-                report.audio.packetAge.p99Microseconds
+                report.audio.packetAge?.p99Microseconds ?? 0
             ),
-            jitterP99Microseconds: report.audio.packetAge.p99Microseconds,
+            jitterP99Microseconds: report.audio.packetAge?.p99Microseconds,
             lostPackets: report.audio.lostPackets,
             latePackets: report.audio.latePackets,
             underruns: report.audio.underruns
         ),
         videoControl: IntegratedProfileBenchmarkMetrics.VideoControl(
             droppedVideoFrames: report.video.receiverDroppedFrames,
-            cueTimingP99Microseconds: 0
+            cueTimingP99Microseconds: nil
         ),
         resources: IntegratedProfileBenchmarkMetrics.Resources(
             cpuP99Percent: report.systemLoad.cpuP99Percent,
-            residentMemoryMegabytes: 0,
+            residentMemoryMegabytes: nil,
             measurementDurationSeconds: report.durationSeconds
         ),
         warnings: IntegratedProfileBenchmarkMetrics.Warnings(
-            callbackDeadlines: report.audio.hiddenPlayoutGrowthDetected ? 1 : 0,
-            allocations: 0,
-            threadScheduling: 0
+            callbackDeadlines: report.audio.hiddenPlayoutGrowthDetected.map { $0 ? 1 : 0 },
+            allocations: nil,
+            threadScheduling: nil
         )
     )
 }
@@ -183,23 +185,24 @@ private func integratedProfileMetrics(from report: LightingFixtureGateReport) ->
                 report.audioImpact.lightingCallbackMaxMicroseconds
                     - report.audioImpact.lightingCallbackP99Microseconds
             ),
-            lostPackets: 0,
-            latePackets: 0,
+            // The lighting gate measures callback impact only; packet, cue, and resource metrics stay nil.
+            lostPackets: nil,
+            latePackets: nil,
             underruns: report.audioImpact.underruns
         ),
         videoControl: IntegratedProfileBenchmarkMetrics.VideoControl(
             droppedVideoFrames: 0,
-            cueTimingP99Microseconds: 0
+            cueTimingP99Microseconds: nil
         ),
         resources: IntegratedProfileBenchmarkMetrics.Resources(
-            cpuP99Percent: 0,
-            residentMemoryMegabytes: 0,
+            cpuP99Percent: nil,
+            residentMemoryMegabytes: nil,
             measurementDurationSeconds: report.probe.durationSeconds
         ),
         warnings: IntegratedProfileBenchmarkMetrics.Warnings(
             callbackDeadlines: report.audioImpact.hiddenAudioImpactDetected ? 1 : 0,
-            allocations: 0,
-            threadScheduling: 0
+            allocations: nil,
+            threadScheduling: nil
         )
     )
 }
@@ -270,8 +273,23 @@ private func integratedProfileWorstCaseMetric(_ first: Double, _ second: Double)
     max(first, second)
 }
 
+// A combined metric is measured only when both lanes measured it; one unmeasured lane leaves it nil.
+private func integratedProfileWorstCaseMetric(_ first: Double?, _ second: Double?) -> Double? {
+    guard let first, let second else {
+        return nil
+    }
+    return max(first, second)
+}
+
 private func integratedProfileEventCount(_ first: Int, _ second: Int) -> Int {
     first + second
+}
+
+private func integratedProfileEventCount(_ first: Int?, _ second: Int?) -> Int? {
+    guard let first, let second else {
+        return nil
+    }
+    return first + second
 }
 
 private func integratedProfileMatchedDuration(

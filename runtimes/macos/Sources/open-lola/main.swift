@@ -117,13 +117,7 @@ func printSummary() {
 }
 
 func printTopLevelUsage() {
-    print("Usage: open-lola <command> [...]")
-    print("")
-    print("Commands:")
-    for command in openLolaCommands().map(\.name).sorted() {
-        print("  \(command)")
-    }
-    print("")
+    print(CLICommandCatalog.usageText())
     print("Use '<command> --help' for command-specific arguments where available.")
     print("udp-pcm-route-run physical evidence flags include --route-label --route-topology --sender-label " +
         "--sender-host --sender-ip --receiver-label --receiver-host --receiver-ip --link-rate-mbps --vlan " +

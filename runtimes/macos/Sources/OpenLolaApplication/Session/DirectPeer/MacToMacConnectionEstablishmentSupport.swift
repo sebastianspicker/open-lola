@@ -48,28 +48,56 @@ public enum MacToMacConnectionEstablishmentRunner {
         configuration: MacToMacConnectionEstablishmentRunConfiguration,
         diagnostics: NetworkDiagnosticsReport,
         natRoute: NatFriendlyRouteReport?,
-        routeCertification: MacToMacRouteCertificationReport? = nil
+        routeCertification: MacToMacRouteCertificationReport? = nil,
+        localInterfaces: [LocalIPv4Interface] = DirectLANRoute.localInterfaces()
     ) throws -> MacToMacConnectionEstablishmentReport {
-        let selectedRoute = selectedRoute(from: natRoute)
-        let blockers = blockersFor(
-            diagnostics: diagnostics,
-            natRoute: natRoute,
-            selectedRoute: selectedRoute
-        )
+        // Without NAT route evidence, an on-link peer with a lossless ping may still pass as a direct LAN route.
+        let lan = natRoute == nil
+            ? DirectLANRoute.evaluate(peer: configuration.peer, diagnostics: diagnostics, interfaces: localInterfaces)
+            : nil
+        let lanBasis = lan?.basis
+        let selectedRoute: MacToMacConnectionSelectedRoute = lanBasis != nil
+            ? .directUdpIp
+            : Self.selectedRoute(from: natRoute)
+        var blockers: [String] = []
+        if lanBasis == nil {
+            blockers = blockersFor(diagnostics: diagnostics, natRoute: natRoute, selectedRoute: selectedRoute)
+            blockers += lan?.blockers ?? []
+        }
         let report = MacToMacConnectionEstablishmentReport(
             identity: .init(id: "mac-to-mac-connection-\(configuration.localPeerID)-\(Int(Date().timeIntervalSince1970))", capturedAt: ISO8601DateFormatter().string(from: Date()), localPeerID: configuration.localPeerID, remotePeerID: configuration.remotePeerID),
-            routeEvidence: .init(setupMode: .ipNatProbe, selectedRoute: selectedRoute, networkDiagnostics: diagnostics, natRoute: natRoute, routeCertification: routeCertification),
+            routeEvidence: .init(
+                setupMode: lanBasis != nil ? .manualDirect : .ipNatProbe,
+                selectedRoute: selectedRoute,
+                networkDiagnostics: diagnostics,
+                natRoute: natRoute,
+                routeCertification: routeCertification,
+                directLANBasis: lanBasis
+            ),
             provenance: .init(
                 planFingerprint: configuration.planFingerprint,
                 planCapturedAt: configuration.planCapturedAt
             ),
-            outcome: .init(blockers: blockers, verdict: blockers.isEmpty && selectedRoute == .directUdpIp ? .pass : .partial, notes: blockers.isEmpty
-                ? "IP/NAT preflight selected direct UDP/IP from diagnostics and NAT route evidence."
-                : "IP/NAT preflight is incomplete or blocked; do not report connected, ready, healthy, "
-                    + "streaming, or PASS.")
+            outcome: .init(
+                blockers: blockers,
+                verdict: blockers.isEmpty && selectedRoute == .directUdpIp ? .pass : .partial,
+                notes: outcomeNotes(blockers: blockers, lanBasis: lanBasis)
+            )
         )
         try report.validate()
         return report
+    }
+
+    private static func outcomeNotes(blockers: [String], lanBasis: DirectLANRouteBasis?) -> String {
+        if let lanBasis {
+            return "Direct LAN route accepted without NAT route evidence: \(lanBasis.peerAddress) is on-link via "
+                + "\(lanBasis.interfaceName) (\(lanBasis.localAddress)/\(lanBasis.prefixLength)), ping had 0% loss, "
+                + "\(lanBasis.tracerouteBasis)."
+        }
+        return blockers.isEmpty
+            ? "IP/NAT preflight selected direct UDP/IP from diagnostics and NAT route evidence."
+            : "IP/NAT preflight is incomplete or blocked; do not report connected, ready, healthy, "
+                + "streaming, or PASS."
     }
 
     public static func selectedRoute(

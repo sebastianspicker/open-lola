@@ -199,6 +199,8 @@ private func prepareVideoTransportFragment(
     state: inout VideoTransportFragmentSendState
 ) throws -> VideoTransportPreparedFragment {
     let prepared = try LatencyBenchmark.measure {
+        // True internal invariant: the caller drives this exactly `cursor.fragmentCount` times and the cursor yields
+        // a fragment for every index below that same count, so no input can reach this trap.
         guard let fragment = state.cursor.next() else {
             preconditionFailure("video fragment cursor ended before its declared fragment count")
         }

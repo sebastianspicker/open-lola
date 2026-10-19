@@ -17,10 +17,10 @@ func runLoLaTcpControlExchangeAttempt(
     configuration: ExternalConnectorSessionConfiguration,
     onReceiveReady: (@Sendable () -> Void)? = nil
 ) throws -> LoLaControlExchangeAttempt {
-    switch configuration.role {
-    case .tx, .txRx:
+    switch configuration.effectiveLoLaControlSide {
+    case .initiator:
         return try sendLoLaTcpControlAttempt(configuration: configuration)
-    case .rx:
+    case .responder:
         return try receiveLoLaTcpControlAttempt(
             configuration: configuration,
             onReady: onReceiveReady
@@ -287,6 +287,7 @@ private func receiveLoLaTcpControlAttempt(
         )
     }
     let connection = LoLaControlSocketLease(descriptor: acceptedDescriptor)
+    try setExternalConnectorTcpNoSigPipe(socket: connection.descriptor)
     try setExternalConnectorTcpTimeout(socket: connection.descriptor, seconds: configuration.durationSeconds)
     let senderHost = try externalConnectorTcpHostString(peer.sin_addr)
 

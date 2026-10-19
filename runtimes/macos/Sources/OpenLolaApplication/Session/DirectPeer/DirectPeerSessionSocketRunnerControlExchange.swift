@@ -26,9 +26,10 @@ extension DirectPeerSessionSocketRunner {
         control: DirectPeerSessionControlSocket,
         remoteControl: SessionNetworkEndpoint,
         peerMediaPauseReceived: Bool,
+        reason: String = "audio-video run duration complete",
         timeoutNanoseconds: UInt64 = 1_000_000_000
     ) throws {
-        try runner.beginRecovery(reason: "audio-video run duration complete")
+        try runner.beginRecovery(reason: reason)
         try control.send(try latestControlMessage(from: runner, label: "media pause"), to: remoteControl)
         guard !peerMediaPauseReceived else { return }
 
@@ -50,13 +51,16 @@ extension DirectPeerSessionSocketRunner {
 
     static func exchangeAudioPackets(
         runner: inout PeerSessionRunner,
-        packetCount: Int
+        packetCount: Int,
+        stopRequest: DirectPeerSessionStopRequest? = nil
     ) throws {
         let validatedPacketCount = try directPeerValidatedPacketCount(packetCount)
-        for sequence in 1...validatedPacketCount {
+        stopRequest?.markMediaStarted()
+        // A stop request ends either phase early; the caller still shuts the runner down and builds the report.
+        for sequence in 1...validatedPacketCount where stopRequest?.isRequested != true {
             try runner.sendAudioPacket(sequenceNumber: UInt64(sequence))
         }
-        for _ in 1...validatedPacketCount {
+        for _ in 1...validatedPacketCount where stopRequest?.isRequested != true {
             try runner.receiveMediaPacket()
         }
     }

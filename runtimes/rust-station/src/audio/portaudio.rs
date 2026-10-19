@@ -16,6 +16,8 @@ use thiserror::Error;
 
 mod asio;
 mod callback;
+#[cfg(test)]
+mod device_tests;
 mod devices;
 mod diagnostic;
 mod ffi;

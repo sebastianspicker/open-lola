@@ -77,10 +77,10 @@ for the exact evidence boundary.
 |---|---|---|---|---|
 | `runtimes/macos/` | Operator app, CLI, direct-peer sessions, media adapters, integrations, and evidence | SwiftPM, SwiftUI, AppKit, Core Audio, AVFoundation | Built and run on macOS 14 or later | [Architecture](docs/architecture.md) |
 | `runtimes/rust-station/` | Windows and Linux LoLa 2.0 station with native and diagnostic backends | Rust, egui, ALSA, V4L2, PortAudio, XIMEA, Npcap | Cargo package and `rusty-lola` executable | [Rust station](runtimes/rust-station/README.md) |
-| `interop/lola2/` | Versioned synthetic cross-runtime wire corpus | JSON | Consumed by the Rust corpus test (`cargo test --test lola2_compatibility`); the macOS connector has no corpus consumer yet | [Corpus contract](interop/lola2/README.md) |
+| `interop/lola2/` | Versioned synthetic cross-runtime wire corpus | JSON | Consumed by the Rust and macOS corpus tests (test sources are not published) | [Corpus contract](interop/lola2/README.md) |
 | `web/demo/` | Fixture-backed Signal Desk walkthrough | Static HTML, CSS, JavaScript | Served by any static file server | This README |
 | `tools/` | Verification, local packaging, release export, and interoperability helpers | Shell, Python, Swift, PowerShell | Invoked from the repository root | [Tool index](tools/README.md) |
-| `third_party/` | Vendored Opus and JPEG XS source | C/C++ and upstream support files | Compiled only through selected package targets | [Third-party notices](THIRD_PARTY_NOTICES.md) |
+| `third_party/` | Vendored Opus and JPEG XS source | C/C++ and upstream support files | Opus is compiled through its package target; JPEG XS only in an opt-in build | [Third-party notices](THIRD_PARTY_NOTICES.md) |
 
 The macOS Swift target graph, runtime flows, state ownership, and integration boundaries
 are documented in [docs/architecture.md](docs/architecture.md).
@@ -89,11 +89,14 @@ are documented in [docs/architecture.md](docs/architecture.md).
 
 The complete repository gate is defined for macOS and currently uses:
 
-- Xcode 26.6 with Swift 6.3.3;
+- Xcode 26.6 with Swift 6.3.3 or newer (CI uses this version; newer Xcode releases are
+  used when `/Applications/Xcode-26.6.0.app` or `/Applications/Xcode_26.6.app`
+  is absent, see below);
 - Python 3.14.6 for the pinned development environment, with Python 3.11 as
   the tooling lower bound;
-- `uv` 0.10.7;
-- stable Rust with Cargo; and
+- `uv` 0.10.7 or newer (CI pins 0.10.7);
+- Rust 1.99.0 with Cargo, rustfmt, and Clippy (pinned in `rust-toolchain.toml`;
+  rustup installs it automatically); and
 - `shellcheck` for shell validation.
 
 Windows is required for the station's XIMEA, PortAudio/ASIO, Npcap, and native
@@ -109,10 +112,14 @@ uv sync --locked --extra dev
 make architecture
 ```
 
+`make` uses `/Applications/Xcode-26.6.0.app` or `/Applications/Xcode_26.6.app`
+when present and otherwise the Xcode selected by `xcode-select -p`; set
+`DEVELOPER_DIR` to choose a different one.
+
 Build the macOS package outside the checkout and inspect the CLI:
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer
+export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
 swift build --disable-sandbox \
   --scratch-path /private/tmp/open-lola-swiftpm-build
 OPEN_LOLA_CLI="$(swift build --disable-sandbox \
@@ -121,6 +128,18 @@ OPEN_LOLA_CLI="$(swift build --disable-sandbox \
 "$OPEN_LOLA_CLI" --help
 "$OPEN_LOLA_CLI" session-capabilities
 ```
+
+JPEG XS video compression is not part of the default build. The vendored JPEG XS
+reference software is licensed for evaluation and testing only and grants no
+patent licence, so do not distribute binaries built with it. To build it in for
+local evaluation, set `OPEN_LOLA_ENABLE_JPEG_XS=1` when SwiftPM resolves the
+package, for example `OPEN_LOLA_ENABLE_JPEG_XS=1 swift build ...` (use a
+separate `--scratch-path`). Without it, `--video-compression jpeg-xs` is
+rejected with a message that says JPEG XS is not built in.
+
+`--help` lists the session commands first. See
+[Running a session](docs/running-a-session.md) for the two-Mac, supervised, and
+Rust-station recipes (not yet verified on hardware).
 
 In a graphical macOS session, assemble and launch the ad-hoc local test bundle:
 

@@ -159,7 +159,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
                 nonBlocking: bufferProfile.usesNonBlockingSend
             )
             if result == .sent {
-                metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
+                recordSent(byteCount: sendScratch.count)
             }
             return result
         }
@@ -196,7 +196,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
                 nonBlocking: bufferProfile.usesNonBlockingSend
             )
             if result == .sent {
-                metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
+                recordSent(byteCount: sendScratch.count)
             }
             return result
         }
@@ -219,7 +219,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
                 nonBlocking: bufferProfile.usesNonBlockingSend
             )
             if result == .sent {
-                metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
+                recordSent(byteCount: sendScratch.count)
             } else {
                 // The caller keeps and retries the frame; the refused fragment must not be skipped.
                 cursor.rewindOne()
@@ -242,7 +242,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
                 nonBlocking: bufferProfile.usesNonBlockingSend
             )
             if result == .sent {
-                metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
+                recordSent(byteCount: data.count)
             }
             return result
         }
@@ -287,8 +287,9 @@ public final class UdpMediaTransport: @unchecked Sendable {
                 byteCount: maxByteCount,
                 buffer: &receiveScratch
             )
-            if data != nil {
+            if let data {
                 metricsState.packetsReceived = saturatingOpenLolaCounterSum(metricsState.packetsReceived, 1)
+                metricsState.bytesReceived = saturatingOpenLolaCounterSum(metricsState.bytesReceived, data.count)
             }
             return data
         }
@@ -345,6 +346,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
         }
         recordReceived(
             decoded.packet,
+            byteCount: data.count,
             receivedAt: receivedAt,
             depacketizationDurationMicroseconds: mediaTransportElapsedMicroseconds(since: decodeStart)
         )
@@ -353,6 +355,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     private func recordReceived(
         _ packet: UdpMediaPacket,
+        byteCount: Int,
         receivedAt: UInt64,
         depacketizationDurationMicroseconds: Double
     ) {
@@ -360,6 +363,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
         defer { stateLock.unlock() }
         metricsState.depacketizationDuration.record(depacketizationDurationMicroseconds)
         metricsState.packetsReceived = saturatingOpenLolaCounterSum(metricsState.packetsReceived, 1)
+        metricsState.bytesReceived = saturatingOpenLolaCounterSum(metricsState.bytesReceived, byteCount)
         let key = UdpMediaSequenceKey(
             payloadType: packet.header.payloadType,
             streamID: packet.header.streamID
@@ -397,6 +401,12 @@ public final class UdpMediaTransport: @unchecked Sendable {
             senderNanoseconds: packet.header.timestampNanoseconds,
             arrivalNanoseconds: receivedAt
         )
+    }
+
+    // Caller holds `stateLock`; counts the UDP payload bytes of one sent datagram.
+    private func recordSent(byteCount: Int) {
+        metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
+        metricsState.bytesSent = saturatingOpenLolaCounterSum(metricsState.bytesSent, byteCount)
     }
 
     private func recordMalformedReceived() {
@@ -445,28 +455,6 @@ struct UdpMediaSequenceKey: Hashable {
 }
 
 private let udpMediaSequenceHalfWindowThreshold = UInt64.max / 2
-
-package struct UdpMediaRecentSequences {
-    static let capacity = 256
-    private var slots = Array<UInt64?>(repeating: nil, count: capacity)
-    private var nextSlot = 0
-    private var count = 0
-    private var set = Set<UInt64>()
-
-    mutating func insert(_ sequenceNumber: UInt64) -> Bool {
-        guard set.insert(sequenceNumber).inserted else {
-            return false
-        }
-        if count == Self.capacity, let evicted = slots[nextSlot] {
-            set.remove(evicted)
-        } else {
-            count += 1
-        }
-        slots[nextSlot] = sequenceNumber
-        nextSlot = (nextSlot + 1) % Self.capacity
-        return true
-    }
-}
 
 package struct UdpMediaReceiveScratchStorage: Equatable {
     package var byteCount: Int

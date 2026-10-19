@@ -325,7 +325,6 @@ struct AppWindowsLoLaSettingsTab: View {
 }
 
 struct AppPeersSettingsTab: View {
-    @Binding var role: DirectPeerSessionManualRole
     @Binding var localPeer: String
     @Binding var remotePeer: String
     @Binding var localHost: String
@@ -339,10 +338,7 @@ struct AppPeersSettingsTab: View {
 
     var body: some View {
         Form {
-            Picker("Role", selection: $role) {
-                Text("Initiator").tag(DirectPeerSessionManualRole.initiator)
-                Text("Responder").tag(DirectPeerSessionManualRole.responder)
-            }
+            LabeledContent("Role", value: AppSessionRunLabels.directPeerRoleSummary)
             TextField("Local peer", text: $localPeer)
             TextField("Remote peer", text: $remotePeer)
             TextField("Local host", text: $localHost)
@@ -426,8 +422,9 @@ struct AppVideoSettingsTab: View {
                 Text("YUV 4:2:2").tag("yuv422")
             }
             Picker("Video compression", selection: $videoCompression) {
-                Text("Raw").tag(DirectPeerSessionVideoCompression.raw)
-                Text("JPEG XS").tag(DirectPeerSessionVideoCompression.jpegXS)
+                ForEach(AppVideoCompressionChoices.selectable(), id: \.self) { compression in
+                    Text(AppVideoCompressionChoices.label(compression)).tag(compression)
+                }
             }
             IntField("Video frame rate", value: $videoFrameRate)
             IntField("Video stream ID", value: $videoStreamID)

@@ -37,10 +37,14 @@ public struct DirectPeerTwoPeerRunPlanPeer: Codable, Equatable, Sendable {
     public var inputUID: String
     public var outputUID: String
     public var videoDeviceID: String
+    /// Explicit port choices; a nil entry derives the port from `portBase` (+1 audio, +2 video, +3 metrics).
+    public var explicitAudioPort: UInt16?
+    public var explicitVideoPort: UInt16?
+    public var explicitMetricsPort: UInt16?
 
-    public var audioPort: UInt16 { portBase + 1 }
-    public var videoPort: UInt16 { portBase + 2 }
-    public var metricsPort: UInt16 { portBase + 3 }
+    public var audioPort: UInt16 { explicitAudioPort ?? portBase + 1 }
+    public var videoPort: UInt16 { explicitVideoPort ?? portBase + 2 }
+    public var metricsPort: UInt16 { explicitMetricsPort ?? portBase + 3 }
 
     public init(
         peerID: String,
@@ -48,8 +52,14 @@ public struct DirectPeerTwoPeerRunPlanPeer: Codable, Equatable, Sendable {
         portBase: UInt16,
         inputUID: String,
         outputUID: String,
-        videoDeviceID: String
+        videoDeviceID: String,
+        explicitAudioPort: UInt16? = nil,
+        explicitVideoPort: UInt16? = nil,
+        explicitMetricsPort: UInt16? = nil
     ) {
+        self.explicitAudioPort = explicitAudioPort
+        self.explicitVideoPort = explicitVideoPort
+        self.explicitMetricsPort = explicitMetricsPort
         self.peerID = peerID
         self.host = host
         self.portBase = portBase
@@ -112,14 +122,17 @@ public struct DirectPeerTwoPeerRunPlanConfiguration: Codable, Equatable, Sendabl
         public var pixelFormat: String
         public var compression: DirectPeerSessionVideoCompression
         public var frameRate: Int
+        public var streamID: Int
 
         public init(
             width: Int = 1_280,
             height: Int = 720,
             pixelFormat: String = "bgra8",
             compression: DirectPeerSessionVideoCompression = .raw,
-            frameRate: Int = 30
+            frameRate: Int = 30,
+            streamID: Int = 100
         ) {
+            self.streamID = streamID
             self.width = width
             self.height = height
             self.pixelFormat = pixelFormat
@@ -182,6 +195,7 @@ public struct DirectPeerTwoPeerRunPlanConfiguration: Codable, Equatable, Sendabl
     public var videoPixelFormat: String
     public var videoCompression: DirectPeerSessionVideoCompression
     public var videoFrameRate: Int
+    public var videoStreamID: Int
     public var avProfile: DirectPeerSessionAVProfile
     public var rxBufferProfile: RxBufferProfile
     public var preview: DirectPeerSessionPreviewMode
@@ -204,6 +218,7 @@ public struct DirectPeerTwoPeerRunPlanConfiguration: Codable, Equatable, Sendabl
         self.videoPixelFormat = input.video.pixelFormat
         self.videoCompression = input.video.compression
         self.videoFrameRate = input.video.frameRate
+        self.videoStreamID = input.video.streamID
         self.avProfile = input.runtime.avProfile
         self.rxBufferProfile = input.runtime.rxBufferProfile
         self.preview = input.runtime.preview

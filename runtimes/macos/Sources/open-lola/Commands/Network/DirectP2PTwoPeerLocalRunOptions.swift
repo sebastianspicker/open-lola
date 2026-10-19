@@ -46,7 +46,7 @@ struct DirectP2PTwoPeerLocalRunOptions {
                 defaultValue: 300,
                 label: "--readiness-delay-ms"
             ),
-            requirePreflight: try directP2PTwoPeerLocalRunBool(values["--require-preflight"]),
+            requirePreflight: try directP2PTwoPeerLocalRunBool(values["--require-preflight"], defaultValue: true),
             connectionPreflightReportPath: values["--connection-preflight-report"]
         )
         try options.validate()
@@ -54,10 +54,16 @@ struct DirectP2PTwoPeerLocalRunOptions {
     }
 
     func validate() throws {
-        if execute {
+        if DirectPeerTwoPeerRunPreflight.requiresConnectionPreflight(execute: execute, requirePreflight: requirePreflight) {
             guard connectionPreflightReportPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
                 throw CommandError.invalidArgument("missing --connection-preflight-report")
             }
+        }
+        if execute, !requirePreflight,
+           !DirectPeerTwoPeerRunPreflight.connectionPreflightMayBeSkipped(executionMode: executionMode) {
+            throw CommandError.invalidArgument(
+                "--require-preflight false is only allowed with --execution-mode local; ssh runs need the connection preflight"
+            )
         }
         guard executionMode == .ssh else {
             return
@@ -138,9 +144,9 @@ private func directP2PTwoPeerLocalRunValues(_ arguments: [String]) throws -> [St
     return try parseDirectP2PArguments(arguments, allowed: allowed)
 }
 
-private func directP2PTwoPeerLocalRunBool(_ value: String?) throws -> Bool {
+private func directP2PTwoPeerLocalRunBool(_ value: String?, defaultValue: Bool = false) throws -> Bool {
     guard let value else {
-        return false
+        return defaultValue
     }
     switch value {
     case "true":

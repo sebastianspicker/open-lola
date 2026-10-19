@@ -20,7 +20,7 @@ func handleE2EBenchmarkCommand(_ arguments: [String]) throws -> Bool {
 }
 
 private func runE2EBenchmarkCommand(_ arguments: [String]) throws {
-    let configuration = try E2EBenchmarkRunConfiguration.parse(arguments)
+    let configuration = try E2EBenchmarkRunRequest.parse(arguments)
     let audioBenchmark = try LatencyBenchmarkReport.decode(
         from: try e2eBenchmarkInputData(
             path: configuration.audioBenchmarkPath,

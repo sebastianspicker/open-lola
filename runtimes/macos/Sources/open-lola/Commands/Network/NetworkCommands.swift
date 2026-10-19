@@ -177,6 +177,10 @@ private func handleNetworkConnectionEvidenceCommand(_ arguments: [String]) throw
     switch arguments {
     case let args where args.first == "network-diagnostics-run":
         try runNetworkDiagnosticsCommand(args)
+    case ["mac-to-mac-connection-preflight-run", "--help"],
+         ["mac-to-mac-connection-preflight-run", "-h"],
+         ["mac-to-mac-connection-preflight-run", "help"]:
+        printMacToMacConnectionPreflightRunUsage()
     case let args where args.first == "mac-to-mac-connection-preflight-run":
         try runMacToMacConnectionPreflightCommand(args)
     case ["verify-direct-p2p-session-evidence-bundle", "--help"],

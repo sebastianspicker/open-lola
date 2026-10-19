@@ -108,10 +108,9 @@ private extension E2EBenchmarkReport {
 
     func validateE2ERecovery() throws {
         try E2EBenchmarkValidator.requireNonNegative(recovery.reconnectEvents, "recovery.reconnectEvents")
-        try E2EBenchmarkValidator.requireNonNegative(
-            recovery.reconnectP99Microseconds,
-            "recovery.reconnectP99Microseconds"
-        )
+        if let reconnectP99Microseconds = recovery.reconnectP99Microseconds {
+            try E2EBenchmarkValidator.requireNonNegative(reconnectP99Microseconds, "recovery.reconnectP99Microseconds")
+        }
         try E2EBenchmarkValidator.requireNonNegative(
             recovery.leakedRealtimeCallbacksAfterShutdown,
             "recovery.leakedRealtimeCallbacksAfterShutdown"
@@ -151,6 +150,9 @@ private extension E2EBenchmarkReport {
             throw E2EBenchmarkValidationError.passWithoutMethodologyReference(
                 thresholds.methodologyDocument
             )
+        }
+        if let field = unmeasuredPassFields.first {
+            throw E2EBenchmarkValidationError.passRequiresMeasuredField(field)
         }
         try validateE2EPassHardware()
         try validateE2EPassProfiles()
@@ -216,7 +218,7 @@ private extension E2EBenchmarkReport {
                 profile.audio.underruns
             )
         }
-        if profile.audio.hiddenBufferGrowthDetected {
+        if profile.audio.hiddenBufferGrowthDetected == true {
             throw E2EBenchmarkValidationError.passWithHiddenAudioBufferGrowth(profile.profile)
         }
     }
@@ -327,28 +329,35 @@ private func validateE2EVideo(_ metrics: E2EBenchmarkVideoMetrics, field: String
     try E2EBenchmarkValidator.requirePositive(metrics.frameRate, "\(field).frameRate")
     try validateE2EPacketAge(metrics.captureLatency, "\(field).captureLatency")
     try validateE2ECounter(metrics.encodePacketizationLatency, "\(field).encodePacketizationLatency")
-    try validateE2EPacketAge(metrics.receiveRenderLatency, "\(field).receiveRenderLatency")
+    if let receiveRenderLatency = metrics.receiveRenderLatency {
+        try validateE2EPacketAge(receiveRenderLatency, "\(field).receiveRenderLatency")
+    }
     try E2EBenchmarkValidator.requireNonNegative(metrics.droppedFrames, "\(field).droppedFrames")
     try E2EBenchmarkValidator.requireNonEmpty(metrics.blackmagicCaptureReportId, "\(field).blackmagicCaptureReportId")
     try E2EBenchmarkValidator.requireNonEmpty(metrics.renderOutputReportId, "\(field).renderOutputReportId")
 }
 
 private func validateE2ENetwork(_ metrics: E2EBenchmarkNetworkMetrics, field: String) throws {
-    try E2EBenchmarkValidator.requireNonNegative(
-        metrics.throughputMegabitsPerSecond,
-        "\(field).throughputMegabitsPerSecond"
-    )
+    if let throughput = metrics.throughputMegabitsPerSecond {
+        try E2EBenchmarkValidator.requireNonNegative(throughput, "\(field).throughputMegabitsPerSecond")
+    }
     try E2EBenchmarkValidator.requireNonNegative(metrics.lostPackets, "\(field).lostPackets")
     try E2EBenchmarkValidator.requireNonNegative(metrics.latePackets, "\(field).latePackets")
-    try E2EBenchmarkValidator.requireNonNegative(metrics.reorderedPackets, "\(field).reorderedPackets")
-    try E2EBenchmarkValidator.requireNonNegative(metrics.duplicatePackets, "\(field).duplicatePackets")
+    if let reorderedPackets = metrics.reorderedPackets {
+        try E2EBenchmarkValidator.requireNonNegative(reorderedPackets, "\(field).reorderedPackets")
+    }
+    if let duplicatePackets = metrics.duplicatePackets {
+        try E2EBenchmarkValidator.requireNonNegative(duplicatePackets, "\(field).duplicatePackets")
+    }
     try E2EBenchmarkValidator.requirePercent(metrics.packetLossPercent, "\(field).packetLossPercent")
     try validateE2EPacketAge(metrics.jitter, "\(field).jitter")
 }
 
 private func validateE2EResources(_ metrics: E2EBenchmarkResourceMetrics, field: String) throws {
     try E2EBenchmarkValidator.requirePercent(metrics.cpuP99Percent, "\(field).cpuP99Percent")
-    try E2EBenchmarkValidator.requirePercent(metrics.gpuP99Percent, "\(field).gpuP99Percent")
+    if let gpuP99Percent = metrics.gpuP99Percent {
+        try E2EBenchmarkValidator.requirePercent(gpuP99Percent, "\(field).gpuP99Percent")
+    }
     try E2EBenchmarkValidator.requireNonNegative(metrics.residentMemoryMegabytes, "\(field).residentMemoryMegabytes")
     try E2EBenchmarkValidator.requireNonNegative(
         metrics.hotPathAllocationWarnings,
@@ -384,6 +393,35 @@ private func validateE2EPacketAge(_ metrics: UdpPcmPacketAgeMetrics, _ field: St
         max: metrics.maxMicroseconds
     ) else {
         throw E2EBenchmarkValidationError.unorderedCounter(field)
+    }
+}
+
+extension E2EBenchmarkProfileRun {
+    /// Names the PASS-gating metrics of this row that no input report measured.
+    var unmeasuredFields: [String] {
+        let measured: [(String, Bool)] = [
+            ("audio.hiddenBufferGrowthDetected", audio.hiddenBufferGrowthDetected != nil),
+            ("video.receiveRenderLatency", video.map { $0.receiveRenderLatency != nil } ?? true),
+            ("network.throughputMegabitsPerSecond", network.throughputMegabitsPerSecond != nil),
+            ("network.reorderedPackets", network.reorderedPackets != nil),
+            ("network.duplicatePackets", network.duplicatePackets != nil),
+            ("resources.gpuP99Percent", video == nil || resources.gpuP99Percent != nil)
+        ]
+        return measured.filter { !$0.1 }.map(\.0)
+    }
+}
+
+extension E2EBenchmarkReport {
+    /// Names every PASS-gating field that was not measured; PASS requires this list to be empty.
+    var unmeasuredPassFields: [String] {
+        let profileFields = profiles.flatMap { profile in
+            profile.unmeasuredFields.map { "profiles[\(profile.profile.rawValue)].\($0)" }
+        }
+        let recoveryFields = [
+            recovery.measured ? nil : "recovery.measured",
+            recovery.reconnectP99Microseconds == nil ? "recovery.reconnectP99Microseconds" : nil
+        ].compactMap { $0 }
+        return profileFields + recoveryFields
     }
 }
 

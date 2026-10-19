@@ -39,8 +39,8 @@ to local audio and video devices, then writes reports and evidence files. Those
 artifacts are evidence, not configuration authorities.
 
 `runtimes/macos` is the primary native operator runtime. `runtimes/rust-station`
-is the Windows and native Linux station: Windows uses PortAudio/ASIO and XIMEA,
-Linux uses ALSA and V4L2, and diagnostic media is always an explicit selection.
+is the Windows and native Linux station: Windows uses PortAudio/ASIO and XIMEA
+or Media Foundation (USB/UVC webcams), Linux uses ALSA and V4L2, and diagnostic media is always an explicit selection.
 Python supplies repository tooling only. `interop/lola2` contains synthetic
 encoded and decoded cases with provenance metadata; it is a regression contract,
 not independent reference-peer capture evidence.
@@ -127,9 +127,15 @@ command or report belongs in `OpenLolaApplication`.
 The app follows configuration, preflight, explicit arm, execution, monitoring,
 and evidence review. The UI stores operator settings, builds a validated
 execution plan, and starts the CLI through a managed child process. Each run uses
-a unique token. A zero process exit is not enough: the controller also requires
-the selected report to exist, be current, carry the expected token, and pass its
-validator.
+a unique token that the app writes to a `session.token` sidecar next to the
+report before launch. A zero process exit is not enough: the controller also
+requires the selected report to exist, to be at least as new as that sidecar
+(whose token must equal the run's in-memory token), and to pass its validator.
+The token is not passed to the CLI or embedded in the report, so report schemas
+stay unchanged across the direct-peer and connector runtimes. The token is kept
+after Stop and after the run finishes, so a stopped or finished run can still be
+validated and reviewed; it is replaced only by the next launch or cleared when
+the configuration changes.
 
 Direct-peer execution then follows this ownership direction:
 
@@ -156,7 +162,8 @@ silence, and device properties are restored only after every registration is gon
 
 The Rust binary dispatches CLI commands into configuration, protocol, transport,
 device, session, and egui layers. Windows defaults request XIMEA video and
-PortAudio/ASIO audio; Linux defaults request ALSA and V4L2. Both fail when the
+PortAudio/ASIO audio, with Media Foundation as the explicit Windows camera
+backend for ordinary webcams; Linux defaults request ALSA and V4L2. Both fail when the
 selected native backend or exact device format is unavailable, and diagnostic
 media must be selected explicitly. Control, audio, and video use fixed LoLa
 ports; the media plane can use ordinary UDP or Npcap where the platform and

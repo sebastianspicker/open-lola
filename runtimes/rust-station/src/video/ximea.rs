@@ -3,6 +3,8 @@
 mod diagnostic;
 mod ffi;
 mod strict;
+#[cfg(test)]
+mod tests;
 mod types;
 
 pub use diagnostic::{ensure_shipped_ximea_dll, probe_ximea, CameraBackendInfo};

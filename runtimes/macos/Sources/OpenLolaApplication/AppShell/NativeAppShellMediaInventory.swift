@@ -31,6 +31,8 @@ public struct NativeAppShellLocalMediaInventory: PrettyJSONCodable, Equatable, S
     public var videoDevices: [NativeAppShellVideoDeviceOption]
     public var selection: NativeAppShellLocalMediaSelection
     public var inventoryErrors: [String]
+    /// Camera authorization observed when the inventory was captured; nil when it was not read (remote or pending).
+    public var videoPermissionStatus: AVFoundationPermissionStatus?
 
     public init(
         capturedAt: String,
@@ -38,8 +40,10 @@ public struct NativeAppShellLocalMediaInventory: PrettyJSONCodable, Equatable, S
         audioDevices: [NativeAppShellAudioDeviceOption],
         videoDevices: [NativeAppShellVideoDeviceOption],
         selection: NativeAppShellLocalMediaSelection,
-        inventoryErrors: [String]
+        inventoryErrors: [String],
+        videoPermissionStatus: AVFoundationPermissionStatus? = nil
     ) {
+        self.videoPermissionStatus = videoPermissionStatus
         self.capturedAt = capturedAt
         self.hostName = hostName
         self.audioDevices = audioDevices

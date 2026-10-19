@@ -53,6 +53,10 @@ private func handleNetworkDirectP2PMeshCommand(_ arguments: [String]) throws -> 
 
 private func handleNetworkDirectP2PTwoPeerCommand(_ arguments: [String]) throws -> Bool {
     switch arguments {
+    case ["direct-p2p-two-peer-plan-run", "--help"],
+         ["direct-p2p-two-peer-plan-run", "-h"],
+         ["direct-p2p-two-peer-plan-run", "help"]:
+        printDirectP2PTwoPeerPlanRunUsage()
     case let args where args.first == "direct-p2p-two-peer-plan-run":
         try runDirectP2PTwoPeerPlanCommand(args)
     case ["direct-p2p-two-peer-report", "--help"],
@@ -70,6 +74,10 @@ private func handleNetworkDirectP2PTwoPeerCommand(_ arguments: [String]) throws 
         printDirectP2PTwoPeerPrototypeReportUsage()
     case let args where args.first == "direct-p2p-two-peer-prototype-report":
         try runDirectP2PTwoPeerPrototypeReportCommand(Array(args.dropFirst()))
+    case ["direct-p2p-two-peer-local-run", "--help"],
+         ["direct-p2p-two-peer-local-run", "-h"],
+         ["direct-p2p-two-peer-local-run", "help"]:
+        printDirectP2PTwoPeerLocalRunUsage()
     case let args where args.first == "direct-p2p-two-peer-local-run":
         try runDirectP2PTwoPeerLocalRunCommand(Array(args.dropFirst()))
     default:
@@ -141,9 +149,19 @@ private func runDirectP2PSessionCommand(_ args: [String]) throws {
     try directP2PValidateAudioCompressionScope(values, mediaMode: mediaMode)
     let packetCount = try directP2PSessionRunPacketCount(values, mediaMode: mediaMode)
     let outputPath = try directP2PSessionRunOutputPath(values)
-    var report = try runDirectP2PSession(values: values, mediaMode: mediaMode, packetCount: packetCount)
+    let stopRequest = DirectPeerSessionStopRequest()
+    let stopMonitor = directP2PSessionStopMonitor(stopRequest)
+    defer { stopMonitor.invalidate() }
+    var report = try runDirectP2PSession(
+        values: values,
+        mediaMode: mediaMode,
+        packetCount: packetCount,
+        stopRequest: stopRequest
+    )
     report = try directP2PApplyMeasuredEvidence(report, values: values)
     report = directP2PAttachGeneratedReceiveEvidence(report, values: values)
+    // Re-applied after measured evidence so a supplied --verdict cannot lift a stopped run above PARTIAL.
+    report = stopRequest.annotating(report)
     try report.validate()
     try directP2PWriteReceiveProofArtifacts(report, values: values)
     try directP2PWriteAutoEvidenceArtifact(report, values: values)
@@ -154,13 +172,15 @@ private func runDirectP2PSessionCommand(_ args: [String]) throws {
 private func runDirectP2PSession(
     values: [String: String],
     mediaMode: DirectPeerSessionMediaMode,
-    packetCount: Int
+    packetCount: Int,
+    stopRequest: DirectPeerSessionStopRequest
 ) throws -> DirectPeerSessionReport {
     let onReady = directP2PReadyFileWriter(values)
     if mediaMode == .audioVideo {
         return try DirectPeerSessionSocketRunner.runManualAddressAudioVideo(
             configuration: try directP2PSessionAVConfiguration(values),
-            onReady: onReady
+            onReady: onReady,
+            stopRequest: stopRequest
         )
     }
     if values["--role"] == nil {
@@ -171,8 +191,17 @@ private func runDirectP2PSession(
             values,
             packetCount: packetCount
         ),
-        onReady: onReady
+        onReady: onReady,
+        stopRequest: stopRequest
     )
+}
+
+/// The first SIGTERM/SIGINT ends the session loop through its normal teardown and report; a later one exits at once.
+///
+/// A signal that arrives before the media loop starts exits with 128 + signal at once, and repeats within the
+/// grace window count as the same stop request; see `DirectPeerSessionStopRequest.signalObserver`.
+private func directP2PSessionStopMonitor(_ stopRequest: DirectPeerSessionStopRequest) -> ManagedProcessStopMonitor {
+    ManagedProcessStopMonitor(observer: stopRequest.signalObserver())
 }
 
 private func printDirectP2PSessionReportSummary(_ report: DirectPeerSessionReport, outputPath: String) {

@@ -90,7 +90,7 @@ private func makeExternalConnectorConnectionPlanConfiguration(
 ) throws -> ExternalConnectorConnectionPlanConfiguration {
     let connector = try parseExternalConnectorKind(try requiredExternalConnectorValue("--connector", values))
     let outputPath = try requiredExternalConnectorValue("--output", values)
-    let media = try parseExternalConnectorMediaOptionValues(values)
+    let media = try parseExternalConnectorMediaOptionValues(values, defaults: .defaults(for: connector))
     return ExternalConnectorConnectionPlanConfiguration(
         connector: connector,
         localHost: try requiredExternalConnectorValue("--local-host", values),

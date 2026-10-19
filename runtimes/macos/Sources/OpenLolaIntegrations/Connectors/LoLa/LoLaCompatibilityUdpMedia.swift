@@ -253,10 +253,13 @@ public enum LoLaUdpMediaBidirectionalRunner {
 
     static func run(
         configuration: ExternalConnectorSessionConfiguration,
-        cancellation: LoLaSessionCancellation?
+        cancellation: LoLaSessionCancellation?,
+        videoSink: (any RawBGRAPreviewSink)? = nil
     ) throws -> LoLaCompatibilityMediaSessionReport {
         if !configuration.dryRun {
-            return try runSocketBidirectional(configuration: configuration, cancellation: cancellation)
+            return try runSocketBidirectional(
+                configuration: configuration, cancellation: cancellation, videoSink: videoSink
+            )
         }
         let transmitter: LoLaUdpMediaTransmitter = configuration.dryRun
             ? LoLaMemoryUdpMediaTransmitter()
@@ -307,11 +310,14 @@ public enum LoLaUdpMediaBidirectionalRunner {
 
     private static func runSocketBidirectional(
         configuration: ExternalConnectorSessionConfiguration,
-        cancellation: LoLaSessionCancellation?
+        cancellation: LoLaSessionCancellation?,
+        videoSink: (any RawBGRAPreviewSink)?
     ) throws -> LoLaCompatibilityMediaSessionReport {
         let exchange = try LoLaSocketBidirectionalExchange(configuration: configuration, cancellation: cancellation)
+        let videoDisplay = LoLaVideoDisplayPipeline.makeIfRequested(configuration: configuration, sink: videoSink)
         defer { exchange.audioBridge?.stop() }
-        let receiver = try receiveSocketBidirectional(configuration, exchange: exchange)
+        defer { videoDisplay?.close() }
+        let receiver = try receiveSocketBidirectional(configuration, exchange: exchange, videoDisplay: videoDisplay)
         // Workers share the deadline and cancellation signal. Join cleanup before
         // stopping their bridge; deadline expiry alone is a normal session end.
         exchange.txDone.wait()
@@ -324,6 +330,7 @@ public enum LoLaUdpMediaBidirectionalRunner {
             audioBridge: exchange.audioBridge,
             audioFreshness: exchange.audioFreshnessCounters.snapshot
         )
+        report.videoDisplay = videoDisplay?.finish()
         if let reason = exchange.cancellation.reason {
             report.notes += " Receive ended before the session deadline: \(reason)."
         }
@@ -332,7 +339,8 @@ public enum LoLaUdpMediaBidirectionalRunner {
 
     private static func receiveSocketBidirectional(
         _ configuration: ExternalConnectorSessionConfiguration,
-        exchange: LoLaSocketBidirectionalExchange
+        exchange: LoLaSocketBidirectionalExchange,
+        videoDisplay: LoLaVideoDisplayPipeline?
     ) throws -> LoLaCompatibilityMediaSessionReport {
         let txResult = exchange.txResult
         let txDone = exchange.txDone
@@ -368,6 +376,7 @@ public enum LoLaUdpMediaBidirectionalRunner {
                 audioFreshnessCounters: exchange.audioFreshnessCounters,
                 cancellation: cancellation,
                 onDatagram: { datagram in
+                    videoDisplay?.consume(datagram)
                     try enqueueLoLaLiveAudioIfNeeded(datagram, audioBridge: audioBridge)
                 }
             )

@@ -10,7 +10,7 @@ extension AppExecutionController {
             validatorCommand = try validatorArgumentsFromCurrentExecution()
         } catch {
             validatorCommand = []
-            recordError(String(describing: error))
+            recordError(AppRunFailureMessage.describe(error))
         }
         refreshExternalConnectorReport()
         let effectiveValidationExitCode = validationExitCode ?? lastValidationExitCode

@@ -36,9 +36,29 @@ pub(super) fn status(
     let local_ip: Ipv4Addr = local
         .parse()
         .map_err(|_| "local-ip must be a numeric IPv4 address")?;
-    let socket = UdpSocket::bind(SocketAddrV4::new(local_ip, 0)).map_err(|e| e.to_string())?;
+    let (socket, note) = bind_probe_socket(local_ip, port)?;
+    if let Some(note) = note {
+        eprintln!("{note}");
+    }
     let peer = SocketAddrV4::new(peer_ip, port);
     status_on_socket(&socket, peer, sid, timeout)
+}
+
+/// A listener only accepts control traffic from its configured control port, so the
+/// probe sends from that port. Binding it is the smaller fix: the listener keeps its
+/// peer pinning for session traffic. If the port is busy (for example a local station
+/// is running) fall back to an ephemeral port and say why the probe may time out.
+fn bind_probe_socket(local: Ipv4Addr, port: u16) -> Result<(UdpSocket, Option<String>), String> {
+    match UdpSocket::bind(SocketAddrV4::new(local, port)) {
+        Ok(socket) => Ok((socket, None)),
+        Err(error) => {
+            let socket = UdpSocket::bind(SocketAddrV4::new(local, 0)).map_err(|e| e.to_string())?;
+            let note = format!(
+                "status: could not bind control port {port} on {local} ({error}); probing from an ephemeral port, which a listener that pins the control port will ignore"
+            );
+            Ok((socket, Some(note)))
+        }
+    }
 }
 
 fn status_on_socket(
@@ -127,6 +147,21 @@ pub(super) fn selftest(duration: f64) -> Result<Value, String> {
     Ok(report)
 }
 
+/// Probe JSON plus, when PortAudio loads, one entry per device (ASIO devices flagged).
+fn portaudio_inventory() -> Value {
+    let probe = crate::audio::probe_portaudio();
+    let mut report = probe.to_json();
+    if probe.available {
+        match crate::audio::load_portaudio(None).and_then(|library| library.devices()) {
+            Ok(devices) => {
+                report["devices"] = devices.iter().map(|d| d.to_json()).collect();
+            }
+            Err(error) => report["devices_error"] = json!(error),
+        }
+    }
+    report
+}
+
 pub(super) fn devices() -> Result<Value, String> {
     let audio = match crate::audio::alsa::inventory_alsa_devices() {
         Ok(devices) => json!({"backend":"alsa", "devices": devices}),
@@ -137,8 +172,9 @@ pub(super) fn devices() -> Result<Value, String> {
         Err(error) => json!({"backend":"v4l2", "devices":[], "error":error.to_string()}),
     };
     Ok(json!({"audio": audio,"video":video,
-        "portaudio":crate::audio::probe_portaudio().to_json(),
+        "portaudio":portaudio_inventory(),
         "ximea":crate::video::probe_ximea().to_json(),
+        "mediafoundation":crate::video::mediafoundation::inventory_json(),
         "evidence":"device inventory; stream format and readiness are not yet verified"}))
 }
 
@@ -174,6 +210,21 @@ mod tests {
         assert_eq!(result["ok"], true);
         assert_eq!(result["malformed_drops"], 1);
         assert_eq!(result["negotiated"], false);
+    }
+    #[test]
+    fn probe_binds_the_control_port_or_falls_back_with_a_note() {
+        let loopback = Ipv4Addr::LOCALHOST;
+        let free = UdpSocket::bind((loopback, 0)).unwrap();
+        let port = free.local_addr().unwrap().port();
+        drop(free);
+        let (bound, note) = bind_probe_socket(loopback, port).unwrap();
+        assert_eq!(bound.local_addr().unwrap().port(), port);
+        assert!(note.is_none());
+        let (fallback, note) = bind_probe_socket(loopback, port).unwrap();
+        assert_ne!(fallback.local_addr().unwrap().port(), port);
+        let note = note.expect("busy port explains the fallback");
+        assert!(note.contains(&format!("control port {port}")), "{note}");
+        assert!(note.contains("ephemeral"), "{note}");
     }
     #[test]
     fn repeated_selftest_has_bidirectional_media_and_bounded_duration() {

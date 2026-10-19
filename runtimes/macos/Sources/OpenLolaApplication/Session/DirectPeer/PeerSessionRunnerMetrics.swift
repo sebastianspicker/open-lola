@@ -22,6 +22,8 @@ public extension PeerSessionRunner {
             merged.reorderedPackets = saturatingOpenLolaCounterSum(merged.reorderedPackets, videoMetrics.reorderedPackets)
             merged.duplicatePackets = saturatingOpenLolaCounterSum(merged.duplicatePackets, videoMetrics.duplicatePackets)
             merged.malformedPackets = saturatingOpenLolaCounterSum(merged.malformedPackets, videoMetrics.malformedPackets)
+            merged.bytesSent = saturatingOpenLolaCounterSum(merged.bytesSent, videoMetrics.bytesSent)
+            merged.bytesReceived = saturatingOpenLolaCounterSum(merged.bytesReceived, videoMetrics.bytesReceived)
             merged.jitterMicroseconds = combinedJitterMicroseconds(
                 audioJitterMicroseconds: audioJitterMicroseconds,
                 audioPacketsReceived: audioPacketsReceived,
@@ -39,7 +41,12 @@ public extension PeerSessionRunner {
         guard let metricsTransport else {
             throw PeerSessionRunnerError.missingMetricsTransport
         }
-        guard let snapshot = transportMetrics().controlMessage(sessionID: configuration.sessionID).metrics else {
+        var published = transportMetrics()
+        if let sample = resourceSampler?.latestSample {
+            published.cpuPercent = sample.cpuPercent
+            published.memoryResidentBytes = sample.residentMemoryBytes
+        }
+        guard let snapshot = published.controlMessage(sessionID: configuration.sessionID).metrics else {
             throw PeerSessionRunnerError.unsupportedControlMessage(.metrics)
         }
         let nextMetricsMessagesSent = saturatingOpenLolaCounterSum(metrics.metricsMessagesSent, 1)

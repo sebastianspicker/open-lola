@@ -1,21 +1,54 @@
 // Implements JPEGXSReferenceCodec encoding and decoding, keeping wire representation apart from transport lifetime.
 import Foundation
+#if OPEN_LOLA_JPEG_XS
 import CJpegXSReference
+#endif
 
-/// Reports `invalidDimensions`, `unsupportedPixelFormat`, `payloadSizeMismatch`, and `encodeFailed` failures that stop invalid video capture and frame transport work before it reaches a live path.
-public enum JPEGXSReferenceCodecError: Error, Equatable, Sendable {
+/// Reports `notBuiltIn`, `invalidDimensions`, `unsupportedPixelFormat`, `payloadSizeMismatch`, and `encodeFailed` failures that stop invalid video capture and frame transport work before it reaches a live path.
+public enum JPEGXSReferenceCodecError: Error, Equatable, Sendable, LocalizedError {
+    case notBuiltIn
     case invalidDimensions(width: Int, height: Int)
     case unsupportedPixelFormat(String)
     case payloadSizeMismatch(expected: Int, actual: Int)
     case encodeFailed
     case decodeFailed
     case decodedDimensionMismatch(expectedWidth: Int, expectedHeight: Int, actualWidth: Int, actualHeight: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notBuiltIn:
+            JPEGXSReferenceCodec.notBuiltInMessage
+        default:
+            nil
+        }
+    }
 }
 
 /// Adapts raw frame payloads to the JPEG XS reference-codec boundary used for validation.
 public enum JPEGXSReferenceCodec {
     public static let bitsPerPixel: Float = 4.0
 
+    /// Explains why JPEG XS is refused when the evaluation-only reference code is not compiled in.
+    public static let notBuiltInMessage =
+        "JPEG XS support is not built in; rebuild with OPEN_LOLA_ENABLE_JPEG_XS=1 (evaluation-only licence, see THIRD_PARTY_NOTICES.md)"
+
+    /// Reports whether this build contains the evaluation-only JPEG XS reference code.
+    public static var isAvailable: Bool {
+        #if OPEN_LOLA_JPEG_XS
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// Throws `notBuiltIn` unless this build contains the JPEG XS reference code, so callers can refuse early.
+    public static func requireAvailable() throws {
+        guard isAvailable else {
+            throw JPEGXSReferenceCodecError.notBuiltIn
+        }
+    }
+
+    #if OPEN_LOLA_JPEG_XS
     public static func encode(frame: RawCapturedVideoFrame) throws -> Data {
         let metadata = frame.metadata
         guard normalizedVideoPixelFormat(metadata.pixelFormat) == "bgra8" else {
@@ -94,4 +127,13 @@ public enum JPEGXSReferenceCodec {
             payload: Data(bytes: output, count: decodedWidth * decodedHeight * 4)
         )
     }
+    #else
+    public static func encode(frame: RawCapturedVideoFrame) throws -> Data {
+        throw JPEGXSReferenceCodecError.notBuiltIn
+    }
+
+    public static func decode(codestream: Data, metadata: CapturedVideoFrame) throws -> RawCapturedVideoFrame {
+        throw JPEGXSReferenceCodecError.notBuiltIn
+    }
+    #endif
 }

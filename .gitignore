@@ -11,6 +11,10 @@
 /mac-port/
 /archive/
 
+# Test sources stay local; the public tree carries no test suites
+/runtimes/macos/Tests/
+/runtimes/rust-station/tests/
+
 # Development-assistant state and process notes
 AGENT.md
 AGENTS.md
@@ -67,6 +71,7 @@ completion-report.*
 *_ledger.md
 *-LEDGER.md
 *_LEDGER.md
+*_AUDIT_REPORT.md
 plan.md
 progress.md
 scratchpad*
@@ -223,13 +228,6 @@ Desktop.ini
 *.orig
 *.rej
 
-# Internal status notes, design briefs and unreviewed test trees
+# Internal status notes and design briefs
 /RELEASE_STATUS.md
 /web/demo/DESIGN_BRIEF.md
-/runtimes/macos/Tests/*
-!/runtimes/macos/Tests/OpenLolaTransportTests/
-!/runtimes/macos/Tests/OpenLolaApplicationTests/
-!/runtimes/macos/Tests/OpenLolaMediaPlatformTests/
-!/runtimes/macos/Tests/OpenLolaIntegrationsTests/
-/runtimes/rust-station/tests/*
-!/runtimes/rust-station/tests/lola2_compatibility.rs

@@ -16,19 +16,29 @@ public enum DirectPeerSessionSocketRunner {
         try runManualAddress(configuration: configuration, onReady: nil)
     }
 
+    /// Runs one audio-only peer; a set `stopRequest` ends the packet exchange early with a PARTIAL report naming the signal.
     public static func runManualAddress(
         configuration: DirectPeerSessionManualRunConfiguration,
-        onReady: (() -> Void)?
+        onReady: (() -> Void)?,
+        stopRequest: DirectPeerSessionStopRequest? = nil
     ) throws -> DirectPeerSessionReport {
         var context = try makeManualSocketRunContext(configuration)
+        context.stopRequest = stopRequest
         defer {
             context.runner.shutdown(reason: "manual-address socket run complete")
             context.control.close()
         }
+        let resourceRecorder = DirectPeerSessionResourceRecorder()
+        resourceRecorder.start(attachingTo: &context.runner)
+        defer { resourceRecorder.sampler.stop() }
         onReady?()
 
         try runManualRole(configuration.role, context: &context)
-        let report = try manualAddressReport(configuration: configuration, context: context)
+        var report = try manualAddressReport(configuration: configuration, context: context)
+        resourceRecorder.finish(&report, runner: context.runner)
+        if let stopRequest {
+            report = stopRequest.annotating(report)
+        }
         try report.validate()
         return report
     }
@@ -102,14 +112,16 @@ public enum DirectPeerSessionSocketRunner {
                 runner: &context.runner,
                 control: context.control,
                 remoteControl: context.remoteControl,
-                packetCount: context.packetCount
+                packetCount: context.packetCount,
+                stopRequest: context.stopRequest
             )
         case .responder:
             try runManualResponder(
                 runner: &context.runner,
                 control: context.control,
                 remoteControl: context.remoteControl,
-                packetCount: context.packetCount
+                packetCount: context.packetCount,
+                stopRequest: context.stopRequest
             )
         }
     }
@@ -195,7 +207,8 @@ public enum DirectPeerSessionSocketRunner {
         runner: inout PeerSessionRunner,
         control: DirectPeerSessionControlSocket,
         remoteControl: SessionNetworkEndpoint,
-        packetCount: Int
+        packetCount: Int,
+        stopRequest: DirectPeerSessionStopRequest?
     ) throws {
         try send(try runner.beginHandshake(), from: control, to: remoteControl)
         try runner.receiveControlMessages(try control.receiveMessages(
@@ -212,7 +225,8 @@ public enum DirectPeerSessionSocketRunner {
             runner: &runner,
             control: control,
             remoteControl: remoteControl,
-            packetCount: packetCount
+            packetCount: packetCount,
+            stopRequest: stopRequest
         )
     }
 
@@ -220,7 +234,8 @@ public enum DirectPeerSessionSocketRunner {
         runner: inout PeerSessionRunner,
         control: DirectPeerSessionControlSocket,
         remoteControl: SessionNetworkEndpoint,
-        packetCount: Int
+        packetCount: Int,
+        stopRequest: DirectPeerSessionStopRequest?
     ) throws {
         try runner.receiveControlMessages(try control.receiveMessages(
             count: 2,
@@ -236,7 +251,8 @@ public enum DirectPeerSessionSocketRunner {
             runner: &runner,
             control: control,
             remoteControl: remoteControl,
-            packetCount: packetCount
+            packetCount: packetCount,
+            stopRequest: stopRequest
         )
     }
 
@@ -244,7 +260,8 @@ public enum DirectPeerSessionSocketRunner {
         runner: inout PeerSessionRunner,
         control: DirectPeerSessionControlSocket,
         remoteControl: SessionNetworkEndpoint,
-        packetCount: Int
+        packetCount: Int,
+        stopRequest: DirectPeerSessionStopRequest?
     ) throws {
         try publishAndExchangeAudioMetadata(
             runner: &runner,
@@ -257,7 +274,7 @@ public enum DirectPeerSessionSocketRunner {
             remoteControl: remoteControl
         )
         try exchangeTimingProbe(runner: &runner)
-        try exchangeAudioPackets(runner: &runner, packetCount: packetCount)
+        try exchangeAudioPackets(runner: &runner, packetCount: packetCount, stopRequest: stopRequest)
     }
 
 }

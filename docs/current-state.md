@@ -8,13 +8,13 @@ Open LoLa contains two independent runtime implementations:
 
 - a modular macOS SwiftPM app and CLI with direct-peer, media, integration,
   evidence, and operator-interface source;
-- a Windows and native Linux Rust station with PortAudio/XIMEA and ALSA/V4L2
-  backends, explicit diagnostic media, and optional egui presentation.
+- a Windows and native Linux Rust station with PortAudio, XIMEA or Media
+  Foundation (USB/UVC webcams), and ALSA/V4L2 backends, explicit diagnostic media, and optional egui presentation.
 
 The runtimes share the versioned synthetic regression corpus in `interop/lola2`,
 which is not original packet-capture or current reference-peer evidence. The
-Rust station replays it in `cargo test --test lola2_compatibility`; the macOS
-connector does not consume it yet.
+Rust station and the macOS connector replay it in test suites whose sources are
+not published.
 Vendored codecs remain under `third_party`, repository automation under `tools`,
 and the fixture-backed browser walkthrough under `web/demo`.
 

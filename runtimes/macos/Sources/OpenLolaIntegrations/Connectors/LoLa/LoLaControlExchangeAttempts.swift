@@ -24,7 +24,8 @@ func startLoLaControlRetryResponder(
 
 func startLoLaControlRetryResponder(
     configuration: ExternalConnectorSessionConfiguration,
-    terminalSession: LoLaControlTerminalSession?
+    terminalSession: LoLaControlTerminalSession?,
+    monitor: LoLaControlRetryResponderMonitor = LoLaControlRetryResponderMonitor()
 ) -> LoLaControlRetryResponderReport {
     do {
         guard let terminalSession else {
@@ -35,7 +36,8 @@ func startLoLaControlRetryResponder(
         return startLoLaControlRetryResponder(
             configuration: configuration,
             reusing: try terminalSession.duplicateSocketForRetryResponder(),
-            terminalSession: terminalSession
+            terminalSession: terminalSession,
+            monitor: monitor
         )
     } catch {
         return lolaControlRetryResponderFailure(configuration: configuration, error: error)
@@ -45,14 +47,16 @@ func startLoLaControlRetryResponder(
 private func startLoLaControlRetryResponder(
     configuration: ExternalConnectorSessionConfiguration,
     reusing descriptor: Int32,
-    terminalSession: LoLaControlTerminalSession? = nil
+    terminalSession: LoLaControlTerminalSession? = nil,
+    monitor: LoLaControlRetryResponderMonitor = LoLaControlRetryResponderMonitor()
 ) -> LoLaControlRetryResponderReport {
     do {
         try setExternalConnectorReceiveTimeout(socket: descriptor, seconds: 1)
         startLoLaControlRetryResponderLoop(
             descriptor: descriptor,
             configuration: configuration,
-            terminalSession: terminalSession
+            terminalSession: terminalSession,
+            monitor: monitor
         )
         return LoLaControlRetryResponderReport(
             started: true,
@@ -95,21 +99,22 @@ private func prepareLoLaControlRetryResponderSocket(
 private func startLoLaControlRetryResponderLoop(
     descriptor keepAliveDescriptor: Int32,
     configuration: ExternalConnectorSessionConfiguration,
-    terminalSession: LoLaControlTerminalSession?
+    terminalSession: LoLaControlTerminalSession?,
+    monitor: LoLaControlRetryResponderMonitor
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         defer { close(keepAliveDescriptor) }
-        let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
-        while deadline.hasTimeRemaining, !(terminalSession?.cancellation.isCancelled ?? false) {
-            do {
-                try answerLoLaControlRetryMessageIfAvailable(
-                    socket: keepAliveDescriptor,
-                    configuration: configuration,
-                    terminalSession: terminalSession
-                )
-            } catch {
-                return
-            }
+        runLoLaControlRetryResponderLoop(
+            deadline: MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds))),
+            isCancelled: { terminalSession?.cancellation.isCancelled ?? false },
+            monitor: monitor
+        ) {
+            try answerLoLaControlRetryMessageIfAvailable(
+                socket: keepAliveDescriptor,
+                configuration: configuration,
+                terminalSession: terminalSession,
+                monitor: monitor
+            )
         }
     }
 }
@@ -117,17 +122,25 @@ private func startLoLaControlRetryResponderLoop(
 private func answerLoLaControlRetryMessageIfAvailable(
     socket keepAliveDescriptor: Int32,
     configuration: ExternalConnectorSessionConfiguration,
-    terminalSession: LoLaControlTerminalSession?
+    terminalSession: LoLaControlTerminalSession?,
+    monitor: LoLaControlRetryResponderMonitor
 ) throws {
-    let received: ExternalConnectorUdpReceiveResult
-    let parsed: (name: String, fields: [String: String])
+    let readable: Bool
     do {
-        guard try waitForReadableSocket(socket: keepAliveDescriptor, timeoutMicroseconds: 50_000) else { return }
-        received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
-        parsed = try LoLaControlDatagramDecoder.decode(received.payload)
+        readable = try waitForReadableSocket(socket: keepAliveDescriptor, timeoutMicroseconds: 50_000)
     } catch {
+        // select only fails on a descriptor that can never become readable again.
+        throw LoLaRetryResponderFailure(isPermanent: true, underlying: error)
+    }
+    guard readable else { return }
+    let received: ExternalConnectorUdpReceiveResult
+    do {
+        received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
+    } catch ExternalConnectorSessionError.receiveTimedOut {
         return
     }
+    // A datagram that is not LoLa control is the peer's noise, not a responder error.
+    guard let parsed = try? LoLaControlDatagramDecoder.decode(received.payload) else { return }
     if lolaRetryResponderHandlePeerDisconnect(
         configuration: configuration,
         message: received.message,
@@ -144,6 +157,11 @@ private func answerLoLaControlRetryMessageIfAvailable(
               lolaIPv4AddressMatches(received.senderHost, expected: terminalSession.destinationIP),
               parsed.fields["SID"] == String(terminalSession.sessionID) else { return }
     }
+    // Only handshake retries get an answer; other valid control is logged, not an error.
+    guard lolaRetryAnsweredMessageNames.contains(parsed.name) else {
+        monitor.recordIgnoredControlMessage(parsed.name)
+        return
+    }
     if let response = try lolaRetryResponderAck(
         configuration: configuration,
         message: received.message,
@@ -159,6 +177,9 @@ private func answerLoLaControlRetryMessageIfAvailable(
         )
     }
 }
+
+/// Control messages the retry responder answers; `lolaRetryResponderAck` handles these.
+private let lolaRetryAnsweredMessageNames: Set<String> = ["/MESG_CHECKLOLASTATUS", "/MESG_QUICKCONN"]
 
 func receiveLoLaControlMessage(
     socket: Int32,

@@ -104,8 +104,8 @@ fn open_media_transport(
         },
     )
     .map_err(|error| SessionError::Transport(error.to_string()))?;
-    client_audio.set_timeout(media_timeout).ok();
-    client_video.set_timeout(media_timeout).ok();
+    SessionError::from_socket_timeout(client_audio.set_timeout(media_timeout))?;
+    SessionError::from_socket_timeout(client_video.set_timeout(media_timeout))?;
     client_audio
         .configure_media_nonblocking()
         .map_err(|error| SessionError::Transport(error.to_string()))?;

@@ -10,11 +10,14 @@ mod capture;
 mod client;
 mod client_cleanup;
 mod client_media;
+mod colors;
 mod control;
+mod device_hints;
 mod lifecycle;
 mod media;
 mod npcap;
 mod peer;
+mod preflight;
 mod realtime;
 mod report;
 mod runner;
@@ -26,6 +29,7 @@ mod timing;
 mod types;
 mod video;
 mod video_decode;
+mod watchdog;
 
 pub use runner::{run_check_only, run_default_session, run_reject_session, run_session};
 #[cfg(any(feature = "gui", test))]

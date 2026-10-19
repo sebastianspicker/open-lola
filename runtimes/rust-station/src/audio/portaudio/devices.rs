@@ -17,6 +17,49 @@ pub struct PortAudioDeviceInfo {
     pub max_input_channels: i32,
     pub max_output_channels: i32,
     pub default_sample_rate: f64,
+    /// PortAudio host API index (`PaDeviceInfo.hostApi`), or -1 when unknown.
+    pub host_api: i32,
+    /// `PaHostApiTypeId` of the host API, or -1 when unknown.
+    pub host_api_type: i32,
+    pub host_api_name: String,
+}
+
+impl PortAudioDeviceInfo {
+    pub fn is_asio(&self) -> bool {
+        self.host_api_type == PA_ASIO
+    }
+
+    /// One human-readable line: index, name, host API, channels and default rate.
+    pub fn summary(&self) -> String {
+        format!(
+            "[{}] {} | host API {}{} | in {} / out {} ch | {} Hz",
+            self.index,
+            self.name,
+            if self.host_api_name.is_empty() {
+                "unknown"
+            } else {
+                &self.host_api_name
+            },
+            if self.is_asio() { " (ASIO)" } else { "" },
+            self.max_input_channels,
+            self.max_output_channels,
+            self.default_sample_rate
+        )
+    }
+
+    pub fn to_json(&self) -> Value {
+        json!({
+            "index": self.index,
+            "name": self.name,
+            "host_api": self.host_api_name,
+            "host_api_type": self.host_api_type,
+            "asio": self.is_asio(),
+            "max_input_channels": self.max_input_channels,
+            "max_output_channels": self.max_output_channels,
+            "default_sample_rate": self.default_sample_rate,
+            "summary": self.summary(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,15 +325,104 @@ pub(super) fn enumerate_devices_locked(fns: &PaFns) -> Result<Vec<PortAudioDevic
                 .to_string_lossy()
                 .into_owned()
         };
+        let (host_api_type, host_api_name) = host_api_identity_locked(fns, info.host_api);
         devices.push(PortAudioDeviceInfo {
             index,
             name,
             max_input_channels: info.max_input_channels,
             max_output_channels: info.max_output_channels,
             default_sample_rate: info.default_sample_rate,
+            host_api: info.host_api,
+            host_api_type,
+            host_api_name,
         });
     }
     Ok(devices)
+}
+
+/// Host API type and name for a device's `hostApi` index; `(-1, "")` when unavailable.
+fn host_api_identity_locked(fns: &PaFns, host_api: i32) -> (i32, String) {
+    let Some(get_host_api_info) = fns.get_host_api_info.filter(|_| host_api >= 0) else {
+        return (-1, String::new());
+    };
+    // SAFETY: `host_api` comes from PortAudio-owned device info; a non-null result points
+    // to the immutable `PaHostApiInfo` of the initialized library, valid under `pa_lock`.
+    let info = unsafe { get_host_api_info(host_api) };
+    if info.is_null() {
+        return (-1, String::new());
+    }
+    // SAFETY: non-null `Pa_GetHostApiInfo` results follow the documented layout.
+    let info = unsafe { &*info };
+    let name = if info.name.is_null() {
+        String::new()
+    } else {
+        // SAFETY: PortAudio's host API name is a NUL-terminated string it owns.
+        unsafe { CStr::from_ptr(info.name) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    (info.type_, name)
+}
+
+/// Default device of a host API (`Pa_GetHostApiInfo`), or `None` if unavailable.
+fn host_api_default_locked(fns: &PaFns, host_api: i32, is_input: bool) -> Option<i32> {
+    let get_host_api_info = fns.get_host_api_info?;
+    // SAFETY: `host_api` comes from PortAudio-owned device info; see `host_api_identity_locked`.
+    let info = unsafe { get_host_api_info(host_api) };
+    if info.is_null() {
+        return None;
+    }
+    // SAFETY: non-null `Pa_GetHostApiInfo` results follow the documented layout.
+    let info = unsafe { &*info };
+    Some(if is_input {
+        info.default_input_device
+    } else {
+        info.default_output_device
+    })
+}
+
+/// Pick the strict backend's default device: the ASIO host API's own default when it
+/// is a usable ASIO device, otherwise the first ASIO device with the needed channels.
+/// The global PortAudio default is deliberately not used; it is usually MME or WASAPI.
+pub(super) fn resolve_asio_default(
+    devices: &[PortAudioDeviceInfo],
+    asio_default: Option<i32>,
+    is_input: bool,
+) -> Result<i32, String> {
+    let direction = if is_input { "input" } else { "output" };
+    let usable = |device: &&PortAudioDeviceInfo| {
+        device.is_asio()
+            && if is_input {
+                device.max_input_channels > 0
+            } else {
+                device.max_output_channels > 0
+            }
+    };
+    let preferred = devices
+        .iter()
+        .filter(usable)
+        .find(|device| Some(device.index) == asio_default);
+    if let Some(device) = preferred.or_else(|| devices.iter().find(usable)) {
+        return Ok(device.index);
+    }
+    let reason = if devices.iter().any(PortAudioDeviceInfo::is_asio) {
+        format!("the ASIO host API has no {direction} device")
+    } else {
+        "PortAudio reports no ASIO host API".to_string()
+    };
+    Err(format!(
+        "no default ASIO {direction} device: {reason}. Install an ASIO driver, or set the \
+         {direction} device (--{direction}-device) to an ASIO device name listed by `rusty-lola devices`"
+    ))
+}
+
+fn default_asio_device_locked(fns: &PaFns, is_input: bool) -> Result<i32, String> {
+    let devices = enumerate_devices_locked(fns)?;
+    let asio_default = devices
+        .iter()
+        .find(|device| device.is_asio())
+        .and_then(|device| host_api_default_locked(fns, device.host_api, is_input));
+    resolve_asio_default(&devices, asio_default, is_input)
 }
 
 pub(super) fn select_device_locked(
@@ -303,34 +435,9 @@ pub(super) fn select_device_locked(
     } else {
         "output device selection"
     };
-    let default = if is_input {
-        fns.get_default_input
-            // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            .map(|f| unsafe { f() })
-            .ok_or_else(|| PortAudioError::Native {
-                operation,
-                detail: "Pa_GetDefaultInputDevice not bound".into(),
-            })?
-    } else {
-        fns.get_default_output
-            // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            .map(|f| unsafe { f() })
-            .ok_or_else(|| PortAudioError::Native {
-                operation,
-                detail: "Pa_GetDefaultOutputDevice not bound".into(),
-            })?
-    };
     match selector {
-        PortAudioDeviceSelector::Default => {
-            if default < 0 {
-                Err(PortAudioError::Native {
-                    operation,
-                    detail: error_text_fns(fns, default),
-                })
-            } else {
-                Ok(default)
-            }
-        }
+        PortAudioDeviceSelector::Default => default_asio_device_locked(fns, is_input)
+            .map_err(|detail| PortAudioError::Native { operation, detail }),
         PortAudioDeviceSelector::Index(index) => Ok(*index),
         PortAudioDeviceSelector::Name(name) => enumerate_devices_locked(fns)
             .map_err(|detail| PortAudioError::Native { operation, detail })?

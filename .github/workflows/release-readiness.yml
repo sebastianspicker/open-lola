@@ -83,7 +83,11 @@ jobs:
           xcode_version="$(xcodebuild -version)"
           [[ "$(uv --version)" == "uv 0.10.7"* ]]
           [[ "$python_version" == "Python 3.14.6" ]]
-          grep -Fq "Apple Swift version 6.3.3" <<<"$swift_version"
+          swift_semver="$(sed -n 's/.*Apple Swift version \([0-9][0-9.]*\).*/\1/p' <<<"$swift_version" | head -n 1)"
+          IFS=. read -r swift_major swift_minor swift_patch <<<"$swift_semver"
+          swift_major="${swift_major:-0}"; swift_minor="${swift_minor:-0}"; swift_patch="${swift_patch:-0}"
+          # Swift 6.3.3 or newer; newer compilers must still pass warnings-as-errors in the build step.
+          (( swift_major > 6 || (swift_major == 6 && (swift_minor > 3 || (swift_minor == 3 && swift_patch >= 3))) ))
           grep -Fq "Xcode 26.6" <<<"$xcode_version"
       - name: Sync Python verification tools
         run: uv sync --locked --extra dev --no-install-project

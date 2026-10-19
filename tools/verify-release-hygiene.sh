@@ -317,6 +317,12 @@ find_unapproved_candidate_image() {
     ! -path "$candidate/.github/assets/open-lola-signal-desk-light.png" \
     ! -path "$candidate/.github/assets/open-lola-signal-desk-dark.png" \
     ! -path "$candidate/.github/assets/open-lola-social-preview.png" \
+    ! -path "$candidate/web/demo/assets/tour/demo-evidence.png" \
+    ! -path "$candidate/web/demo/assets/tour/demo-monitor.png" \
+    ! -path "$candidate/web/demo/assets/tour/demo-session.png" \
+    ! -path "$candidate/web/demo/assets/tour/demo-setup.png" \
+    ! -path "$candidate/web/demo/assets/tour/native-signal-desk-dark.png" \
+    ! -path "$candidate/web/demo/assets/tour/native-signal-desk-light.png" \
     -print -quit
 }
 
@@ -385,6 +391,9 @@ verify_live_checkout() {
   echo "== release hygiene live checkout generated-residue scan =="
 
   local live_scan_root="${OPEN_LOLA_RELEASE_HYGIENE_LIVE_ROOT:-.}"
+  if [[ -n "${OPEN_LOLA_RELEASE_HYGIENE_LIVE_ROOT:-}" ]]; then
+    warn "OPEN_LOLA_RELEASE_HYGIENE_LIVE_ROOT redirects the live residue scan to $live_scan_root instead of the checkout"
+  fi
   [[ -d "$live_scan_root" ]] || fail "live checkout scan root is not a directory: $live_scan_root"
 
   local found
@@ -417,6 +426,7 @@ require_active_candidate_surface() {
     "SUPPORT.md"
     ".python-version"
     "Cargo.toml"
+    "rust-toolchain.toml"
     "Cargo.lock"
     "Makefile"
     "Package.swift"
@@ -535,7 +545,7 @@ main() {
     verify_release_candidate "$candidate"
     echo "RELEASE_HYGIENE_VERDICT: PASS"
   elif [[ "${OPEN_LOLA_SKIP_LIVE_RESIDUE:-0}" == "1" ]]; then
-    echo "live checkout residue scan -> SKIPPED (preserved local state; verify an exported candidate separately)"
+    echo "SKIPPED: live checkout residue scan (preserved local state; verify an exported candidate separately)"
   else
     verify_live_checkout
     echo "no release candidate supplied; scanned live checkout generated residue only; pass a candidate path for full release-boundary scan"

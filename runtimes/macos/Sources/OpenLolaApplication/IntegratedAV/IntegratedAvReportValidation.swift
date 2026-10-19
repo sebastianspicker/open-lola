@@ -103,8 +103,10 @@ extension IntegratedAvReport {
             positiveInts: audioPositiveIntFields(),
             nonNegativeDoubles: audioNonNegativeDoubleFields()
         )
-        try requireIntegratedPacketAge(audio.packetAge, "audio.packetAge")
-        try validateIntegratedFieldSet(nonNegativeInts: audioNonNegativeIntFields())
+        if let packetAge = audio.packetAge {
+            try requireIntegratedPacketAge(packetAge, "audio.packetAge")
+        }
+        try validateIntegratedFieldSet(nonNegativeInts: integratedMeasuredFields(audioNonNegativeIntFields()))
 
         guard audio.baselineCallbackP99Microseconds <= audio.baselineCallbackMaxMicroseconds else {
             throw IntegratedAvValidationError.unorderedAudioCallbackMetrics("audio.baseline")
@@ -148,7 +150,7 @@ extension IntegratedAvReport {
         ]
     }
 
-    private func audioNonNegativeIntFields() -> [IntegratedValidationField<Int>] {
+    private func audioNonNegativeIntFields() -> [IntegratedValidationField<Int?>] {
         [
             IntegratedValidationField(name: "audio.lostPackets", value: audio.lostPackets),
             IntegratedValidationField(name: "audio.latePackets", value: audio.latePackets),
@@ -250,16 +252,16 @@ extension IntegratedAvReport {
 
     private func validateSystemLoad() throws {
         try validateIntegratedFieldSet(
-            nonNegativeDoubles: [
+            nonNegativeDoubles: integratedMeasuredFields([
                 IntegratedValidationField(
                     name: "systemLoad.networkMegabitsPerSecond",
                     value: systemLoad.networkMegabitsPerSecond
                 )
-            ],
-            percents: [
+            ]),
+            percents: integratedMeasuredFields([
                 IntegratedValidationField(name: "systemLoad.cpuP99Percent", value: systemLoad.cpuP99Percent),
                 IntegratedValidationField(name: "systemLoad.gpuP99Percent", value: systemLoad.gpuP99Percent)
-            ]
+            ])
         )
     }
 

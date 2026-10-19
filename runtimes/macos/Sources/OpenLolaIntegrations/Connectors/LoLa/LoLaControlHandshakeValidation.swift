@@ -49,7 +49,7 @@ private func lolaExpectedQuickConnectSessionFields(
         "DSTIP": sourceIP,
         "SID": String(try lolaControlSessionID(configuration.sessionID)),
         "SR": String(configuration.sampleRateHertz),
-        "BPS": "16",
+        "BPS": String(lolaConnectorAudioBitsPerSample),
         "CHNLS": String(configuration.channels)
     ]
 }

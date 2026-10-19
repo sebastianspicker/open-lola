@@ -180,46 +180,36 @@ extension IntegratedProfileReport {
             "benchmarkMatrix.metrics.audioLatencyP99Microseconds"
         )
         try requireIntegratedProfileNonNegative(
-            metrics.audioJitterP99Microseconds,
-            "benchmarkMatrix.metrics.audioJitterP99Microseconds"
-        )
-        try requireIntegratedProfileNonNegative(metrics.lostPackets, "benchmarkMatrix.metrics.lostPackets")
-        try requireIntegratedProfileNonNegative(metrics.latePackets, "benchmarkMatrix.metrics.latePackets")
-        try requireIntegratedProfileNonNegative(metrics.underruns, "benchmarkMatrix.metrics.underruns")
-        try requireIntegratedProfileNonNegative(
             metrics.droppedVideoFrames,
             "benchmarkMatrix.metrics.droppedVideoFrames"
         )
-        try requireIntegratedProfileNonNegative(
-            metrics.cueTimingP99Microseconds,
-            "benchmarkMatrix.metrics.cueTimingP99Microseconds"
-        )
-        try requireIntegratedProfilePercent(metrics.cpuP99Percent, "benchmarkMatrix.metrics.cpuP99Percent")
-        try requireIntegratedProfileNonNegative(
-            metrics.residentMemoryMegabytes,
-            "benchmarkMatrix.metrics.residentMemoryMegabytes"
-        )
-        if let duration = metrics.measurementDurationSeconds {
-            try requireIntegratedProfileNonNegative(
-                duration,
-                "benchmarkMatrix.metrics.measurementDurationSeconds"
-            )
+        // Unmeasured (nil) metrics are skipped here; the PASS gate rejects them separately.
+        let doubles: [(String, Double?)] = [
+            ("audioJitterP99Microseconds", metrics.audioJitterP99Microseconds),
+            ("cueTimingP99Microseconds", metrics.cueTimingP99Microseconds),
+            ("residentMemoryMegabytes", metrics.residentMemoryMegabytes),
+            ("measurementDurationSeconds", metrics.measurementDurationSeconds)
+        ]
+        for case let (name, value?) in doubles {
+            try requireIntegratedProfileNonNegative(value, "benchmarkMatrix.metrics.\(name)")
+        }
+        let counts: [(String, Int?)] = [
+            ("lostPackets", metrics.lostPackets),
+            ("latePackets", metrics.latePackets),
+            ("underruns", metrics.underruns),
+            ("callbackDeadlineWarnings", metrics.callbackDeadlineWarnings),
+            ("allocationWarnings", metrics.allocationWarnings),
+            ("threadSchedulingWarnings", metrics.threadSchedulingWarnings)
+        ]
+        for case let (name, value?) in counts {
+            try requireIntegratedProfileNonNegative(value, "benchmarkMatrix.metrics.\(name)")
+        }
+        if let cpuP99Percent = metrics.cpuP99Percent {
+            try requireIntegratedProfilePercent(cpuP99Percent, "benchmarkMatrix.metrics.cpuP99Percent")
         }
         if metrics.durationMismatch {
             throw IntegratedProfileValidationError.benchmarkDurationMismatch(scenario)
         }
-        try requireIntegratedProfileNonNegative(
-            metrics.callbackDeadlineWarnings,
-            "benchmarkMatrix.metrics.callbackDeadlineWarnings"
-        )
-        try requireIntegratedProfileNonNegative(
-            metrics.allocationWarnings,
-            "benchmarkMatrix.metrics.allocationWarnings"
-        )
-        try requireIntegratedProfileNonNegative(
-            metrics.threadSchedulingWarnings,
-            "benchmarkMatrix.metrics.threadSchedulingWarnings"
-        )
     }
 
     private func validateAggregateVerdict() throws {
@@ -306,6 +296,11 @@ extension IntegratedProfileReport {
             guard row.physicalEvidence else {
                 throw IntegratedProfileValidationError.passWithoutPhysicalBenchmarkScenario(scenario)
             }
+            if let field = row.metrics.unmeasuredFields.first {
+                throw IntegratedProfileValidationError.passRequiresMeasuredField(
+                    "benchmarkMatrix[\(scenario.rawValue)].metrics.\(field)"
+                )
+            }
         }
     }
 
@@ -346,5 +341,24 @@ extension IntegratedProfileReport {
             throw IntegratedProfileValidationError.missingBenchmarkScenario(scenario)
         }
         return row
+    }
+}
+
+extension IntegratedProfileBenchmarkMetrics {
+    /// Names the metrics no subordinate report measured; a PASS row requires this list to be empty.
+    var unmeasuredFields: [String] {
+        let measured: [(String, Bool)] = [
+            ("audioJitterP99Microseconds", audioJitterP99Microseconds != nil),
+            ("lostPackets", lostPackets != nil),
+            ("latePackets", latePackets != nil),
+            ("underruns", underruns != nil),
+            ("cueTimingP99Microseconds", cueTimingP99Microseconds != nil),
+            ("cpuP99Percent", cpuP99Percent != nil),
+            ("residentMemoryMegabytes", residentMemoryMegabytes != nil),
+            ("callbackDeadlineWarnings", callbackDeadlineWarnings != nil),
+            ("allocationWarnings", allocationWarnings != nil),
+            ("threadSchedulingWarnings", threadSchedulingWarnings != nil)
+        ]
+        return measured.filter { !$0.1 }.map(\.0)
     }
 }

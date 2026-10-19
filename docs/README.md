@@ -19,7 +19,7 @@ The documents below go deeper on subjects that need their own detail.
 
 | Area | Maintained references |
 |---|---|
-| Session and transport | [P2P networking](p2p-networking.md), [Open LoLa protocol](open-lola-protocol.md), [latency-first architecture](latency-first-architecture.md) |
+| Session and transport | [Running a session](running-a-session.md), [P2P networking](p2p-networking.md), [Open LoLa protocol](open-lola-protocol.md), [latency-first architecture](latency-first-architecture.md) |
 | Audio | [Audio routing](audio-routing.md), [multichannel transport](multichannel-transport.md), [RX buffering](rx-buffering.md), [RME MADI](audio-rme-madi.md), [RME routing](rme-madi-routing.md) |
 | Video and control | [Blackmagic/ATEM video](video-blackmagic-atem.md), [lighting and control](lighting-control.md) |
 | Performance evidence | [Latency budget](latency-budget.md), [latency profiles](latency-profiles.md), [benchmark methodology](benchmark-methodology.md) |

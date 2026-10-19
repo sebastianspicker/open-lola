@@ -250,23 +250,27 @@ public extension NativeAppShellOperatorPrototypeState {
     func twoPeerSupervisorCommandArtifactState(
         planPath: String = NativeAppShellExecutionPaths.defaultPlanPath(),
         outputPath: String = NativeAppShellExecutionPaths.defaultSupervisorReportPath(),
-        executablePath: String = NativeAppShellExecutionPaths.installedCLIPlaceholder,
+        connectionPreflightReportPath: String = NativeAppShellExecutionPaths.defaultConnectionPreflightReportPath(),
+        executablePath: String,
         macASSH: String,
         macBSSH: String,
         generatedAt: String = ISO8601DateFormatter().string(from: Date())
     ) throws -> NativeAppShellGeneratedArtifactState {
         try validate()
-        let command = [
-            executablePath,
-            "direct-p2p-two-peer-local-run",
-            "--plan", planPath,
-            "--output", outputPath,
-            "--execution-mode", "ssh",
-            "--mac-a-ssh", macASSH,
-            "--mac-b-ssh", macBSSH,
-            "--execute", "true",
-            "--require-preflight", "true"
-        ].joined(separator: " ")
+        var settings = NativeAppShellExecutionSettings()
+        settings.planPath = planPath
+        settings.supervisorReportPath = outputPath
+        settings.connectionPreflightReportPath = connectionPreflightReportPath
+        settings.executionMode = .ssh
+        settings.execute = true
+        settings.requirePreflight = true
+        settings.sshFallbackExplicitlySelected = true
+        settings.sshFallbackReason = "operator copied the SSH supervisor command from the native app"
+        settings.macASSH = macASSH
+        settings.macBSSH = macBSSH
+        let command = NativeAppShellCommandLine.shellLine(
+            try settings.supervisorArguments(executablePath: executablePath)
+        )
         return NativeAppShellGeneratedArtifactState(
             kind: .twoPeerSupervisorCommand,
             generatedAt: generatedAt,

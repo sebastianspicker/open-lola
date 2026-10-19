@@ -349,6 +349,10 @@ public struct UdpMediaMetrics: Codable, Equatable, Sendable {
     public var queueDepthPackets: Int = 0
     public var cpuPercent: Double = 0
     public var memoryResidentBytes: UInt64 = 0
+    /// UDP payload bytes of every datagram counted in `packetsSent`.
+    public var bytesSent: Int = 0
+    /// UDP payload bytes of every datagram counted in `packetsReceived`.
+    public var bytesReceived: Int = 0
     public var packetizationDuration: PerformanceCounterSummary = .empty
     public var depacketizationDuration: PerformanceCounterSummary = .empty
 

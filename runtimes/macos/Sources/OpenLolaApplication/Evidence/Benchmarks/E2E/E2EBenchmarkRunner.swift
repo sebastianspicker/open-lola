@@ -76,7 +76,8 @@ public enum E2EBenchmarkRunner {
         audioBenchmark: LatencyBenchmarkReport,
         integratedAv: IntegratedAvReport,
         videoTransport: VideoTransportReport,
-        performanceAudit: PerformanceAuditReport
+        performanceAudit: PerformanceAuditReport,
+        sessions: E2EBenchmarkSessionInputs = E2EBenchmarkSessionInputs()
     ) throws -> E2EBenchmarkReport {
         let physical = physicalInputs(
             audioBenchmark: audioBenchmark,
@@ -94,14 +95,19 @@ public enum E2EBenchmarkRunner {
                 performanceAudit
             )
         )
-        return E2EBenchmarkReport(
+        return withholdingUnmeasuredPass(E2EBenchmarkReport(
             id: "m13-e2e-integrated-benchmark-run",
             title: "M13 E2E integrated benchmark aggregate run",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             durationSeconds: configuration.durationSeconds,
             runMode: physical ? .measured : .synthetic,
             evidenceKind: physical ? .physicalTwoPeerRig : .synthetic,
-            hardware: hardware(from: audioBenchmark, videoTransport: videoTransport, physical: physical),
+            hardware: hardware(
+                from: audioBenchmark,
+                videoTransport: videoTransport,
+                performanceAudit: performanceAudit,
+                sessions: sessions
+            ),
             componentReports: componentReports(
                 audioBenchmark: audioBenchmark,
                 integratedAv: integratedAv,
@@ -110,16 +116,16 @@ public enum E2EBenchmarkRunner {
             ),
             profiles: profiles(context: E2EBenchmarkProfileBuildContext(
                 audioBenchmark: audioBenchmark, integratedAv: integratedAv,
-                videoTransport: videoTransport, performanceAudit: performanceAudit,
+                videoTransport: videoTransport, performanceAudit: performanceAudit, sessions: sessions,
                 measured: physical, physicalEvidence: physical,
                 verdict: verdict == .fail ? .fail : (physical ? .pass : .partial)
             )),
-            impairments: impairments(measured: physical, verdict: physical ? .pass : .partial),
-            recovery: recoveryMetrics(physical: physical),
+            impairments: impairments(),
+            recovery: recoveryMetrics(),
             thresholds: thresholds(),
             verdict: verdict,
-            notes: notes(for: configuration)
-        )
+            notes: notes(for: configuration, sessions: sessions)
+        ))
     }
 
     private static func componentReports(
@@ -136,14 +142,16 @@ public enum E2EBenchmarkRunner {
         )
     }
 
-    private static func recoveryMetrics(physical: Bool) -> E2EBenchmarkRecoveryMetrics {
+    // No input report records a reconnect or shutdown run, so recovery is reported as not measured.
+    private static func recoveryMetrics() -> E2EBenchmarkRecoveryMetrics {
         E2EBenchmarkRecoveryMetrics(
-            reconnectEvents: physical ? 1 : 0,
-            reconnectP99Microseconds: physical ? 120_000 : 0,
-            cleanShutdownObserved: physical,
+            measured: false,
+            reconnectEvents: 0,
+            reconnectP99Microseconds: nil,
+            cleanShutdownObserved: false,
             leakedRealtimeCallbacksAfterShutdown: 0,
-            recoveryReportId: physical ? "measured-reconnect-evidence" : "m13-reconnect-required",
-            shutdownReportId: physical ? "measured-shutdown-evidence" : "m13-shutdown-required"
+            recoveryReportId: "m13-reconnect-not-measured",
+            shutdownReportId: "m13-shutdown-not-measured"
         )
     }
 
@@ -172,9 +180,12 @@ public enum E2EBenchmarkRunner {
         ]
     }
 
-    private static func notes(for configuration: E2EBenchmarkRunConfiguration) -> String {
+    private static func notes(
+        for configuration: E2EBenchmarkRunConfiguration,
+        sessions: E2EBenchmarkSessionInputs
+    ) -> String {
         "Aggregate M13 report generated from \(configuration.audioBenchmarkPath), " +
             "\(configuration.integratedAvPath), \(configuration.videoTransportPath), " +
-            "and \(configuration.performanceAuditPath)."
+            "and \(configuration.performanceAuditPath)." + sessions.provenanceNote
     }
 }

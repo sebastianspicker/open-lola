@@ -27,25 +27,6 @@ public enum E2EBenchmarkSyntheticSmoke {
             notes: "Synthetic M13 source-contract smoke; physical two-peer benchmark evidence is required for PASS."
         ))
     }
-
-    public static func passCandidate() -> E2EBenchmarkReport {
-        report(E2EBenchmarkSyntheticReportDraft(
-            runMode: .measured,
-            evidenceKind: .physicalTwoPeerRig,
-            measured: true,
-            physicalEvidence: true,
-            verdict: .pass,
-            durationSeconds: E2EBenchmarkReport.minimumPassDurationSeconds,
-            hardware: physicalPassHardware(),
-            componentReports: E2EBenchmarkComponentReports(
-                audioBenchmarkReportId: "measured-audio-direct-pass",
-                integratedAvReportId: "measured-integrated-av-pass",
-                videoTransportReportId: "measured-video-transport-pass",
-                performanceAuditReportId: "measured-performance-audit-pass"
-            ),
-            notes: "Measured pass candidate for M13 validator behavior."
-        ))
-    }
 }
 
 private struct E2EBenchmarkSyntheticReportDraft {
@@ -81,6 +62,7 @@ private func report(_ draft: E2EBenchmarkSyntheticReportDraft) -> E2EBenchmarkRe
         ),
         impairments: impairmentRuns(measured: draft.measured, verdict: draft.verdict),
         recovery: E2EBenchmarkRecoveryMetrics(
+            measured: draft.measured,
             reconnectEvents: 1,
             reconnectP99Microseconds: 120_000,
             cleanShutdownObserved: true,
@@ -287,32 +269,6 @@ private func syntheticPeer(_ role: String) -> E2EBenchmarkPeerIdentity {
         audioDeviceUID: "M13 \(role) Core Audio UID evidence required.",
         videoDevice: "M13 \(role) Blackmagic video path evidence required.",
         networkInterface: "M13 \(role) network interface evidence required."
-    )
-}
-
-private func physicalPassHardware() -> E2EBenchmarkHardwareIdentity {
-    E2EBenchmarkHardwareIdentity(
-        sourcePeer: physicalPeer("source", machine: "Mac16,12"),
-        receiverPeer: physicalPeer("receiver", machine: "Mac15,13"),
-        rmeMadiIdentity: "RME MADIface XT source and receiver pair",
-        blackmagicIdentity: "Blackmagic UltraStudio and ATEM Television Studio pair",
-        routeLabel: "direct-wired-p2p",
-        networkTopology: "two Apple Silicon peers on direct manual-IP Ethernet",
-        packetCapturePoint: "receiver ingress mirrored on en6",
-        clockAlignmentMethod: "PTP-aligned clocks with round-trip sanity check"
-    )
-}
-
-private func physicalPeer(_ role: String, machine: String) -> E2EBenchmarkPeerIdentity {
-    E2EBenchmarkPeerIdentity(
-        peerId: "m13-\(role)-peer-pass",
-        machineModel: machine,
-        chipName: "Apple M4",
-        osVersion: "macOS 15.5",
-        audioInterface: "RME MADIface XT",
-        audioDeviceUID: "rme-\(role)-madi-uid",
-        videoDevice: "Blackmagic UltraStudio 4K Mini",
-        networkInterface: "en6"
     )
 }
 

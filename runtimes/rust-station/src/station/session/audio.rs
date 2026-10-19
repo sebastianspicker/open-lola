@@ -7,7 +7,7 @@ use crate::net::MediaKind;
 use crate::protocol::{
     parse_audio_datagram, AudioDatagramWriter, FrameReassembler, AUDIO_UDP_PAYLOAD_SIZE,
 };
-use crate::station::av_productivity::{apply_tx_audio_level, incomplete_frame_ok};
+use crate::station::av_productivity::apply_tx_audio_level;
 use crate::station::monitor::NetworkMonitor;
 use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::SessionError;
@@ -90,8 +90,8 @@ pub(super) fn send_recv_audio_frame(
     }
     // The audio transport contract is one strict 1066-byte datagram per
     // quantum. Do not wait for fragments here: blocking would steal the next
-    // backend-clock audio deadline.
-    let _ = incomplete_frame_ok(1, 1, options.incomplete_frame_threshold_pct);
+    // backend-clock audio deadline. Audio is never partial, so the video-only
+    // `incomplete_frame_threshold_pct` does not apply to it.
     if receive {
         receive_audio_datagram_step(
             audio,

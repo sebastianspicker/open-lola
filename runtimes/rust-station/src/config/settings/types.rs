@@ -43,6 +43,8 @@ impl<'de> Deserialize<'de> for AudioBackend {
 pub enum VideoBackend {
     Ximea,
     V4l2,
+    #[serde(rename = "mediafoundation")]
+    MediaFoundation,
     Diagnostic,
 }
 
@@ -51,6 +53,7 @@ impl VideoBackend {
         match self {
             Self::Ximea => "ximea",
             Self::V4l2 => "v4l2",
+            Self::MediaFoundation => "mediafoundation",
             Self::Diagnostic => "diagnostic",
         }
     }
@@ -63,6 +66,7 @@ impl<'de> Deserialize<'de> for VideoBackend {
             "native" | "auto" => Ok(Self::default()),
             "ximea" | "xiapi" => Ok(Self::Ximea),
             "v4l2" => Ok(Self::V4l2),
+            "mediafoundation" | "media_foundation" | "mf" => Ok(Self::MediaFoundation),
             "software" | "diagnostic" => Ok(Self::Diagnostic),
             other => Err(serde::de::Error::custom(format!(
                 "unknown video backend `{other}`"
@@ -120,6 +124,7 @@ impl<'de> Deserialize<'de> for ControlDialect {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AudioSettings {
     /// Legacy single-device setting. It is accepted on load but not persisted.
     #[serde(default)]
@@ -182,6 +187,7 @@ impl Default for AudioSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VideoSettings {
     /// Native Linux V4L2 device node. Empty selects /dev/video{local_camera_index}.
     #[serde(default)]
@@ -278,6 +284,7 @@ impl Default for VideoSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkSettings {
     #[serde(default = "default_ctrl")]
     pub control_port: u16,
@@ -313,6 +320,10 @@ pub struct NetworkSettings {
     pub precheck_reachable: bool,
     #[serde(default = "default_reach_ms")]
     pub reachability_timeout_ms: u32,
+    /// Seconds without any datagram from the peer after which a persistent session
+    /// that expects incoming media ends with a peer-silent failure. 0 disables it.
+    #[serde(default = "default_peer_silence_secs")]
+    pub peer_silence_timeout_secs: f64,
     /// Legacy combined queue settings, accepted only for schema migration.
     #[serde(default, skip_serializing)]
     pub receive_queue_depth: u32,
@@ -365,6 +376,9 @@ fn default_bind() -> String {
 fn default_local() -> String {
     "127.0.0.1".into()
 }
+fn default_peer_silence_secs() -> f64 {
+    5.0
+}
 fn default_sid() -> i64 {
     1
 }
@@ -388,6 +402,7 @@ impl Default for NetworkSettings {
             control_dialect: ControlDialect::Ascii,
             precheck_reachable: false,
             reachability_timeout_ms: default_reach_ms(),
+            peer_silence_timeout_secs: default_peer_silence_secs(),
             receive_queue_depth: 0,
             receive_prefill: 0,
             audio_receive_queue_depth: default_audio_receive_queue_depth(),
@@ -400,6 +415,7 @@ impl Default for NetworkSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RecordingSettings {
     #[serde(default)]
     pub enabled: bool,

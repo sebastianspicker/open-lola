@@ -9,8 +9,11 @@ import Foundation
 func receiveLoLaLiveSocketMedia(
     configuration: ExternalConnectorSessionConfiguration,
     receiver providedReceiver: LoLaSocketUdpMediaReceiver? = nil,
-    cancellation: LoLaSessionCancellation? = nil
+    cancellation: LoLaSessionCancellation? = nil,
+    videoSink: (any RawBGRAPreviewSink)? = nil
 ) throws -> LoLaCompatibilityMediaSessionReport {
+    let videoDisplay = LoLaVideoDisplayPipeline.makeIfRequested(configuration: configuration, sink: videoSink)
+    defer { videoDisplay?.close() }
     // The receive window is the session duration, not the receiver's one
     // second default; a live RX session used to stop after one second.
     let receiver = providedReceiver
@@ -27,7 +30,8 @@ func receiveLoLaLiveSocketMedia(
     let datagrams = try receiver.receive(
         request: .init(
             configuration: receiveConfiguration,
-            runUntilDeadline: bridge != nil
+            // A live consumer (playout or preview) needs the whole session, not the evidence quota.
+            runUntilDeadline: bridge != nil || videoDisplay != nil
         ),
         afterBind: { _ in },
         // Every clustered block is admitted; the playout ring bounds the
@@ -36,9 +40,13 @@ func receiveLoLaLiveSocketMedia(
         coalesceReadableAudioToNewest: false,
         audioFreshnessCounters: counters,
         cancellation: cancellation,
-        onDatagram: { try enqueueLoLaLiveAudioIfNeeded($0, audioBridge: bridge) }
+        onDatagram: {
+            videoDisplay?.consume($0)
+            try enqueueLoLaLiveAudioIfNeeded($0, audioBridge: bridge)
+        }
     )
     var report = try LoLaUdpMediaReceiveRunner.report(configuration: receiveConfiguration, datagrams: datagrams)
+    report.videoDisplay = videoDisplay?.finish()
     report.notes += " " + loLaAudioReceiveFreshnessNote(counters.snapshot) + loLaLiveAudioSnapshotNote(bridge?.snapshot)
     if let reason = cancellation?.reason {
         report.notes += " Receive ended before the session deadline: \(reason)."

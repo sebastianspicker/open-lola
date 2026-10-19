@@ -109,17 +109,17 @@ public struct IntegratedProfileSubordinateEvidence: Codable, Equatable, Sendable
 public struct IntegratedProfileBenchmarkMetrics: Codable, Equatable, Sendable {
     public struct Audio: Sendable {
         public let latencyP99Microseconds: Double
-        public let jitterP99Microseconds: Double
-        public let lostPackets: Int
-        public let latePackets: Int
-        public let underruns: Int
+        public let jitterP99Microseconds: Double?
+        public let lostPackets: Int?
+        public let latePackets: Int?
+        public let underruns: Int?
 
         public init(
             latencyP99Microseconds: Double,
-            jitterP99Microseconds: Double,
-            lostPackets: Int,
-            latePackets: Int,
-            underruns: Int
+            jitterP99Microseconds: Double?,
+            lostPackets: Int?,
+            latePackets: Int?,
+            underruns: Int?
         ) {
             self.latencyP99Microseconds = latencyP99Microseconds
             self.jitterP99Microseconds = jitterP99Microseconds
@@ -131,23 +131,23 @@ public struct IntegratedProfileBenchmarkMetrics: Codable, Equatable, Sendable {
 
     public struct VideoControl: Sendable {
         public let droppedVideoFrames: Int
-        public let cueTimingP99Microseconds: Double
+        public let cueTimingP99Microseconds: Double?
 
-        public init(droppedVideoFrames: Int, cueTimingP99Microseconds: Double) {
+        public init(droppedVideoFrames: Int, cueTimingP99Microseconds: Double?) {
             self.droppedVideoFrames = droppedVideoFrames
             self.cueTimingP99Microseconds = cueTimingP99Microseconds
         }
     }
 
     public struct Resources: Sendable {
-        public let cpuP99Percent: Double
-        public let residentMemoryMegabytes: Double
+        public let cpuP99Percent: Double?
+        public let residentMemoryMegabytes: Double?
         public let measurementDurationSeconds: Double?
         public let durationMismatch: Bool
 
         public init(
-            cpuP99Percent: Double,
-            residentMemoryMegabytes: Double,
+            cpuP99Percent: Double?,
+            residentMemoryMegabytes: Double?,
             measurementDurationSeconds: Double? = nil,
             durationMismatch: Bool = false
         ) {
@@ -159,31 +159,32 @@ public struct IntegratedProfileBenchmarkMetrics: Codable, Equatable, Sendable {
     }
 
     public struct Warnings: Sendable {
-        public let callbackDeadlines: Int
-        public let allocations: Int
-        public let threadScheduling: Int
+        public let callbackDeadlines: Int?
+        public let allocations: Int?
+        public let threadScheduling: Int?
 
-        public init(callbackDeadlines: Int, allocations: Int, threadScheduling: Int) {
+        public init(callbackDeadlines: Int?, allocations: Int?, threadScheduling: Int?) {
             self.callbackDeadlines = callbackDeadlines
             self.allocations = allocations
             self.threadScheduling = threadScheduling
         }
     }
 
+    // Optional metrics are nil when no subordinate report measured them, never a placeholder zero.
     public var audioLatencyP99Microseconds: Double
-    public var audioJitterP99Microseconds: Double
-    public var lostPackets: Int
-    public var latePackets: Int
-    public var underruns: Int
+    public var audioJitterP99Microseconds: Double?
+    public var lostPackets: Int?
+    public var latePackets: Int?
+    public var underruns: Int?
     public var droppedVideoFrames: Int
-    public var cueTimingP99Microseconds: Double
-    public var cpuP99Percent: Double
-    public var residentMemoryMegabytes: Double
+    public var cueTimingP99Microseconds: Double?
+    public var cpuP99Percent: Double?
+    public var residentMemoryMegabytes: Double?
     public var measurementDurationSeconds: Double?
     public var durationMismatch: Bool
-    public var callbackDeadlineWarnings: Int
-    public var allocationWarnings: Int
-    public var threadSchedulingWarnings: Int
+    public var callbackDeadlineWarnings: Int?
+    public var allocationWarnings: Int?
+    public var threadSchedulingWarnings: Int?
 
     public init(
         audio: Audio,
@@ -227,22 +228,28 @@ public struct IntegratedProfileBenchmarkMetrics: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.audioLatencyP99Microseconds = try container.decode(Double.self, forKey: .audioLatencyP99Microseconds)
-        self.audioJitterP99Microseconds = try container.decode(Double.self, forKey: .audioJitterP99Microseconds)
-        self.lostPackets = try container.decode(Int.self, forKey: .lostPackets)
-        self.latePackets = try container.decode(Int.self, forKey: .latePackets)
-        self.underruns = try container.decode(Int.self, forKey: .underruns)
+        self.audioJitterP99Microseconds = try container.decodeIfPresent(
+            Double.self,
+            forKey: .audioJitterP99Microseconds
+        )
+        self.lostPackets = try container.decodeIfPresent(Int.self, forKey: .lostPackets)
+        self.latePackets = try container.decodeIfPresent(Int.self, forKey: .latePackets)
+        self.underruns = try container.decodeIfPresent(Int.self, forKey: .underruns)
         self.droppedVideoFrames = try container.decode(Int.self, forKey: .droppedVideoFrames)
-        self.cueTimingP99Microseconds = try container.decode(Double.self, forKey: .cueTimingP99Microseconds)
-        self.cpuP99Percent = try container.decode(Double.self, forKey: .cpuP99Percent)
-        self.residentMemoryMegabytes = try container.decode(Double.self, forKey: .residentMemoryMegabytes)
+        self.cueTimingP99Microseconds = try container.decodeIfPresent(
+            Double.self,
+            forKey: .cueTimingP99Microseconds
+        )
+        self.cpuP99Percent = try container.decodeIfPresent(Double.self, forKey: .cpuP99Percent)
+        self.residentMemoryMegabytes = try container.decodeIfPresent(Double.self, forKey: .residentMemoryMegabytes)
         self.measurementDurationSeconds = try container.decodeIfPresent(
             Double.self,
             forKey: .measurementDurationSeconds
         )
         self.durationMismatch = try container.decodeIfPresent(Bool.self, forKey: .durationMismatch) ?? false
-        self.callbackDeadlineWarnings = try container.decode(Int.self, forKey: .callbackDeadlineWarnings)
-        self.allocationWarnings = try container.decode(Int.self, forKey: .allocationWarnings)
-        self.threadSchedulingWarnings = try container.decode(Int.self, forKey: .threadSchedulingWarnings)
+        self.callbackDeadlineWarnings = try container.decodeIfPresent(Int.self, forKey: .callbackDeadlineWarnings)
+        self.allocationWarnings = try container.decodeIfPresent(Int.self, forKey: .allocationWarnings)
+        self.threadSchedulingWarnings = try container.decodeIfPresent(Int.self, forKey: .threadSchedulingWarnings)
     }
 }
 
@@ -311,6 +318,7 @@ case lightingDegradationMustPrecedeAudioLatency
     case passWithoutMeasuredBenchmarkScenario(IntegratedProfileBenchmarkScenario)
     case passWithoutPhysicalBenchmarkScenario(IntegratedProfileBenchmarkScenario)
     case benchmarkDurationMismatch(IntegratedProfileBenchmarkScenario)
+    case passRequiresMeasuredField(String)
     case passWithPlaceholderEvidenceField(String)
     case passUnderreportsProfileLatencyCost(
         profile: IntegratedProfileLabel,

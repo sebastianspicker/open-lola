@@ -9,7 +9,10 @@ use std::net::Ipv4Addr;
 use std::path::Path;
 use thiserror::Error;
 
+// Unknown keys are rejected (a typo must not silently fall back to a default). Every
+// key the GUI writes is a field of these structs, so saved files keep loading.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SettingsWire {
     #[serde(default)]
     schema_version: u32,
@@ -244,6 +247,13 @@ fn validate_network_addresses(network: &NetworkSettings) -> Result<(), SettingsE
 }
 
 fn validate_network_options(network: &NetworkSettings) -> Result<(), SettingsError> {
+    if !network.peer_silence_timeout_secs.is_finite()
+        || !(0.0..=3_600.0).contains(&network.peer_silence_timeout_secs)
+    {
+        return Err(SettingsError::Validation(
+            "network peer_silence_timeout_secs must be 0..=3600 (0 disables)".into(),
+        ));
+    }
     if network
         .vlan_tag
         .is_some_and(|tag| !(1..=4_094).contains(&tag))
@@ -386,6 +396,7 @@ impl fmt::Display for VideoBackend {
         f.write_str(match self {
             Self::Ximea => "ximea",
             Self::V4l2 => "v4l2",
+            Self::MediaFoundation => "mediafoundation",
             Self::Diagnostic => "diagnostic",
         })
     }

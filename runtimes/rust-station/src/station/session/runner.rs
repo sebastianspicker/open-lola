@@ -15,8 +15,19 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Run a station session (loopback / remote / listen).
+/// Run a station session (loopback / remote / listen). A failed result always
+/// carries a non-empty `error`.
 pub fn run_session(
+    settings: StationSettings,
+    timeout: f64,
+    options: SessionOptions,
+) -> SessionResult {
+    let mut result = run_session_body(settings, timeout, options);
+    result.ensure_failure_message();
+    result
+}
+
+fn run_session_body(
     mut settings: StationSettings,
     timeout: f64,
     options: SessionOptions,
@@ -164,7 +175,7 @@ fn run_listening_session(
     result
 }
 
-fn merge_listener_result(result: &mut SessionResult, peer_result: SessionResult) {
+pub(super) fn merge_listener_result(result: &mut SessionResult, peer_result: SessionResult) {
     let states = std::mem::take(&mut result.states);
     let camera_mode_id = std::mem::take(&mut result.camera_mode_id);
     let peer_mode = result.peer_mode.clone();
@@ -180,20 +191,24 @@ fn merge_listener_result(result: &mut SessionResult, peer_result: SessionResult)
     }
 }
 
-fn finish_listener_outcome(
+pub(super) fn finish_listener_outcome(
     result: &mut SessionResult,
     options: &SessionOptions,
     outcome: Result<(), crate::station::SessionError>,
 ) {
     match outcome {
         Ok(()) if result.rejected => finish_rejection(result, options),
+        // The peer ended the session itself: a normal end, not a failure.
+        Ok(()) if result.peer_disconnected() && !media_stream_complete(result, options) => {
+            finish_listener_disconnect(result, options, None)
+        }
         Ok(()) => {
             result.ok = media_stream_complete(result, options);
             result.states.push("STREAMING".into());
             result.states.push("IDLE".into());
         }
         Err(error @ crate::station::SessionError::PeerDisconnect(_)) => {
-            finish_listener_disconnect(result, options, error)
+            finish_listener_disconnect(result, options, Some(error))
         }
         Err(error) => {
             if result.error.is_empty() {
@@ -339,19 +354,33 @@ fn finish_initiator_result(result: &mut SessionResult, options: &SessionOptions)
     }
 }
 
+/// End a listener session on a disconnect. `error` is the disconnect failure, absent when
+/// the listener returned normally after the peer's DISCONNECT. Both shapes agree: a
+/// complete stream, or a peer DISCONNECT after some media, is a normal end; a DISCONNECT
+/// before any media is a failure with a non-empty error.
 fn finish_listener_disconnect(
     result: &mut SessionResult,
     options: &SessionOptions,
-    error: crate::station::SessionError,
+    error: Option<crate::station::SessionError>,
 ) {
     result.states.push("STOPPED".into());
     result.states.push("IDLE".into());
-    if media_stream_complete(result, options) {
+    let peer_ended = result.peer_disconnected();
+    if media_stream_complete(result, options) || (peer_ended && result.media_flowed()) {
         result.ok = true;
         return;
     }
-    result.error = error.to_string();
-    result.failure = Some(error);
+    if peer_ended {
+        result.error = "peer disconnected before any media".into();
+        result.failure = Some(crate::station::SessionError::PeerDisconnect(
+            "before any media".into(),
+        ));
+        return;
+    }
+    if let Some(error) = error {
+        result.error = error.to_string();
+        result.failure = Some(error);
+    }
 }
 
 fn finish_rejection(result: &mut SessionResult, options: &SessionOptions) {

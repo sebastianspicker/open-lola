@@ -29,3 +29,28 @@ pub enum SessionError {
     #[error("session runtime is not active")]
     NotActive,
 }
+
+impl SessionError {
+    /// A failed `set_timeout` leaves the socket blocking or with a stale deadline, so it
+    /// is a transport fault rather than something to ignore.
+    pub(crate) fn from_socket_timeout(result: std::io::Result<()>) -> Result<(), Self> {
+        result.map_err(|error| Self::Transport(format!("setting socket timeout failed: {error}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn socket_timeout_failures_become_transport_errors() {
+        assert_eq!(SessionError::from_socket_timeout(Ok(())), Ok(()));
+        let failure = std::io::Error::other("invalid argument");
+        assert_eq!(
+            SessionError::from_socket_timeout(Err(failure)),
+            Err(SessionError::Transport(
+                "setting socket timeout failed: invalid argument".into()
+            ))
+        );
+    }
+}

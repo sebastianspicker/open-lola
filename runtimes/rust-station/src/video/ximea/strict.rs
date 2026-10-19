@@ -218,3 +218,7 @@ impl StrictXimeaCamera {
 pub fn open_ximea_strict(config: XimeaConfig) -> XimeaResult<StrictXimeaCamera> {
     StrictXimeaCamera::open(config)
 }
+
+#[cfg(test)]
+#[path = "strict_tests.rs"]
+mod tests;

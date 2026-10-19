@@ -115,6 +115,8 @@ public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, Pre
     public var timeoutSeconds: Int?
     public var expectedDatagramCount: Int?
     public var sentBytesTotal: Int?
+    /// RX video reassembly, decode and display counts; nil unless `--video-display appkit` was on.
+    public var videoDisplay: LoLaVideoDisplayReport?
     public var evidenceBoundary: String
     public var notes: String
 

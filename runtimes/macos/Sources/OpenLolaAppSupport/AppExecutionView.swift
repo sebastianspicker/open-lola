@@ -56,7 +56,7 @@ struct AppExecutionView: View {
                             )
                             AppReadableMetric(label: "Peer", value: plan.externalConnectorFields.peerHost)
                         }
-                        LabeledContent("Require preflight", value: yesNo(executionController.settings.requirePreflight))
+                        LabeledContent("Require preflight", value: yesNo(executionController.settings.effectiveRequirePreflight))
                         LabeledContent("Running", value: yesNo(executionController.isRunning))
                         LabeledContent(
                             "Last exit",
@@ -180,28 +180,15 @@ enum AppCommandPreview {
     }
 
     static func shellLine(_ command: [String]) -> String {
-        command.map(shellEscapedArgument).joined(separator: " ")
+        NativeAppShellCommandLine.shellLine(command)
     }
 
     static func multilineDisplay(_ command: [String]) -> String {
         guard let first = command.first else {
             return ""
         }
-        let arguments = command.dropFirst().map { "  \(shellEscapedArgument($0))" }
-        return ([shellEscapedArgument(first)] + arguments).joined(separator: " \\\n")
-    }
-
-    static func shellEscapedArgument(_ argument: String) -> String {
-        guard !argument.isEmpty else {
-            return "''"
-        }
-        let safeScalars = CharacterSet(
-            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_@%+=:,./-"
-        )
-        if argument.unicodeScalars.allSatisfy({ safeScalars.contains($0) }) {
-            return argument
-        }
-        return "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let arguments = command.dropFirst().map { "  \(NativeAppShellCommandLine.escapedArgument($0))" }
+        return ([NativeAppShellCommandLine.escapedArgument(first)] + arguments).joined(separator: " \\\n")
     }
 }
 

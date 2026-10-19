@@ -66,20 +66,24 @@ private final class ManagedProcessLogCapture: @unchecked Sendable {
 /// Captures structured result required to validate, interpret, and reproduce a managed-process runtime result.
 public final class ManagedProcess: @unchecked Sendable {
     private let process: Process
+    private let standardInput: Pipe?
     private let standardOutputCapture: ManagedProcessLogCapture?
     private let standardErrorCapture: ManagedProcessLogCapture?
     private let killProcess: @Sendable (pid_t) -> Int32
     private let cleanupLock = NSLock()
+    private var standardInputClosed = false
     private var standardOutputCloseAttempted = false
     private var standardErrorCloseAttempted = false
 
     fileprivate init(
         process: Process,
+        standardInput: Pipe? = nil,
         standardOutputCapture: ManagedProcessLogCapture?,
         standardErrorCapture: ManagedProcessLogCapture?,
         killProcess: @escaping @Sendable (pid_t) -> Int32 = { kill($0, SIGKILL) }
     ) {
         self.process = process
+        self.standardInput = standardInput
         self.standardOutputCapture = standardOutputCapture
         self.standardErrorCapture = standardErrorCapture
         self.killProcess = killProcess
@@ -101,6 +105,16 @@ public final class ManagedProcess: @unchecked Sendable {
         process.terminate()
     }
 
+    /// Sends SIGTERM now and SIGKILL after `gracePeriod` if the process is still running, without blocking the caller.
+    public func terminate(gracePeriod: TimeInterval) {
+        process.terminate()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + gracePeriod) { [self] in
+            if process.isRunning {
+                killImmediately()
+            }
+        }
+    }
+
     @discardableResult
     public func killImmediately() -> ManagedProcessCleanupWarning? {
         let result = killProcess(process.processIdentifier)
@@ -119,8 +133,25 @@ public final class ManagedProcess: @unchecked Sendable {
         return closeOutputHandles()
     }
 
+    /// True while a pipe started with `holdsStandardInputOpen` has not been closed yet.
+    public var holdsOpenStandardInput: Bool {
+        cleanupLock.lock()
+        defer { cleanupLock.unlock() }
+        return standardInput != nil && !standardInputClosed
+    }
+
+    /// Closes the held standard-input pipe started with `holdsStandardInputOpen`, so the child reads EOF.
+    public func closeStandardInput() {
+        cleanupLock.lock()
+        let pending = standardInputClosed ? nil : standardInput
+        standardInputClosed = true
+        cleanupLock.unlock()
+        try? pending?.fileHandleForWriting.close()
+    }
+
     @discardableResult
     public func closeOutputHandles() -> [ManagedProcessCleanupWarning] {
+        closeStandardInput()
         var warnings: [ManagedProcessCleanupWarning] = []
         let captures = outputCapturesPendingClose()
         if let stdout = captures.stdout {
@@ -217,12 +248,18 @@ public enum ManagedProcessRunner {
         arguments: [String],
         standardOutputPath: String? = nil,
         standardErrorPath: String? = nil,
+        holdsStandardInputOpen: Bool = false,
         onPrepared: ((ManagedProcess) -> Void)? = nil,
         terminationHandler: (@Sendable (ManagedProcess) -> Void)? = nil
     ) throws -> ManagedProcess {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        // A held pipe gives the child EOF exactly when this process closes it, exits or is killed.
+        let standardInput = holdsStandardInputOpen ? Pipe() : nil
+        if let standardInput {
+            process.standardInput = standardInput
+        }
 
         let standardOutputCapture = try standardOutputPath.map {
             ManagedProcessLogCapture(logHandle: try openLogHandle(atPath: $0))
@@ -241,6 +278,7 @@ public enum ManagedProcessRunner {
 
         let managed = ManagedProcess(
             process: process,
+            standardInput: standardInput,
             standardOutputCapture: standardOutputCapture,
             standardErrorCapture: standardErrorCapture
         )
@@ -317,16 +355,23 @@ public enum ManagedProcessRunner {
         return (false, [])
     }
 
+    /// How long a child whose held standard input was closed gets to exit by itself before SIGTERM.
+    public static let defaultStandardInputCloseGraceSeconds: TimeInterval = 5
+
+    /// Stops `processes`: children holding a standard-input pipe (SSH clients) first see EOF and get
+    /// `standardInputCloseGraceSeconds` to exit with their own status, then everything still running gets SIGTERM,
+    /// and SIGKILL after `graceSeconds`. Children without a held pipe go straight to SIGTERM.
     @discardableResult
     public static func terminate(
         _ processes: [ManagedProcess],
-        graceSeconds: TimeInterval
+        graceSeconds: TimeInterval,
+        standardInputCloseGraceSeconds: TimeInterval = defaultStandardInputCloseGraceSeconds
     ) -> ManagedProcessTerminationResult {
+        var cleanupWarnings = closeStandardInputAndWait(processes, graceSeconds: standardInputCloseGraceSeconds)
         for process in processes where process.isRunning {
             process.terminate()
         }
         let graceDeadline = deadline(afterSeconds: graceSeconds)
-        var cleanupWarnings: [ManagedProcessCleanupWarning] = []
         let terminateWait = waitUntilExitAndClose(processes, deadline: graceDeadline)
         cleanupWarnings.append(contentsOf: terminateWait.cleanupWarnings)
         if terminateWait.exited {
@@ -355,6 +400,20 @@ public enum ManagedProcessRunner {
             exitedAfterKill: killWait.exited,
             cleanupWarnings: cleanupWarnings
         )
+    }
+
+    private static func closeStandardInputAndWait(
+        _ processes: [ManagedProcess],
+        graceSeconds: TimeInterval
+    ) -> [ManagedProcessCleanupWarning] {
+        let held = processes.filter { $0.isRunning && $0.holdsOpenStandardInput }
+        guard !held.isEmpty else {
+            return []
+        }
+        for process in held {
+            process.closeStandardInput()
+        }
+        return waitUntilExitAndClose(held, deadline: deadline(afterSeconds: graceSeconds)).cleanupWarnings
     }
 
     private static func deadline(afterSeconds seconds: TimeInterval) -> DispatchTime {

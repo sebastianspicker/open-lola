@@ -18,8 +18,11 @@ public enum ExternalConnectorSessionError: Error, Equatable, Sendable {
     case invalidConnectionSide(String)
     case invalidMediaMode(String)
     case invalidControlTransport(String)
+    case invalidLoLaControlSide(String)
     case invalidBoolean(String)
     case invalidPositiveInteger(String, String)
+    /// A video width, height or pixel count above the parse-time limit, with a sentence naming the limit.
+    case invalidVideoGeometry(String)
     case invalidPort(String, String)
     case emptyField(String)
     case emptyList(String)
@@ -32,11 +35,14 @@ public enum ExternalConnectorSessionError: Error, Equatable, Sendable {
     case externalConnectorRequiresExecutable(ExternalConnectorKind)
     case invalidLoLaSessionID(String)
     case dryRunCannotPass
+    case invalidOutcome(String)
     case runtimePassMissingEvidence(String)
     case runtimePassWithRuntimeError(String)
     case processLaunchFailed(String)
     case invalidProcessArgument(String, String)
     case socketFailed(String)
+    /// The TCP peer reset or closed the connection while this side was writing or reading.
+    case peerDisconnected(String)
     case receiveTimedOut
     case malformedLoLaControlMessage(String)
     case peerRejected(reason: String)
@@ -56,6 +62,7 @@ public struct ExternalConnectorSessionConfigInput: Equatable, Sendable {
     public var dryRun: Bool = true
     public var mediaMode: ExternalConnectorMediaMode?
     public var controlTransport: ExternalConnectorControlTransport?
+    public var lolaControlSide: LoLaControlSide?
     public var durationSeconds: Int = 1
     public var controlPort: UInt16?
     public var audioPort: UInt16?
@@ -121,6 +128,8 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
     public var dryRun: Bool
     public var mediaMode: ExternalConnectorMediaMode
     public var controlTransport: ExternalConnectorControlTransport
+    /// Explicit LoLa control side; nil keeps the role default (see `effectiveLoLaControlSide`).
+    public var lolaControlSide: LoLaControlSide?
     public var durationSeconds: Int
     public var controlPort: UInt16
     public var audioPort: UInt16
@@ -170,6 +179,7 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
     self.dryRun = input.dryRun
     self.mediaMode = input.mediaMode ?? defaultMediaMode(for: input.connector)
     self.controlTransport = input.controlTransport ?? defaultControlTransport(for: input.connector)
+    self.lolaControlSide = input.lolaControlSide
     self.durationSeconds = input.durationSeconds
     self.controlPort = input.controlPort ?? defaultControlPort(for: input.connector)
     self.audioPort = input.audioPort ?? defaultAudioPort(for: input.connector)
@@ -216,6 +226,11 @@ public extension ExternalConnectorSessionConfiguration {
         durationBoundedRuntime == true
             && !dryRun
             && (connector == .jackTrip || connector == .mvtpUltraGrid)
+    }
+
+    /// The LoLa control side this session uses: the explicit choice, else the role default.
+    var effectiveLoLaControlSide: LoLaControlSide {
+        lolaControlSide ?? .defaultSide(for: role)
     }
 }
 

@@ -39,6 +39,7 @@ public enum IntegratedAvValidationError: Error, Equatable, Sendable {
     case passWithAudioLossOrLatePackets
     case passWithUnderruns(Int)
     case passWithHiddenPlayoutGrowth
+    case passRequiresMeasuredField(String)
     case passWithoutRunWindow
     case passWithInsufficientAudioVideoOverlap(seconds: Double, minimumSeconds: Double)
     case passWithAudioBaselineReportMismatch(expected: String, actual: String)

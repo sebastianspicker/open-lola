@@ -3,7 +3,6 @@ import OpenLolaCore
 import SwiftUI
 
 struct AppSessionSectionView: View {
-    let report: NativeAppShellReport
     var phase: AppSessionPhase? = nil
     let previewState: AppPreviewReceiverState
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
@@ -29,8 +28,6 @@ struct AppSessionSectionView: View {
     private var packetEvidenceAvailable: Bool {
         AppConnectionTopologyAnimationPolicy.hasPacketEvidence(captureReport)
     }
-
-    private var evidenceSourceState: String { report.verdict.rawValue.capitalized }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.l) {
@@ -216,17 +213,6 @@ struct AppSessionSectionView: View {
         return operatorSurface.directPeerCommandFields.channelCount
     }
 
-    private var profileCaption: String {
-        let profile = report.configuration.profileName
-        let rx = operatorPlan.rxBufferProfile.rawValue
-        return rx.isEmpty ? profile : "\(profile) · RX \(rx)"
-    }
-
-    private var localDeviceLabel: String? {
-        let selection = report.configuration.audioDeviceSelection.trimmingCharacters(in: .whitespacesAndNewlines)
-        return selection.isEmpty ? nil : selection
-    }
-
     private var topologyDetails: some View {
         AppConnectionTopologyView(
             localPeer: operatorPlan.topologyLocalPeer,
@@ -238,10 +224,10 @@ struct AppSessionSectionView: View {
             sessionState: sessionState,
             executionPhase: executionController.phase,
             packetEvidenceAvailable: packetEvidenceAvailable,
-            localDeviceLabel: localDeviceLabel,
+            localDeviceLabel: AppSessionRunLabels.localDeviceLabel(inventory: operatorSurface.inventory),
             remoteDeviceLabel: nil,
-            profileCaption: profileCaption,
-            videoEnabled: report.configuration.videoEnabled
+            profileCaption: AppSessionRunLabels.profileCaption(plan: operatorPlan),
+            videoEnabled: AppSessionRunLabels.videoEnabled(plan: operatorPlan)
         )
 
     }
@@ -256,8 +242,8 @@ struct AppSessionSectionView: View {
                 lastValidationExitCode: executionController.lastValidationExitCode,
                 isRunning: executionController.isRunning,
                 packetEvidenceAvailable: packetEvidenceAvailable,
-                sourceState: evidenceSourceState,
-                plannedRouteNote: "\(operatorPlan.sessionMode.displayName) · \(report.configuration.profileName)"
+                sourceState: AppSessionRunLabels.sourceState(inventory: operatorSurface.inventory),
+                plannedRouteNote: AppSessionRunLabels.plannedRouteNote(plan: operatorPlan)
             )
         )
 

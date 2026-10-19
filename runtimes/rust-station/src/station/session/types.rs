@@ -306,8 +306,13 @@ fn publish_preview(
     } else {
         (pixels.len() >= pixel_count).then(|| {
             let mut rgb = vec![0u8; pixel_count * 3];
-            for (index, value) in pixels[..pixel_count].iter().enumerate() {
-                rgb[index * 3..index * 3 + 3].fill(*value);
+            for (triple, value) in rgb
+                .as_chunks_mut::<3>()
+                .0
+                .iter_mut()
+                .zip(&pixels[..pixel_count])
+            {
+                triple.fill(*value);
             }
             rgb
         })
@@ -489,7 +494,17 @@ pub struct SessionResult {
 }
 
 impl SessionResult {
-    pub(super) fn peer_disconnected(&self) -> bool {
+    /// Whether any audio or video frame was sent or received.
+    pub fn media_flowed(&self) -> bool {
+        self.audio_frames_sent
+            + self.audio_frames_received
+            + self.video_frames_sent
+            + self.video_frames_received
+            > 0
+    }
+
+    /// Whether the peer ended the session with `/MESG_DISCONNECT`.
+    pub fn peer_disconnected(&self) -> bool {
         self.messages_received
             .iter()
             .any(|message| message == "/MESG_DISCONNECT")

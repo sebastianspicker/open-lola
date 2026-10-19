@@ -103,11 +103,11 @@ func makeLoLaControlTerminalSession(
     let sourceIP = exchange.fields["DSTIP"] ?? configuration.localHost
     let destinationIP: String
     let sessionID: String
-    switch configuration.role {
-    case .tx, .txRx:
+    switch configuration.effectiveLoLaControlSide {
+    case .initiator:
         destinationIP = configuration.peer
         sessionID = configuration.sessionID
-    case .rx:
+    case .responder:
         destinationIP = exchange.fields["SRCIP"] ?? configuration.peer
         // The responder ACK echoed the initiator's SID; the peer pins that one.
         sessionID = exchange.fields["SID"] ?? configuration.sessionID

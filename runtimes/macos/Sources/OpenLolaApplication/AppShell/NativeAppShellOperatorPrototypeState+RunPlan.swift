@@ -42,19 +42,24 @@ public extension NativeAppShellOperatorPrototypeState {
         }
     }
 
-    func localDirectPeerCommandHandoff() throws -> NativeAppShellLocalCommandHandoff {
+    /// Builds the connection preflight command; callers pass the plan and report paths the supervisor will read.
+    func localDirectPeerCommandHandoff(
+        executablePath: String? = nil,
+        planPath: String = NativeAppShellExecutionPaths.defaultPlanPath(),
+        preflightReportPath: String = NativeAppShellExecutionPaths.defaultConnectionPreflightReportPath()
+    ) throws -> NativeAppShellLocalCommandHandoff {
         try validate()
         guard sessionMode == .directMacPeer else {
             throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
         }
         let fields = directPeerCommandFields
         let arguments = [
-            fields.executablePath, "mac-to-mac-connection-preflight-run",
+            executablePath ?? fields.executablePath, "mac-to-mac-connection-preflight-run",
             "--local-peer-id", fields.localPeer,
             "--remote-peer-id", fields.remotePeer,
             "--peer", fields.remoteHost,
-            "--plan", NativeAppShellExecutionPaths.defaultPlanPath(),
-            "--output", NativeAppShellExecutionPaths.defaultConnectionPreflightReportPath()
+            "--plan", planPath,
+            "--output", preflightReportPath
         ]
         let handoff = NativeAppShellLocalCommandHandoff(
             intent: commandIntent,
@@ -67,8 +72,8 @@ public extension NativeAppShellOperatorPrototypeState {
     }
 
     func twoPeerRunPlanConfiguration(
-        outputPath: String = "/tmp/open-lola-mac-to-mac/plan.json",
-        runDirectory: String = "/tmp/open-lola-mac-to-mac"
+        outputPath: String = NativeAppShellExecutionPaths.defaultPlanPath(),
+        runDirectory: String = NativeAppShellExecutionPaths.defaultRunDirectory()
     ) throws -> DirectPeerTwoPeerRunPlanConfiguration {
         try validate()
         guard sessionMode == .directMacPeer else {
@@ -83,7 +88,10 @@ public extension NativeAppShellOperatorPrototypeState {
             portBase: fields.controlPort,
             inputUID: try requiredSelection(localSelection.audioInputUID, "audioInputUID"),
             outputUID: try requiredSelection(localSelection.audioOutputUID, "audioOutputUID"),
-            videoDeviceID: try requiredSelection(localSelection.videoDeviceID, "videoDeviceID")
+            videoDeviceID: try requiredSelection(localSelection.videoDeviceID, "videoDeviceID"),
+            explicitAudioPort: fields.audioPort,
+            explicitVideoPort: fields.videoPort,
+            explicitMetricsPort: fields.metricsPort
         )
         let macB = DirectPeerTwoPeerRunPlanPeer(
             peerID: fields.remotePeer,
@@ -108,7 +116,8 @@ public extension NativeAppShellOperatorPrototypeState {
                 height: fields.videoHeight,
                 pixelFormat: fields.videoPixelFormat,
                 compression: fields.videoCompression,
-                frameRate: fields.videoFrameRate
+                frameRate: fields.videoFrameRate,
+                streamID: fields.videoStreamID
             ),
             runtime: .init(
                 durationSeconds: fields.durationSeconds,

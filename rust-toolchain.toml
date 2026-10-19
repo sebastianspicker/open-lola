@@ -1,0 +1,5 @@
+# Pins the Rust toolchain that CI and rustup-managed checkouts use, so clippy -D warnings does not drift.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

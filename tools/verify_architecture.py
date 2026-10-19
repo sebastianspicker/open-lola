@@ -34,10 +34,6 @@ LEGACY_ROOT_DIRECTORIES = (
 )
 PACKAGE_TARGETS = frozenset(
     {
-        "OpenLolaTransportTests",
-        "OpenLolaApplicationTests",
-        "OpenLolaMediaPlatformTests",
-        "OpenLolaIntegrationsTests",
         "OpenLolaContracts",
         "OpenLolaCore",
         "OpenLolaSessionDomain",
@@ -54,11 +50,11 @@ PACKAGE_TARGETS = frozenset(
         "open-lola-app",
     }
 )
+# Opt-in targets are declared and wired through Package.swift helper constants (jpegXSTargetDeclarations,
+# jpegXSDependencies) that evaluate to nothing unless OPEN_LOLA_ENABLE_JPEG_XS=1, so a dependency on them is
+# checked as a reference to the helper rather than as a literal target name.
+OPTIONAL_PACKAGE_TARGET_HELPERS = {"CJpegXSReference": "jpegXSDependencies"}
 PACKAGE_TARGET_GRAPH = {
-    "OpenLolaTransportTests": frozenset({"OpenLolaTransport"}),
-    "OpenLolaApplicationTests": frozenset({"OpenLolaApplication", "OpenLolaTransport"}),
-    "OpenLolaMediaPlatformTests": frozenset({"OpenLolaMediaPlatform"}),
-    "OpenLolaIntegrationsTests": frozenset({"OpenLolaIntegrations"}),
     "OpenLolaContracts": frozenset(),
     "OpenLolaCore": frozenset(
         {
@@ -117,10 +113,6 @@ PACKAGE_TARGET_GRAPH = {
     "open-lola-app": frozenset({"OpenLolaAppSupport"}),
 }
 PACKAGE_TARGET_PATHS = {
-    "OpenLolaTransportTests": "runtimes/macos/Tests/OpenLolaTransportTests",
-    "OpenLolaApplicationTests": "runtimes/macos/Tests/OpenLolaApplicationTests",
-    "OpenLolaMediaPlatformTests": "runtimes/macos/Tests/OpenLolaMediaPlatformTests",
-    "OpenLolaIntegrationsTests": "runtimes/macos/Tests/OpenLolaIntegrationsTests",
     "OpenLolaContracts": "runtimes/macos/Sources/OpenLolaContracts",
     "OpenLolaCore": "runtimes/macos/Sources/OpenLolaCore",
     "OpenLolaSessionDomain": "runtimes/macos/Sources/OpenLolaSessionDomain",
@@ -340,8 +332,14 @@ def package_target_errors(root: Path) -> list[str]:
             continue
         dependency_match = re.search(r"\bdependencies:\s*\[(.*?)\]", block, re.DOTALL)
         actual = frozenset(re.findall(r'(?<!name:)\"([A-Za-z][A-Za-z0-9-]*)\"', dependency_match.group(1))) if dependency_match else frozenset()
-        if actual != dependencies:
-            errors.append(f"Package.swift target {name} dependencies must be {sorted(dependencies)}; found {sorted(actual)}")
+        optional = dependencies & OPTIONAL_PACKAGE_TARGET_HELPERS.keys()
+        required = dependencies - optional
+        if actual != required:
+            errors.append(f"Package.swift target {name} dependencies must be {sorted(required)}; found {sorted(actual)}")
+        for optional_target in sorted(optional):
+            helper = OPTIONAL_PACKAGE_TARGET_HELPERS[optional_target]
+            if helper not in block:
+                errors.append(f"Package.swift target {name} must add {optional_target} through {helper}")
         expected_path = PACKAGE_TARGET_PATHS.get(name)
         if expected_path is not None:
             path_match = re.search(r"\bpath:\s*\"([^\"]+)\"", block)

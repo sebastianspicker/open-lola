@@ -151,8 +151,10 @@ final class AppExecutionController {
             return
         }
         stopWasRequested = true
-        sessionToken = nil
-        process.terminate()
+        // Keep the run token: the stopped run's partial report must stay validatable and reviewable.
+        // The supervisor stops its peers on SIGTERM; SIGKILL it only after its own worst-case stop time for this mode.
+        let stopMode: DirectPeerTwoPeerRunExecutionMode = executionKind == .directMacPeer ? settings.executionMode : .local
+        process.terminate(gracePeriod: AppExecutionStopGracePolicy.gracePeriod(for: stopMode))
         status = "Stop requested."
         phase = .stopRequested
     }

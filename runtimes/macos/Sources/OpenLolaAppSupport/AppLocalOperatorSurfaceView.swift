@@ -161,6 +161,10 @@ struct AppLocalOperatorSurfaceView: View {
                     AppReadableMetric(label: "Host", value: operatorSurface.inventory.hostName)
                     LabeledContent("Audio devices", value: "\(operatorSurface.inventory.audioDevices.count)")
                     LabeledContent("Video devices", value: "\(operatorSurface.inventory.videoDevices.count)")
+                    LabeledContent(
+                        "Camera permission",
+                        value: AppSessionRunLabels.cameraPermissionLabel(operatorSurface.inventory.videoPermissionStatus)
+                    )
                 }
             }
             .padding(.top, AppSpacing.s)

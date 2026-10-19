@@ -334,3 +334,18 @@ fn eviction_direction_survives_frame_id_wraparound() {
     assert_eq!(reassembler.active_frames(), 2);
     assert_eq!(reassembler.take_evicted_older_frames(), 0);
 }
+
+#[test]
+fn expired_partial_frames_are_kept_only_within_the_incomplete_threshold() {
+    // Half of the frame arrives; an expired frame is returned (zero-filled) only when
+    // the allowed missing fraction covers the missing half.
+    for (threshold_pct, kept) in [(0.0, false), (40.0, false), (50.0, true), (60.0, true)] {
+        let mut reassembler = MediaReassembler::with_limits(4, Duration::from_millis(20));
+        reassembler.begin(1, 4, 2).unwrap();
+        reassembler.add(half_fragment(1, 1)).unwrap();
+        std::thread::sleep(Duration::from_millis(40));
+        let partial = reassembler.take_expired_partial(threshold_pct);
+        assert_eq!(partial, kept.then(|| vec![0, 0, 1, 1]), "{threshold_pct}%");
+        assert_eq!(reassembler.active_frames(), 0);
+    }
+}

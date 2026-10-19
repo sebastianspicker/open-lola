@@ -28,14 +28,14 @@ extension AppOverviewOperatorSummary {
         if !readiness.isReady {
             return AppOverviewNextAction(
                 title: "Produce current report",
-                detail: readiness.unavailableMessage ?? "Run or load a current report before validating or starting.",
+                detail: readiness.unavailableMessage ?? "Arm and Start a run, or load a current report, before validating.",
                 targetSection: .session,
                 systemImage: "doc.badge.clock"
             )
         }
         return AppOverviewNextAction(
             title: "Validate current report",
-            detail: "The report artifact is current enough to validate. Run validation before Start can enable.",
+            detail: "The report artifact is current enough to validate. Validate it to review the last run's evidence.",
             targetSection: .validation,
             systemImage: "checkmark.seal"
         )

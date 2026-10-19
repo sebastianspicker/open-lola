@@ -218,9 +218,13 @@ struct AppOperatorArtifactsView: View {
 
     private func generateSupervisorCommand() {
         do {
+            let executablePath = try AppExecutablePathResolver.verifiedPath(
+                operatorSurface.directPeerCommandFields.executablePath
+            )
             let artifact = try operatorSurface.twoPeerSupervisorCommandArtifactState(
                 planPath: appSettings.operatorPlanArtifactPath,
                 outputPath: appSettings.operatorSupervisorReportPath,
+                executablePath: executablePath,
                 macASSH: appSettings.operatorMacASSH,
                 macBSSH: appSettings.operatorMacBSSH
             )

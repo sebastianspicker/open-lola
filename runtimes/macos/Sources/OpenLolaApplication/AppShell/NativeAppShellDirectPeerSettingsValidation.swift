@@ -22,6 +22,9 @@ public extension NativeAppShellDirectPeerCommandFields {
             allowed: ["openlola-raw", "openlola-opus-celt-ld", "aes67-st2110-l24"]
         )
         try requireAllowedCommandText(videoCompression.rawValue, field: "videoCompression", allowed: ["raw", "jpeg-xs"])
+        if videoCompression == .jpegXS {
+            try JPEGXSReferenceCodec.requireAvailable()
+        }
         try requirePositiveCommandValue(durationSeconds, "durationSeconds")
         try requirePositiveCommandValue(channelCount, "channelCount")
         try requirePositiveCommandValue(sampleRateHertz, "sampleRateHertz")
@@ -39,7 +42,29 @@ public extension NativeAppShellDirectPeerCommandFields {
             framesPerPacket: framesPerPacket,
             sampleRateHertz: sampleRateHertz
         )
+        try validateVideoPacketBudget()
         try validateSharedNetworkShape()
+    }
+
+    private func validateVideoPacketBudget() throws {
+        do {
+            _ = try DirectPeerVideoPacketBudget.validate(
+                DirectPeerVideoPacketBudget.Shape(
+                    width: videoWidth,
+                    height: videoHeight,
+                    pixelFormat: videoPixelFormat,
+                    compression: videoCompression,
+                    frameRate: videoFrameRate,
+                    avProfile: avProfile,
+                    rxBufferProfile: rxBufferProfile
+                )
+            )
+        } catch DirectPeerSessionAVRuntimeError.unsafeRawVideoPacketBudget(let estimated, let maximum) {
+            throw NativeAppShellSurfaceValidationError.unsafeVideoPacketBudget(
+                estimatedFragmentsPerFrame: estimated,
+                maxFragmentsPerFrame: maximum
+            )
+        }
     }
 
     private func validateSharedMediaShape() throws {

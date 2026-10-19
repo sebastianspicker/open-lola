@@ -99,11 +99,13 @@ func startDirectP2PProcess(
     )
     let stdoutPath = "\(runDirectory)/\(command.peerID)-stdout.log"
     let stderrPath = "\(runDirectory)/\(command.peerID)-stderr.log"
+    // In SSH mode the supervisor holds ssh's standard input open; its EOF is what stops the remote peer.
     let process = try ManagedProcessRunner.start(
         executable: launchedArguments[0],
         arguments: Array(launchedArguments.dropFirst()),
         standardOutputPath: stdoutPath,
-        standardErrorPath: stderrPath
+        standardErrorPath: stderrPath,
+        holdsStandardInputOpen: options.executionMode == .ssh
     )
     return RunningDirectP2PProcess(
         command: command,
@@ -158,7 +160,7 @@ func directP2PReadyFilePath(runDirectory: String, peerID: String) -> String {
 func waitForDirectP2PReadyFile(_ process: RunningDirectP2PProcess, timeoutMilliseconds: Int) throws {
     let deadline = DispatchTime.now() + .milliseconds(timeoutMilliseconds)
     while DispatchTime.now() < deadline {
-        if directP2PReadyFileExists(process, deadline: deadline) {
+        if try directP2PReadyFileExists(process, deadline: deadline) {
             return
         }
         if !process.process.isRunning {
@@ -171,17 +173,38 @@ func waitForDirectP2PReadyFile(_ process: RunningDirectP2PProcess, timeoutMillis
     throw CommandError.invalidArgument("responder readiness marker timed out: \(process.command.peerID)")
 }
 
-func directP2PReadyFileExists(_ process: RunningDirectP2PProcess, deadline: DispatchTime? = nil) -> Bool {
+/// Reports whether the readiness marker exists; throws when an SSH probe fails in a way waiting cannot fix.
+func directP2PReadyFileExists(_ process: RunningDirectP2PProcess, deadline: DispatchTime? = nil) throws -> Bool {
     guard let readyFilePath = directP2PReadyFilePath(from: process.launchedArguments) else {
         return true
     }
     guard process.executionMode == .ssh, let remoteTarget = process.remoteTarget else {
         return FileManager.default.fileExists(atPath: readyFilePath)
     }
+    try RemoteProcessTarget.validate(remoteTarget)
+    // An exhausted deadline is reported by the caller as a readiness timeout.
+    guard let timeoutSeconds = try? directP2PReadinessProbeTimeoutSeconds(deadline: deadline) else {
+        return false
+    }
+    switch runDirectP2PReadinessProbe(process, remoteTarget, readyFilePath, timeoutSeconds: timeoutSeconds) {
+    case .ready: return true
+    case .notReady: return false
+    case .permanentFailure(let message):
+        throw CommandError.invalidArgument("\(process.command.peerID) readiness probe failed: \(message)")
+    }
+}
+
+private func runDirectP2PReadinessProbe(
+    _ process: RunningDirectP2PProcess,
+    _ remoteTarget: String,
+    _ readyFilePath: String,
+    timeoutSeconds: Int
+) -> RemoteReadinessProbeOutcome {
+    let stderrPath = NSTemporaryDirectory() + "open-lola-ssh-probe-\(UUID().uuidString).err"
+    defer { try? FileManager.default.removeItem(atPath: stderrPath) }
+    let exitCode: Int32
     do {
-        try RemoteProcessTarget.validate(remoteTarget)
-        let timeoutSeconds = try directP2PReadinessProbeTimeoutSeconds(deadline: deadline)
-        let exitCode = try ManagedProcessRunner.runToExit(
+        exitCode = try ManagedProcessRunner.runToExit(
             executable: process.launchedArguments[0],
             arguments: [
                 "-o", "BatchMode=yes",
@@ -189,12 +212,15 @@ func directP2PReadyFileExists(_ process: RunningDirectP2PProcess, deadline: Disp
                 "-o", "ConnectionAttempts=1",
                 "--", remoteTarget, "test -f \(shellQuoted(readyFilePath))"
             ],
+            standardErrorPath: stderrPath,
             timeoutSeconds: TimeInterval(timeoutSeconds)
         )
-        return exitCode == 0
     } catch {
-        return false
+        // A probe that timed out or could not be spawned is retried until the readiness deadline.
+        return .notReady
     }
+    let stderr = (try? String(contentsOfFile: stderrPath, encoding: .utf8)) ?? ""
+    return RemoteReadinessProbeOutcome.classify(exitCode: exitCode, stderr: stderr)
 }
 
 private func directP2PReadinessProbeTimeoutSeconds(deadline: DispatchTime?) throws -> Int {
@@ -217,8 +243,10 @@ private func directP2PReadyFilePath(from arguments: [String]) -> String? {
     return arguments[index + 1]
 }
 
+/// The remote peer is stopped with SIGTERM when ssh's standard input reaches EOF, which happens when the
+/// supervisor terminates ssh or exits; ssh runs without a pty, so no hangup signal would reach it otherwise.
 private func remoteShellArguments(_ arguments: [String], workingDirectory: String?) -> [String] {
-    let command = arguments.map(shellQuoted).joined(separator: " ")
+    let command = RemoteProcessHangupWrapper.command(arguments.map(shellQuoted).joined(separator: " "))
     guard let workingDirectory, !workingDirectory.isEmpty else {
         return [command]
     }

@@ -11,9 +11,10 @@ func runDirectP2PTwoPeerLocalRunCommand(_ arguments: [String]) throws {
     let options = try DirectP2PTwoPeerLocalRunOptions.parse(arguments)
     let plan = try DirectPeerTwoPeerRunPlanReport.readValidated(fromPath: options.planPath)
     try createDirectP2PPrivateDirectory(atPath: plan.runDirectory)
-    let processResults = options.execute
+    let run = options.execute
         ? try runDirectP2PTwoPeerLocalProcesses(plan: plan, options: options)
         : nil
+    let processResults = run?.results
     var aggregateFailureReason: String?
     let aggregateReportPath = processResults.flatMap {
         do {
@@ -30,6 +31,8 @@ func runDirectP2PTwoPeerLocalRunCommand(_ arguments: [String]) throws {
     reportRequest.aggregateFailureReason = aggregateFailureReason
     reportRequest.executionMode = options.executionMode
     reportRequest.remoteTargets = options.remoteTargets(for: plan)
+    reportRequest.connectionPreflightRequired = options.requirePreflight
+    reportRequest.stoppedBySignal = run?.stopSignalName
     let report = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: reportRequest)
     try writeJSONData(try report.prettyJSONData(), to: options.outputPath)
     print("direct P2P two-peer supervisor report written: \(options.outputPath)")
@@ -48,8 +51,10 @@ func runDirectP2PTwoPeerLocalRunCommand(_ arguments: [String]) throws {
 private func runDirectP2PTwoPeerLocalProcesses(
     plan: DirectPeerTwoPeerRunPlanReport,
     options: DirectP2PTwoPeerLocalRunOptions
-) throws -> [DirectPeerTwoPeerLocalRunProcessResult] {
+) throws -> (results: [DirectPeerTwoPeerLocalRunProcessResult], stopSignalName: String?) {
     try validateDirectP2PTwoPeerPreflight(plan: plan, options: options)
+    let stopMonitor = ManagedProcessStopMonitor()
+    defer { stopMonitor.invalidate() }
     let responderCommands = plan.commands.filter { $0.role == .responder }
     let initiatorCommands = plan.commands.filter { $0.role == .initiator }
     guard responderCommands.count == 1, initiatorCommands.count == 1 else {
@@ -61,15 +66,20 @@ private func runDirectP2PTwoPeerLocalProcesses(
         options: options,
         readyFilePath: directP2PReadyFilePath(runDirectory: plan.runDirectory, peerID: responderCommands[0].peerID)
     )
+    stopMonitor.track(responder.process)
     let initiator: RunningDirectP2PProcess
     do {
         try waitForDirectP2PReadyFile(responder, timeoutMilliseconds: options.readinessDelayMilliseconds)
+        if let signalName = stopMonitor.receivedSignalName {
+            throw CommandError.invalidArgument("stopped by operator (\(signalName)) before the initiator started")
+        }
         initiator = try startDirectP2PProcess(
             command: initiatorCommands[0],
             runDirectory: plan.runDirectory,
             options: options,
             readyFilePath: nil
         )
+        stopMonitor.track(initiator.process)
     } catch {
         if responder.process.isRunning {
             terminateExpiredDirectP2PProcesses([responder])
@@ -81,7 +91,7 @@ private func runDirectP2PTwoPeerLocalProcesses(
     if !waitForDirectP2PProcessesToExit([initiator, responder], deadline: deadline) {
         terminateExpiredDirectP2PProcesses([initiator, responder])
     }
-    return [
+    let results = [
         try responder.result(
             exitCode: directP2PExitCode(for: responder.process),
             options: options,
@@ -93,6 +103,7 @@ private func runDirectP2PTwoPeerLocalProcesses(
             runDirectory: plan.runDirectory
         )
     ]
+    return (results, stopMonitor.receivedSignalName)
 }
 
 private func validateDirectP2PTwoPeerPreflight(
@@ -100,7 +111,12 @@ private func validateDirectP2PTwoPeerPreflight(
     options: DirectP2PTwoPeerLocalRunOptions
 ) throws {
     guard options.execute else { return }
-    try validateConnectionPreflight(options.connectionPreflightReportPath, for: plan)
+    if DirectPeerTwoPeerRunPreflight.requiresConnectionPreflight(
+        execute: options.execute,
+        requirePreflight: options.requirePreflight
+    ) {
+        try validateConnectionPreflight(options.connectionPreflightReportPath, for: plan)
+    }
     let checks = DirectPeerTwoPeerRunPreflight.makeChecks(
         plan: plan,
         executionMode: options.executionMode,

@@ -71,7 +71,7 @@ extension DirectPeerTwoPeerRunPlanner {
             "--video-pixel-format", configuration.videoPixelFormat,
             "--video-compression", configuration.videoCompression.rawValue,
             "--video-frame-rate", "\(configuration.videoFrameRate)",
-            "--video-stream-id", "100"
+            "--video-stream-id", "\(configuration.videoStreamID)"
         ]
     }
 

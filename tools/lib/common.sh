@@ -13,6 +13,11 @@ fail() {
   exit 1
 }
 
+# Print a script-prefixed warning to stderr without stopping the script.
+warn() {
+  printf '%s: WARNING: %s\n' "$(script_name)" "$*" >&2
+}
+
 # Fail immediately when a required repository file is absent.
 require_file() {
   local path="$1"
@@ -29,7 +34,13 @@ require_file_contains() {
 }
 
 # Return the caller-selected Swift scratch path or the repository's temporary default.
+# SWIFT_BUILD_PATH is the deprecated name and applies only when the canonical one is unset.
 open_lola_swift_build_path() {
+  if [[ -z "${OPEN_LOLA_SWIFT_BUILD_PATH:-}" && -n "${SWIFT_BUILD_PATH:-}" ]]; then
+    warn "SWIFT_BUILD_PATH is deprecated; use OPEN_LOLA_SWIFT_BUILD_PATH"
+    printf '%s\n' "$SWIFT_BUILD_PATH"
+    return
+  fi
   printf '%s\n' "${OPEN_LOLA_SWIFT_BUILD_PATH:-/private/tmp/open-lola-swiftpm-build}"
 }
 

@@ -20,6 +20,16 @@ public struct LoLaControlRetryResponderReport: Codable, Equatable, Sendable {
     public var controlPort: UInt16
     public var timeoutSeconds: Int
     public var runtimeError: String?
+    /// Errors the responder hit after it started, if any.
+    public var errorCount: Int?
+    /// The most recent of those errors.
+    public var lastError: String?
+    /// Why the responder stopped before the session ended, if it did.
+    public var stopReason: String?
+    /// Valid control messages from the negotiated peer that the connector does
+    /// not act on (for example the Rust station's SWITCH_ON_BB, CHAT and
+    /// SEND_AUDIO_SIGNAL extras), in arrival order. They are not errors.
+    public var ignoredControlMessages: [String]?
 
     public init(
         started: Bool,
@@ -79,10 +89,10 @@ func runLoLaControlExchangeAttempt(
                 onReceiveReady: onReceiveReady
             )
         }
-        switch configuration.role {
-        case .tx, .txRx:
+        switch configuration.effectiveLoLaControlSide {
+        case .initiator:
             return try sendLoLaControlAttempt(configuration: configuration)
-        case .rx:
+        case .responder:
             return try receiveLoLaControlAttempt(
                 configuration: configuration, onReady: onReceiveReady)
         }

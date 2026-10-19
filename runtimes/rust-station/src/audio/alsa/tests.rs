@@ -305,6 +305,10 @@ fn repeated_wait_side_xruns_stop_at_the_recovery_limit() {
         .waits
         .extend((0..=MAX_RECOVERIES).map(|_| Err(-EPIPE)));
     let mut driver = AlsaDriver::new(config, backend).unwrap();
+    // The property under test is the recovery limit, not the transfer deadline. The
+    // default budget (~6 ms for this config) can expire when a loaded test host
+    // deschedules this thread, turning the expected EPIPE into a Timeout.
+    driver.timeout = Duration::from_secs(60);
     driver.start().unwrap();
     let mut output = Vec::new();
     let error = driver.read_pcm_into(&mut output).unwrap_err();

@@ -63,11 +63,6 @@ extension OpenLolaAppScene {
                 refreshInventory: refreshInventory
             )
         )
-        .onChange(of: scenePhase) { _, phase in
-            Task { @MainActor in
-                handleScenePhaseChange(phase)
-            }
-        }
         .task { await refreshSyntheticMetricsAsync() }
         .task { refreshInventory() }
         .onAppear(perform: installQuitGuard)

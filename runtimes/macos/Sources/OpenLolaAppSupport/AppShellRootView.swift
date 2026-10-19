@@ -133,6 +133,12 @@ struct AppShellRootView: View {
             }
             scheduleDerivedSurfaceRefresh()
         }
+        .onChange(of: operatorSurface.inventory.selection) { _, selection in
+            AppShellStoredDefaults.persistLocalMediaSelection(selection)
+        }
+        .onChange(of: operatorSurface.remoteInventory) { _, inventory in
+            AppShellStoredDefaults.persistRemoteInventory(inventory)
+        }
         .onChange(of: report) { _, _ in scheduleDerivedSurfaceRefresh() }
         .onChange(of: contract) { _, _ in scheduleDerivedSurfaceRefresh() }
         .onChange(of: executionDerivedInputs) { _, _ in scheduleDerivedSurfaceRefresh() }
@@ -168,6 +174,7 @@ struct AppShellRootView: View {
                 refreshReport: refreshReport,
                 refreshInventory: refreshInventory
             )
+            storedSettingsNoticeBanner
             detailPanel
             persistentTransport
             HStack {
@@ -190,6 +197,18 @@ struct AppShellRootView: View {
                     selectedSection = .session
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var storedSettingsNoticeBanner: some View {
+        if !appSettings.storedSettingsNotices.isEmpty {
+            AppWarningBanner(
+                title: "Stored settings were reset",
+                messages: appSettings.storedSettingsNotices,
+                dismissAction: { appSettings.storedSettingsNotices = [] }
+            )
+            .padding(.horizontal, AppSpacing.xl)
         }
     }
 
@@ -228,7 +247,6 @@ struct AppShellRootView: View {
 
     private var evidenceInspector: some View {
         AppEvidenceInspectorView(
-            report: report,
             plan: derivedSurface.operatorPlan,
             snapshot: derivedSurface.statusSnapshot,
             executionController: executionController,

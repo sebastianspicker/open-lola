@@ -109,7 +109,7 @@ check_submodule_declaration() {
 
 while IFS= read -r path; do
   case "$path" in
-    private/*|internal/*|internals/*|docs/local/*|docs/internal/*|reverse-engineering/*|research/*|win-compiled/*|mac-port/*|docs/review/*)
+    private/*|internal/*|internals/*|docs/local/*|docs/internal/*|reverse-engineering/*|research/*|win-compiled/*|mac-port/*|docs/review/*|runtimes/macos/Tests/*|runtimes/rust-station/tests/*)
       violation_count=$((violation_count + 1))
       private_internal_count=$((private_internal_count + 1))
       continue

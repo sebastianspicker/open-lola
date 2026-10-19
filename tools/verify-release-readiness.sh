@@ -218,10 +218,23 @@ run_native_app_launch_probe() {
   echo "native app launch probe -> PASS"
 }
 
-# Skip interactive launch only when CI explicitly declares a headless environment.
+# Print every active gate skip or redirect up front so none is silent.
+announce_gate_overrides() {
+  if [[ "${OPEN_LOLA_SKIP_INTERACTIVE_APP:-0}" == "1" ]]; then
+    echo "SKIPPED: native app launch probe (OPEN_LOLA_SKIP_INTERACTIVE_APP=1); use 'make verify-full' in a GUI session"
+  fi
+  if [[ "${OPEN_LOLA_SKIP_LIVE_RESIDUE:-0}" == "1" ]]; then
+    echo "SKIPPED: live checkout residue scan (OPEN_LOLA_SKIP_LIVE_RESIDUE=1); verify an exported candidate separately"
+  fi
+  if [[ -n "${OPEN_LOLA_TEST_OPEN_LOLA_CLI:-}" ]]; then
+    warn "OPEN_LOLA_TEST_OPEN_LOLA_CLI redirects the CLI probes to $OPEN_LOLA_TEST_OPEN_LOLA_CLI instead of the freshly built binary"
+  fi
+}
+
+# Skip interactive launch only when the caller explicitly declares a headless environment.
 run_native_app_launch_gate() {
   if [[ "${OPEN_LOLA_SKIP_INTERACTIVE_APP:-0}" == "1" ]]; then
-    echo "native app launch probe -> SKIPPED (headless CI; run locally for Launch Services and accessibility evidence)"
+    echo "SKIPPED: native app launch probe (headless; run 'make verify-full' for Launch Services and accessibility evidence)"
     return 0
   fi
   run_native_app_launch_probe
@@ -246,6 +259,7 @@ assert_no_production_evidence_placeholders() {
 
 # Run source, static-analysis, test, and release-hygiene gates as one alpha-readiness decision.
 main() {
+  announce_gate_overrides
   run_step python3 tools/verify_architecture.py
   run_step bash tools/verify-tracked-boundary.sh
   run_step env PYTHONDONTWRITEBYTECODE=1 bash tools/verify-docs.sh
@@ -275,12 +289,16 @@ main() {
     --disable-sandbox \
     --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
     -Xswiftc -warnings-as-errors
-  run_timed_step \
-    "$SWIFT_BUILD_TIMEOUT_SECONDS" \
-    swift test \
-    --disable-sandbox \
-    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
-    -Xswiftc -warnings-as-errors
+  if [[ -d runtimes/macos/Tests ]]; then
+    run_timed_step \
+      "$SWIFT_BUILD_TIMEOUT_SECONDS" \
+      swift test \
+      --disable-sandbox \
+      --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
+      -Xswiftc -warnings-as-errors
+  else
+    echo "SKIPPED: no local Swift test sources (runtimes/macos/Tests)"
+  fi
   OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(open_lola_default_cli_binary)"
   export OPEN_LOLA_TEST_OPEN_LOLA_CLI
   manual_hardware_signing_gate

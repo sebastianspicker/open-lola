@@ -12,7 +12,33 @@ func makeExternalConnectorTcpSocket() throws -> Int32 {
     guard descriptor >= 0 else {
         throw ExternalConnectorSessionError.socketFailed("tcp socket")
     }
+    do {
+        try setExternalConnectorTcpNoSigPipe(socket: descriptor)
+    } catch {
+        close(descriptor)
+        throw error
+    }
     return descriptor
+}
+
+/// Makes a write to a reset connection fail with EPIPE instead of raising
+/// SIGPIPE, which would end the process before the session report is written.
+/// Darwin does not reliably carry the option over `accept`, so accepted
+/// sockets must call this too.
+func setExternalConnectorTcpNoSigPipe(socket: Int32) throws {
+    var enabled: Int32 = 1
+    guard setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+        throw ExternalConnectorSessionError.socketFailed("tcp setsockopt SO_NOSIGPIPE errno \(errno)")
+    }
+}
+
+/// Maps a failed TCP send or receive errno to a session error; a reset or
+/// broken connection is the peer going away, not a local socket fault.
+func externalConnectorTcpTransferError(_ operation: String, errno savedErrno: Int32) -> ExternalConnectorSessionError {
+    if savedErrno == EPIPE || savedErrno == ECONNRESET {
+        return .peerDisconnected("tcp \(operation) errno \(savedErrno)")
+    }
+    return .socketFailed("tcp \(operation) errno \(savedErrno)")
 }
 
 func connectExternalConnectorTcp(
@@ -132,7 +158,7 @@ func sendExternalConnectorTcpBytes(
                 if savedErrno == EINTR {
                     continue
                 }
-                throw ExternalConnectorSessionError.socketFailed("tcp send errno \(savedErrno)")
+                throw externalConnectorTcpTransferError("send", errno: savedErrno)
             }
             throw ExternalConnectorSessionError.socketFailed("tcp send")
         }
@@ -163,7 +189,7 @@ func receiveExternalConnectorTcp(
         guard received > 0 else {
             throw savedErrno == EAGAIN || savedErrno == EWOULDBLOCK
                 ? ExternalConnectorSessionError.receiveTimedOut
-                : ExternalConnectorSessionError.socketFailed("tcp recv errno \(savedErrno)")
+                : externalConnectorTcpTransferError("recv", errno: savedErrno)
         }
         messageBytes.append(contentsOf: buffer[0..<received])
         let message = decodeExternalConnectorTcpMessage(messageBytes)

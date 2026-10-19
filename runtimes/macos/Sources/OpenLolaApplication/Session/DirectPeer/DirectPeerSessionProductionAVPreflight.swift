@@ -45,8 +45,11 @@ public enum DirectPeerSessionProductionAVPreflight {
         if configuration.mediaSourceMode != .production {
             blockers.append("configuration is not production media source mode")
         }
-        if videoInventory.permissionStatus != .authorized {
-            blockers.append("AVFoundation video permission is \(videoInventory.permissionStatus.rawValue)")
+        if case .blocked(let message) = CapturePermissionPolicy.decision(
+            for: videoInventory.permissionStatus,
+            subject: .camera
+        ) {
+            blockers.append("AVFoundation video permission is \(videoInventory.permissionStatus.rawValue): \(message)")
         }
         if videoDevice == nil {
             blockers.append("requested production video device is not available")

@@ -192,6 +192,7 @@ impl StationUIController {
         s.video.backend = match st.camera_backend.trim().to_ascii_lowercase().as_str() {
             "software" | "diagnostic" => VideoBackend::Diagnostic,
             "v4l2" => VideoBackend::V4l2,
+            "mediafoundation" | "media_foundation" | "mf" => VideoBackend::MediaFoundation,
             _ => VideoBackend::Ximea,
         };
         s.audio.backend = match st.audio_backend.trim().to_ascii_lowercase().as_str() {

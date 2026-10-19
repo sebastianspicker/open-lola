@@ -101,4 +101,5 @@ struct DirectPeerManualSocketRunContext {
     var control: DirectPeerSessionControlSocket
     var runner: PeerSessionRunner
     var remoteControl: SessionNetworkEndpoint
+    var stopRequest: DirectPeerSessionStopRequest?
 }

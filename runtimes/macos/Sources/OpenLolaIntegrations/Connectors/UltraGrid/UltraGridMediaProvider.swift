@@ -223,7 +223,11 @@ final class UltraGridSessionMediaProvider:
         self.configuration = configuration
         self.audioSource = try Self.audioSource(configuration)
         self.videoSource = try Self.videoSource(configuration)
-        self.report = Self.providerReport(audioSource: audioSource, videoSource: videoSource)
+        let fallbackNotes = announceExternalConnectorMediaFallbackWarnings(
+            [externalConnectorAudioCaptureFallbackWarning(configuration), externalConnectorVideoCaptureFallbackWarning(configuration)]
+                .compactMap { $0 }
+        )
+        self.report = Self.providerReport(audioSource: audioSource, videoSource: videoSource, fallbackNotes: fallbackNotes)
     }
 
     var providerReport: ExternalConnectorMediaProviderReport { report }
@@ -377,14 +381,15 @@ final class UltraGridSessionMediaProvider:
 
     private static func providerReport(
         audioSource: AudioSource,
-        videoSource: VideoSource
+        videoSource: VideoSource,
+        fallbackNotes: String
     ) -> ExternalConnectorMediaProviderReport {
         let hasLive = audioSource.isLive || videoSource.isLive
         return ExternalConnectorMediaProviderReport(
             audioSource: audioSource.reportLabel,
             videoSource: videoSource.reportLabel,
             observedEvidenceClasses: hasLive ? [.liveDevice] : [.synthetic],
-            notes: "UltraGrid public session media provider selection for PT21 audio and PT20 raw-video packetization."
+            notes: "UltraGrid public session media provider selection for PT21 audio and PT20 raw-video packetization." + fallbackNotes
         )
     }
 }

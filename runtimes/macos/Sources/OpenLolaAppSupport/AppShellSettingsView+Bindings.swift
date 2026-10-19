@@ -121,13 +121,6 @@ extension AppShellSettingsView {
         )
     }
 
-    var roleBinding: Binding<DirectPeerSessionManualRole> {
-        Binding(
-            get: { DirectPeerSessionManualRole(rawValue: settingsDraft.role) ?? .initiator },
-            set: { settingsDraft.role = $0.rawValue }
-        )
-    }
-
     var avProfileBinding: Binding<DirectPeerSessionAVProfile> {
         Binding(
             get: { DirectPeerSessionAVProfile(rawValue: settingsDraft.avProfile) ?? .fastest },
@@ -214,7 +207,7 @@ extension AppShellSettingsView {
 
     var videoCompressionBinding: Binding<DirectPeerSessionVideoCompression> {
         Binding(
-            get: { DirectPeerSessionVideoCompression(rawValue: settingsDraft.videoCompression) ?? .jpegXS },
+            get: { AppVideoCompressionChoices.resolved(rawValue: settingsDraft.videoCompression) },
             set: { settingsDraft.videoCompression = $0.rawValue }
         )
     }

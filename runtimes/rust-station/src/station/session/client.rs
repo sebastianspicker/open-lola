@@ -4,20 +4,21 @@ use super::backends::{SessionAudioBackend, SessionCameraBackend};
 use super::capture::CaptureWorker;
 use super::client_cleanup::finalize_client_session;
 use super::client_media::prepare_client_media;
+use super::colors::{load_shipped_colors, session_color_settings};
 use super::control::{
     build_session_control, pump_control, resolve_peer_ipv4, send_control_datagram,
     send_queued_controls, ClientDisconnectGuard,
 };
 use super::lifecycle::{record_cached_transport_stats, record_transport_monitor};
 use super::media::{should_stream_more, SessionMediaTransport};
+use super::preflight::preflight_devices;
 use super::stream::run_interleaved_stream;
 use super::types::{now_us, session_cancelled, stream_dims};
 use super::video::{send_recv_video_frame, VideoReceiveQueue};
 use super::{SessionOptions, SessionPhase, SessionResult};
-use crate::config::{load_ximea_colors, ColorSettings, MediaTransportKind, StationSettings};
+use crate::config::{ColorSettings, MediaTransportKind, StationSettings};
 use crate::net::Udp;
 use crate::protocol::{FrameReassembler, MESG_CHAT, MESG_SEND_AUDIO_SIGNAL, MESG_SWITCH_ON_BB};
-use crate::shipped_ximea_colors;
 use crate::station::monitor::NetworkMonitor;
 use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::SessionError;
@@ -46,7 +47,7 @@ pub(super) fn client_session(
     let control_bind_port = settings.network.control_port * u16::from(fixed_media_ports);
     let client_ctrl =
         Udp::bind(bind, control_bind_port).map_err(|e| SessionError::Transport(e.to_string()))?;
-    client_ctrl.set_timeout(0.01).ok();
+    SessionError::from_socket_timeout(client_ctrl.set_timeout(0.01))?;
     let deadline_scheduled = options.interleaved_av
         || options.persistent
         || !options.peer_mode.eq_ignore_ascii_case("loopback");
@@ -71,21 +72,13 @@ pub(super) fn client_session(
             "session cancelled before negotiation".into(),
         ));
     }
+    // A device or format failure is reported locally before anything is sent.
+    preflight_devices(settings, options)?;
     if let Some(control) = options.runtime_control.as_ref() {
         control.set_activity(result);
     }
     // Color settings for stream path
-    let colors: Option<ColorSettings> = if options.apply_color {
-        options.color_settings.clone().or_else(|| {
-            if shipped_ximea_colors().is_file() {
-                load_ximea_colors(shipped_ximea_colors()).ok()
-            } else {
-                None
-            }
-        })
-    } else {
-        None
-    };
+    let colors: Option<ColorSettings> = session_color_settings(options, load_shipped_colors);
     let negotiation::ClientNegotiation::Accepted {
         remote_video_bpp,
         capabilities,

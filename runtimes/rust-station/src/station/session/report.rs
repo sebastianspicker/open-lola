@@ -3,6 +3,20 @@ use super::SessionResult;
 use serde_json::{json, Value};
 
 impl SessionResult {
+    /// A failed result always explains itself: an empty `error` is filled from
+    /// the typed failure, or names the missing failure kind, so no consumer is
+    /// left printing "failed: " with nothing after it.
+    pub fn ensure_failure_message(&mut self) {
+        if self.ok || !self.error.is_empty() {
+            return;
+        }
+        self.error = match &self.failure {
+            Some(failure) => failure.to_string(),
+            None if self.rejected => format!("peer rejected the session: {}", self.reject_text),
+            None => "session failed without a recorded failure kind".into(),
+        };
+    }
+
     pub fn to_json(&self) -> Value {
         let mut value = json!({
             "ok": self.ok,
@@ -107,5 +121,41 @@ impl SessionResult {
         object.insert("realtime_priority".into(), json!(self.realtime_priority));
         object.insert("cleanup_warnings".into(), json!(self.cleanup_warnings));
         value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::station::SessionError;
+
+    #[test]
+    fn a_failed_result_always_carries_an_error() {
+        let failed = |error: &str, failure, rejected| SessionResult {
+            error: error.into(),
+            failure,
+            rejected,
+            ..Default::default()
+        };
+        let transport = Some(SessionError::Transport("bind".into()));
+        for (result, expected) in [
+            (
+                failed("", None, false),
+                "session failed without a recorded failure kind",
+            ),
+            (failed("", transport, false), "media transport failed: bind"),
+            (failed("", None, true), "peer rejected the session: "),
+            (failed("kept", None, false), "kept"),
+        ] {
+            let mut result = result;
+            result.ensure_failure_message();
+            assert_eq!(result.error, expected);
+        }
+        let mut ok = SessionResult {
+            ok: true,
+            ..Default::default()
+        };
+        ok.ensure_failure_message();
+        assert!(ok.error.is_empty());
     }
 }

@@ -123,7 +123,6 @@ struct AppSignalDeskDocumentationToolbarView: View {
 }
 
 struct AppEvidenceInspectorView: View {
-    let report: NativeAppShellReport
     let plan: AppOperatorPrototypePlan
     let snapshot: AppConsoleStatusSnapshot
     let executionController: AppExecutionController
@@ -152,7 +151,7 @@ struct AppEvidenceInspectorView: View {
                         .tracking(0.4)
                         .foregroundStyle(.secondary)
                     LabeledContent("Workflow", value: plan.sessionMode.displayName)
-                    LabeledContent("Profile", value: report.configuration.profileName)
+                    LabeledContent("Profile", value: AppSessionRunLabels.profileCaption(plan: plan) ?? "Not applicable")
                     AppReadableMetric(label: "Latest report", value: latestReportPath, monospaced: true)
                 }
                 .padding(AppSpacing.s)

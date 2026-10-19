@@ -5,12 +5,13 @@ use crate::config::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+mod overlay;
 mod ssn;
 
 pub use ssn::*;
@@ -65,6 +66,9 @@ pub struct SessionProfile {
     pub extra: BTreeMap<String, Value>,
     #[serde(skip)]
     pub source: SessionProfileSource,
+    /// Fields a parsed JSON profile specified; `None` means every field.
+    #[serde(skip)]
+    pub present: Option<BTreeSet<&'static str>>,
 }
 
 fn default_remote() -> String {
@@ -132,6 +136,7 @@ impl Default for SessionProfile {
             remote_audio_channel_offset: 0,
             extra: BTreeMap::new(),
             source: SessionProfileSource::Unspecified,
+            present: None,
         }
     }
 }
@@ -143,6 +148,7 @@ impl SessionProfile {
         }
         let mut p = SessionProfile {
             source: SessionProfileSource::OpenJson,
+            present: Some(overlay::present_fields(d)),
             ..SessionProfile::default()
         };
         apply_top_level_fields(&mut p, d)?;
@@ -533,7 +539,7 @@ pub fn apply_profile_to_settings(settings: &mut StationSettings, profile: &Sessi
         settings.network.video_receive_queue_depth = profile.video_receive_queue_depth.max(1);
         settings.network.video_receive_prefill = profile.video_receive_prefill;
     } else {
-        *settings = profile_to_settings(profile);
+        overlay::overlay_profile(settings, profile);
     }
 }
 

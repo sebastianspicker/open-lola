@@ -48,7 +48,12 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
                 return
             }
             apply(nextSurface)
-            self.lastRefreshWarning = inventoryWarning(from: nextSurface.inventory.inventoryErrors)
+            self.lastRefreshWarning = inventoryWarning(
+                from: nextSurface.inventory.inventoryErrors + AppShellStoredDefaults.droppedLocalSelectionNotices(
+                    previous: localSelection,
+                    refreshed: nextSurface.inventory
+                )
+            )
             self.isRefreshingInventory = false
             self.refreshTask = nil
         }
@@ -123,7 +128,8 @@ enum AppLocalOperatorInventory {
                     videoDevices: videoDevices,
                     selectedVideo: selectedVideo
                 ),
-                inventoryErrors: audioInventory.inventoryErrors
+                inventoryErrors: audioInventory.inventoryErrors,
+                videoPermissionStatus: videoReport.permissionStatus
             ), remote: request.remoteInventory),
             peerFields: NativeAppShellOperatorPeerFields(directPeer: request.directPeerCommandFields, windowsLoLa: request.windowsLoLaPeerFields, jackTrip: request.jackTripPeerFields, ultraGrid: request.ultraGridPeerFields)
         )

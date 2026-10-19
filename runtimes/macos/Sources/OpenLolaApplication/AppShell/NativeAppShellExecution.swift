@@ -9,13 +9,26 @@ import OpenLolaContracts
 
 /// Builds default run, plan, supervisor-report, and preflight-report paths for native execution.
 public enum NativeAppShellExecutionPaths {
-    public static let installedCLIPlaceholder = "<installed-open-lola-cli>"
-
     public static func defaultRunDirectory() -> String {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return base.appendingPathComponent("OpenLoLa", isDirectory: true)
             .appendingPathComponent("MacToMac", isDirectory: true)
+            .path
+    }
+
+    /// Directory for connector session reports, a sibling of the run directory so it survives a reboot.
+    public static func defaultConnectorOutputDirectory() -> String {
+        URL(fileURLWithPath: defaultRunDirectory(), isDirectory: true)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Connectors", isDirectory: true)
+            .path
+    }
+
+    /// Default report path for a connector session, named `fileName`, inside `defaultConnectorOutputDirectory()`.
+    public static func defaultConnectorOutputPath(fileName: String) -> String {
+        URL(fileURLWithPath: defaultConnectorOutputDirectory(), isDirectory: true)
+            .appendingPathComponent(fileName)
             .path
     }
 
@@ -119,6 +132,7 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
     public var supervisorReportPath: String
     public var executionMode: DirectPeerTwoPeerRunExecutionMode
     public var execute: Bool
+    /// Stored for legacy decoding only; runs use `effectiveRequirePreflight`.
     public var requirePreflight: Bool
     public var connectionPreflightReportPath: String
     public var sshFallbackExplicitlySelected: Bool
@@ -167,11 +181,16 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
         scpExecutable = ssh.scpExecutable
     }
 
+    /// The preflight requirement a run will actually use: only two-Mac (ssh) runs need one; local runs skip it.
+    public var effectiveRequirePreflight: Bool {
+        executionMode == .ssh
+    }
+
     public func validate() throws {
         try requireNativeAppExecutionNonEmpty(planPath, "planPath")
         try requireNativeAppExecutionNonEmpty(supervisorReportPath, "supervisorReportPath")
         try requireNativeAppExecutionPositive(readinessDelayMilliseconds, "readinessDelayMilliseconds")
-        if execute || requirePreflight {
+        if execute || effectiveRequirePreflight {
             guard !connectionPreflightReportPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw NativeAppShellExecutionValidationError.preflightReportMissing("connectionPreflightReportPath")
             }
@@ -201,9 +220,9 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
             "--execute", execute ? "true" : "false",
             "--execution-mode", executionMode.rawValue,
             "--readiness-delay-ms", "\(readinessDelayMilliseconds)",
-            "--require-preflight", requirePreflight ? "true" : "false"
+            "--require-preflight", effectiveRequirePreflight ? "true" : "false"
         ]
-        if execute || requirePreflight {
+        if execute || effectiveRequirePreflight {
             arguments += ["--connection-preflight-report", connectionPreflightReportPath]
         }
         if executionMode == .local {

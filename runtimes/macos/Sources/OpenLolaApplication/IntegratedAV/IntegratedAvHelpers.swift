@@ -11,6 +11,15 @@ struct IntegratedValidationField<Value> {
     let value: Value
 }
 
+// Drops fields that were not measured (nil) so only reported values are range-checked.
+func integratedMeasuredFields<Value>(
+    _ fields: [IntegratedValidationField<Value?>]
+) -> [IntegratedValidationField<Value>] {
+    fields.compactMap { field in
+        field.value.map { IntegratedValidationField(name: field.name, value: $0) }
+    }
+}
+
 func validateIntegratedFieldSet(
     nonEmpty: [IntegratedValidationField<String>] = [],
     optionalNonEmpty: [IntegratedValidationField<String?>] = [],

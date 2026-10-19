@@ -121,10 +121,12 @@ diagnosticLoLaMedia: diagnosticLoLaMedia,
 runtimeError: runtimeError
 )
 }
-        let retryResponder = shouldStartLoLaControlRetryResponder(configuration: configuration)
+        let retryResponderMonitor = LoLaControlRetryResponderMonitor()
+        let startedRetryResponder = shouldStartLoLaControlRetryResponder(configuration: configuration)
             ? startLoLaControlRetryResponder(
                 configuration: configuration,
-                terminalSession: attempt.terminalSession
+                terminalSession: attempt.terminalSession,
+                monitor: retryResponderMonitor
             )
             : nil
         let lolaMedia: LoLaCompatibilityMediaSessionReport?
@@ -138,7 +140,10 @@ runtimeError: runtimeError
             lolaMedia = loLaMediaRuntimeFailureReport(configuration: configuration, error: error)
         }
         let mediaRuntimeError = lolaMediaRuntimeError(lolaMedia)
+// Read before finish(), which records its own "session ended" cancellation.
+let stopReason = attempt.terminalSession?.cancellation.reason
 let cleanupRuntimeError = attempt.terminalSession?.finish(exchange: &attempt.exchange)
+let retryResponder = startedRetryResponder.map(retryResponderMonitor.annotate)
 let runtimeError = lolaCombinedRuntimeError([
 mediaRuntimeError,
 retryResponder?.runtimeError,
@@ -154,7 +159,8 @@ return successfulLoLaControlSessionReport(
 context: context,
 retryResponder: retryResponder,
 lolaMedia: lolaMedia,
-runtimeError: runtimeError
+runtimeError: runtimeError,
+stopReason: stopReason
 )
 }
 
@@ -192,6 +198,7 @@ return { () -> ExternalConnectorSessionReport in
   input.lolaControl = context.attempt.exchange
   input.lolaMedia = diagnosticLoLaMedia
   input.runtimeError = runtimeError
+  input.outcome = .from(runtimeError: runtimeError, stopReason: nil)
   return ExternalConnectorSessionReport(input)
 }()
 }
@@ -199,7 +206,8 @@ private func successfulLoLaControlSessionReport(
     context: LoLaControlSessionReportContext,
     retryResponder: LoLaControlRetryResponderReport?,
     lolaMedia: LoLaCompatibilityMediaSessionReport?,
-    runtimeError: String?
+    runtimeError: String?,
+    stopReason: String?
 ) -> ExternalConnectorSessionReport {
  let configuration = context.configuration
 return { () -> ExternalConnectorSessionReport in
@@ -225,6 +233,7 @@ return { () -> ExternalConnectorSessionReport in
   input.lolaControlRetryResponder = retryResponder
   input.lolaMedia = lolaMedia
   input.runtimeError = runtimeError
+  input.outcome = .from(runtimeError: runtimeError, stopReason: stopReason)
   return ExternalConnectorSessionReport(input)
 }()
 }

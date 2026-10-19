@@ -18,7 +18,11 @@ public struct ExternalConnectorNmpPlanConfiguration: Equatable, Sendable, Extern
     public var jackTripVideoExecutable: String?
     public var mediaMode: ExternalConnectorMediaMode
     public var controlTransport: ExternalConnectorControlTransport
+    /// Media options of the first connector; `parse` also keeps per-connector values in `connectorMediaOptions`.
     public var mediaOptions: ExternalConnectorMediaOptionValues
+    /// The parsed flags over each connector's own defaults (`ExternalConnectorMediaOptionValues.defaults(for:)`),
+    /// so the LoLa plan gets the Rust station's video tuple while UltraGrid keeps its own; empty when not parsed.
+    var connectorMediaOptions: [ExternalConnectorKind: ExternalConnectorMediaOptionValues] = [:]
     public var videoCapture: String?
     public var videoDisplay: String?
     public var sessionID: String
@@ -41,7 +45,7 @@ public struct ExternalConnectorNmpPlanConfiguration: Equatable, Sendable, Extern
         jackTripVideoExecutable = nil
         mediaMode = .audioVideo
         controlTransport = .udp
-        mediaOptions = .defaultValues
+        mediaOptions = .defaults(for: .lola)
         videoCapture = nil
         videoDisplay = nil
         sessionID = "1"
@@ -77,7 +81,6 @@ private func makeNmpPlanConfiguration(
     _ values: [String: String]
 ) throws -> ExternalConnectorNmpPlanConfiguration {
     let outputPath = try requiredExternalConnectorValue("--output", values)
-    let media = try parseExternalConnectorMediaOptionValues(values)
     var fields = NmpPlanConfigurationFields(
         localHost: try requiredExternalConnectorValue("--local-host", values),
         remoteHost: try requiredExternalConnectorValue("--remote-host", values),
@@ -90,7 +93,13 @@ private func makeNmpPlanConfiguration(
     fields.jackTripVideoExecutable = values["--jacktrip-video-executable"]
     fields.mediaMode = try values["--media"].map(parseExternalConnectorMediaMode) ?? .audioVideo
     fields.controlTransport = try parsedNmpPlanControlTransport(values)
-    fields.mediaOptions = media
+    for connector in fields.connectors {
+        fields.connectorMediaOptions[connector] = try parseExternalConnectorMediaOptionValues(
+            values,
+            defaults: .defaults(for: connector)
+        )
+    }
+    fields.mediaOptions = fields.connectors.first.flatMap { fields.connectorMediaOptions[$0] } ?? fields.mediaOptions
     fields.audioCapture = values["--audio-capture"]
     fields.audioPlayback = values["--audio-playback"]
     fields.videoCapture = values["--video-capture"]
@@ -191,7 +200,7 @@ public enum ExternalConnectorNmpPlanRunner {
             videoExecutable: videoExecutable(configuration, connector: connector),
             mediaMode: configuration.mediaMode,
             controlTransport: nmpConnectionPlanControlTransport(configuration, connector: connector),
-            mediaOptions: configuration.mediaOptions,
+            mediaOptions: configuration.connectorMediaOptions[connector] ?? configuration.mediaOptions,
             controlPort: nil,
             audioPort: nil,
             videoPort: nil,

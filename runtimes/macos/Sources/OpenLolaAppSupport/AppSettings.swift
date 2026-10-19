@@ -7,12 +7,16 @@ import OpenLolaCore
 @Observable
 final class AppSettings {
     @ObservationIgnored private let defaults: UserDefaults
+    /// Notes about persisted settings that were invalid at launch and had to be reset; shown until dismissed.
+    var storedSettingsNotices: [String] = []
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults; let app = AppShellStoredDefaults.self; let def = defaults
-        let fld = app.directPeerCommandFields(defaults: def); let ses = app.sessionMode(defaults: def).rawValue
-        let ctl = app.controlMode(defaults: def).rawValue; let win = app.windowsLoLaPeerFields(defaults: def)
-        let jac = app.jackTripPeerFields(defaults: def); let ult = app.ultraGridPeerFields(defaults: def)
+        let fldLoad = app.directPeerCommandFieldsLoad(defaults: def); let fld = fldLoad.fields; let ses = app.sessionMode(defaults: def).rawValue
+        let ctl = app.controlMode(defaults: def).rawValue; let winLoad = app.windowsLoLaPeerFieldsLoad(defaults: def)
+        let win = winLoad.fields
+        let jacLoad = app.jackTripPeerFieldsLoad(defaults: def); let ultLoad = app.ultraGridPeerFieldsLoad(defaults: def)
+        let jac = jacLoad.fields; let ult = ultLoad.fields
         let exe = app.executionSettings(defaults: def); let prv = app.previewDefaults(defaults: def)
         self.sessionMode = ses; self.controlMode = ctl; executablePath = fld.executablePath
         planPath = exe.planPath; supervisorReportPath = exe.supervisorReportPath
@@ -58,6 +62,7 @@ final class AppSettings {
         ultraGridAudioPort = Int(ult.audioPort); ultraGridPeerAudioPort = Int(ult.peerAudioPort)
         ultraGridVideoPort = Int(ult.videoPort); ultraGridMediaMode = ult.mediaMode.rawValue
         ultraGridDuration = ult.durationSeconds; ultraGridOutputPathStorage = ult.outputPath
+        storedSettingsNotices = fldLoad.notices + winLoad.notices + jacLoad.notices + ultLoad.notices
     }
 
     var sessionMode: String { didSet { defaults.set(sessionMode, forKey: AppStorageKeys.sessionMode) } }

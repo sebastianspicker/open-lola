@@ -16,7 +16,6 @@ public struct OpenLolaApp: App {
 
 /// Owns the operator scene state, menus, persisted settings, and runtime controllers.
 public struct OpenLolaAppScene: Scene {
-    @Environment(\.scenePhase) var scenePhase
     @Environment(\.openWindow) private var openWindow
     @State var report = NativeAppShellReport.placeholder()
     @State var operatorSurface: NativeAppShellOperatorPrototypeState
@@ -44,7 +43,11 @@ public struct OpenLolaAppScene: Scene {
         let previewState = AppShellStoredDefaults.previewReceiverState()
         let executionController = AppExecutionController(settings: AppShellStoredDefaults.executionSettings())
         let appSettings = AppSettings()
-        _operatorSurface = State(initialValue: AppShellStoredDefaults.placeholderOperatorSurface())
+        let remoteInventory = AppShellStoredDefaults.remoteInventoryLoad()
+        appSettings.storedSettingsNotices.append(contentsOf: remoteInventory.notices)
+        _operatorSurface = State(
+            initialValue: AppShellStoredDefaults.placeholderOperatorSurface(remoteInventory: remoteInventory.fields)
+        )
         _executionController = State(initialValue: executionController)
         _previewState = State(initialValue: previewState)
         _appSettings = State(initialValue: appSettings)
@@ -211,14 +214,6 @@ extension OpenLolaAppScene {
         }
     }
 
-    @MainActor
-    func handleScenePhaseChange(_ phase: ScenePhase) {
-        if phase == .background, executionController.isRunning {
-            executionController.tearDown()
-            operatorSurface.commandIntent = .stopRequested
-        }
-    }
-
     func refreshSyntheticMetrics() {
         Task { await refreshSyntheticMetricsAsync() }
     }
@@ -249,6 +244,11 @@ extension OpenLolaAppScene {
         }
         appDelegate.requestTerminationConfirmation = {
             quitConfirmationPresented = true
+        }
+        appDelegate.willTerminate = {
+            if AppSessionStopPolicy.stopsRunningSession(for: .applicationTermination) {
+                executionController.tearDown()
+            }
         }
     }
 
@@ -293,6 +293,7 @@ public final class OpenLolaApplicationDelegate: NSObject, NSApplicationDelegate 
     var allowNextTerminate = false
     var shouldRequestTerminationConfirmation: () -> Bool = { false }
     var requestTerminationConfirmation: () -> Void = {}
+    var willTerminate: () -> Void = {}
 
     public override init() {
         super.init()
@@ -304,6 +305,10 @@ public final class OpenLolaApplicationDelegate: NSObject, NSApplicationDelegate 
         }
         requestTerminationConfirmation()
         return .terminateCancel
+    }
+
+    public func applicationWillTerminate(_ notification: Notification) {
+        willTerminate()
     }
 }
 

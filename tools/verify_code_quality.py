@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from bisect import bisect_right
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
@@ -20,7 +20,6 @@ from unittest.mock import patch
 
 from lizard import FileAnalyzer  # type: ignore[import-untyped]
 from lizard_ext.lizardduplicate import (  # type: ignore[import-untyped]
-    DuplicateFinder,
     LizardExtension,
     NestingStackWithUnifiedTokens,
 )
@@ -28,6 +27,7 @@ from lizard_ext.lizardduplicate import (  # type: ignore[import-untyped]
 MAX_PHYSICAL_LINES = 600
 MAX_CCN = 19
 MIN_DUPLICATE_TOKENS = 70
+COLLAPSE_REPEAT_TOKENS = 20
 EXCEPTION_FILE = Path("tools/code-line-budget-exceptions.txt")
 DUPLICATION_BASELINE = Path("tools/code-duplication-baseline.json")
 DUPLICATION_SCHEMA = "open-lola.normalized-token-duplication/v1"
@@ -36,7 +36,7 @@ DUPLICATION_TOOL = {
     "lizardVersion": "1.24.0",
     "extensionVersion": 1,
     "minimumTokens": MIN_DUPLICATE_TOKENS,
-    "normalization": "LizardExtension unified identifiers and constants;sample-hash sequences",
+    "normalization": "LizardExtension unified identifiers and constants;sample-hash sequences;pairwise maximal runs",
 }
 SOURCE_SUFFIXES = frozenset(
     {
@@ -205,37 +205,58 @@ def duplicate_fingerprint(tokens: list[str]) -> str:
     return hashlib.sha256("\0".join(tokens).encode("utf-8")).hexdigest()
 
 
+def pair_clone_runs(hashes: list[str], file_of: list[int]) -> Iterable[tuple[int, int, int]]:
+    """Yield (start, other_start, length) for each maximal run shared by two files, decided by those files only."""
+    buckets: dict[str, list[int]] = defaultdict(list)
+    recent: deque[str] = deque(maxlen=COLLAPSE_REPEAT_TOKENS)
+    previous_file = -1
+    for index, node_hash in enumerate(hashes):
+        if file_of[index] != previous_file:
+            recent.clear()
+            previous_file = file_of[index]
+        if node_hash not in recent:
+            buckets[node_hash].append(index)
+        recent.append(node_hash)
+
+    def continues(first: int, second: int, anchor: tuple[int, int]) -> bool:
+        return (
+            0 <= first < len(hashes)
+            and 0 <= second < len(hashes)
+            and file_of[first] == file_of[anchor[0]]
+            and file_of[second] == file_of[anchor[1]]
+            and hashes[first] == hashes[second]
+        )
+
+    for positions in buckets.values():
+        for offset, first in enumerate(positions):
+            for second in positions[offset + 1 :]:
+                if file_of[first] == file_of[second] or continues(first - 1, second - 1, (first, second)):
+                    continue
+                length = 1
+                while continues(first + length, second + length, (first, second)):
+                    length += 1
+                yield first, second, length
+
+
 def duplication_entries(root: Path, source_files: list[Path]) -> list[dict[str, Any]]:
-    """Find maximal Lizard-normalized cross-file clones from the canonical manifest."""
+    """Find maximal Lizard-normalized cross-file clones, each decided by its own file pair only."""
     extension = LizardExtension()
     analyzer = FileAnalyzer([extension])
     fileinfos = [analyzer(str(root / relative)) for relative in source_files]
     list(extension.cross_file_process(fileinfos))
     boundaries = [offset for offset, _ in extension.fileinfos]
-    finder = DuplicateFinder(
-        extension.nodes,
-        boundaries,
-        min_duplicate_tokens=MIN_DUPLICATE_TOKENS,
-        sample_size=NestingStackWithUnifiedTokens.SAMPLE_SIZE,
-    )
+    hashes = [node.hash for node in extension.nodes]
+    file_of = [bisect_right(boundaries, index) - 1 for index in range(len(hashes))]
     clones: dict[str, dict[tuple[str, int], int]] = defaultdict(dict)
-    for ranges in finder.find_start_and_ends():
-        locations: list[tuple[str, int, int]] = []
-        for start, end in ranges:
-            file_index = bisect_right(boundaries, start) - 1
+    sample = NestingStackWithUnifiedTokens.SAMPLE_SIZE
+    for first, second, run in pair_clone_runs(hashes, file_of):
+        length = run + sample - 1
+        fingerprint = duplicate_fingerprint(hashes[first : first + run])
+        for start in (first, second):
+            file_index = file_of[start]
             path = Path(extension.fileinfos[file_index][1].filename).relative_to(root).as_posix()
-            relative_start = start - boundaries[file_index]
-            locations.append((path, relative_start, end - start + NestingStackWithUnifiedTokens.SAMPLE_SIZE))
-        paths = sorted({path for path, _, _ in locations})
-        if len(paths) > 1:
-            start, end = ranges[0]
-            normalized = [
-                node.hash for node in extension.nodes[start : end + NestingStackWithUnifiedTokens.SAMPLE_SIZE]
-            ]
-            fingerprint = duplicate_fingerprint(normalized)
-            for path, relative_start, length in locations:
-                location = (path, relative_start)
-                clones[fingerprint][location] = max(clones[fingerprint].get(location, 0), length)
+            location = (path, start - boundaries[file_index])
+            clones[fingerprint][location] = max(clones[fingerprint].get(location, 0), length)
     return [
         {
             "fingerprint": fingerprint,
@@ -244,6 +265,7 @@ def duplication_entries(root: Path, source_files: list[Path]) -> list[dict[str, 
             "coveredTokens": sum(locations.values()),
         }
         for fingerprint, locations in sorted(clones.items())
+        if sum(locations.values()) >= 2 * MIN_DUPLICATE_TOKENS
     ]
 
 
@@ -478,6 +500,47 @@ def duplication_self_test(root: Path) -> None:
     )
 
 
+def fixture_token_block(seed: int, count: int = 120) -> list[str]:
+    """Return a deterministic punctuation stream whose sample windows are distinct."""
+    symbols = ["+", "*", "/", "%", "<", ">", "=", "!", "&", "|", "^", "~", ",", ";"]
+    state = seed
+    tokens: list[str] = []
+    for _ in range(count):
+        state = (state * 1103515245 + 12345) % 2**31
+        tokens.append(symbols[(state >> 8) % len(symbols)])
+    return tokens
+
+
+def write_token_fixture(path: Path, tokens: list[str]) -> None:
+    """Write the chosen token stream."""
+    path.write_text(" ".join(tokens) + "\n", encoding="utf-8")
+
+
+def duplication_stability_self_test(root: Path) -> None:
+    """A clone between two fixed files must not depend on the content or order of a third file."""
+    shared, middle = fixture_token_block(1, 100), fixture_token_block(5, 60)
+    fillers = [fixture_token_block(10 + index, 40) for index in range(6)]
+    write_token_fixture(root / "a.py", [*fillers[0], *shared, *fillers[1], *middle, *fillers[2], *shared, *fillers[3]])
+    write_token_fixture(root / "b.py", [*fillers[4], *shared, *fillers[5], *middle, *fillers[1], *shared, *fillers[0]])
+    files = [Path("a.py"), Path("b.py"), Path("c.py")]
+    expected = {str(entry["fingerprint"]) for entry in duplication_entries(root, files[:2])}
+    require_self_test(bool(expected), "stability fixture clone")
+    variants = {
+        "unrelated": fixture_token_block(2, 120),
+        "head fragment": [*fixture_token_block(3, 10), *shared[:50], *fixture_token_block(4, 10)],
+        "middle fragment": [*fixture_token_block(3, 10), *shared[30:70], *fixture_token_block(4, 10)],
+        "tail fragment": [*fixture_token_block(3, 10), *shared[50:], *fixture_token_block(4, 10)],
+        "full copy": shared,
+        "no third file": [],
+    }
+    orders = ([2, 0, 1], [0, 2, 1], [0, 1, 2])
+    for name, tokens in variants.items():
+        write_token_fixture(root / "c.py", tokens)
+        for order in orders:
+            found = {str(entry["fingerprint"]) for entry in duplication_entries(root, [files[i] for i in order])}
+            require_self_test(expected <= found, f"clone between fixed files independent of third file ({name})")
+
+
 def self_test() -> int:
     """Exercise every repository quality-gate boundary in disposable fixtures."""
     try:
@@ -488,6 +551,8 @@ def self_test() -> int:
             lizard_boundary_self_test(root)
         with tempfile.TemporaryDirectory(prefix="open-lola-duplication-") as temporary:
             duplication_self_test(Path(temporary))
+        with tempfile.TemporaryDirectory(prefix="open-lola-duplication-stability-") as temporary:
+            duplication_stability_self_test(Path(temporary))
     except SelfTestFailure as error:
         print(f"code-quality self-test failed: {error}")
         return 1

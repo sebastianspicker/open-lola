@@ -41,12 +41,24 @@ negotiated `bytesperline`. Short rows, truncated frames, zero-byte buffers,
 out-of-range buffer indices, and buffers carrying `V4L2_BUF_FLAG_ERROR` are all
 rejected.
 
+## Choosing the camera format
+
+The station requests one exact device, size, frame rate and pixel format and
+does not negotiate another (decision D-14). The defaults are `/dev/video0` and
+1280x720 `GREY` at 60 fps; most webcams offer something else. List what the
+camera really offers with `v4l2-ctl --device /dev/video0 --list-formats-ext` or
+`rusty-lola devices` (`video.devices[].formats`), then set `--width`,
+`--height`, `--fps` and `--pixel-format` (connect/listen), or the settings keys
+`video.width`, `video.height`, `video.fps`, `video.pixel_format` and
+`video.device`. When the driver answers with a different format, the error now
+lists the formats the device offers.
+
 ## Deterministic and virtual-device checks
 
 The repository tests do not require a camera. From the repository root, run:
 
 ```bash
-CARGO_TARGET_DIR=/private/tmp/open-lola-rust-build \
+CARGO_TARGET_DIR="${TMPDIR:-/tmp}/open-lola-rust-build" \
   cargo test --manifest-path runtimes/rust-station/Cargo.toml \
   --no-default-features video::v4l2 --lib
 ```
@@ -71,7 +83,7 @@ ffmpeg -re -f lavfi -i testsrc2=size=640x480:rate=30 \
 With FFmpeg still running, inventory the node:
 
 ```bash
-CARGO_TARGET_DIR=/private/tmp/open-lola-rust-build \
+CARGO_TARGET_DIR="${TMPDIR:-/tmp}/open-lola-rust-build" \
   cargo run --manifest-path runtimes/rust-station/Cargo.toml \
   --no-default-features -- devices
 

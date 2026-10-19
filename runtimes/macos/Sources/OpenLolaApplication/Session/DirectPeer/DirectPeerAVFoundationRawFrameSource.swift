@@ -234,7 +234,18 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
         if let selected = device.formats.first(where: { formatMatchesRequest($0, requestedRate) }) {
             return selected
         }
-        throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("requested video format unavailable")
+        let offered = device.formats
+            .filter { supportsFrameRate($0, requestedRate) }
+            .map { avFoundationFormatDescription($0) }
+            .map { (width: $0.width, height: $0.height) }
+        throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed(
+            directPeerUnavailableVideoFormatMessage(
+                width: configuration.videoWidth,
+                height: configuration.videoHeight,
+                frameRate: configuration.videoFrameRate,
+                offered: offered
+            )
+        )
     }
 
     private func formatMatchesRequest(_ format: AVCaptureDevice.Format, _ requestedRate: Double) -> Bool {
@@ -402,4 +413,21 @@ func directPeerNormalizedVideoPixelFormat(_ pixelFormat: String) -> String {
 
 func directPeerVideoBytesPerPixel(_ pixelFormat: String) -> Int {
     videoBytesPerPixel(for: pixelFormat)
+}
+
+/// Names the requested capture size and the sizes the camera offers at that rate, so the operator can pick one.
+func directPeerUnavailableVideoFormatMessage(
+    width: Int,
+    height: Int,
+    frameRate: Int,
+    offered: [(width: Int, height: Int)]
+) -> String {
+    var seen = Set<String>()
+    let sizes = offered
+        .map { "\($0.width)x\($0.height)" }
+        .filter { seen.insert($0).inserted }
+    let listed = sizes.isEmpty ? "none" : sizes.prefix(12).joined(separator: ", ")
+    return "requested video format \(width)x\(height)@\(frameRate) unavailable; "
+        + "this camera offers at \(frameRate) fps: \(listed). "
+        + "Pick one of these that fits the video packet budget (see docs/running-a-session.md)."
 }

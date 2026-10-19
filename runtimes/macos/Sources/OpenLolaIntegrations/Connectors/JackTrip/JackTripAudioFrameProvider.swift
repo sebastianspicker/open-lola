@@ -112,7 +112,12 @@ final class JackTripSessionAudioFrameProvider: JackTripAudioFrameProviding, Jack
     init(configuration: ExternalConnectorSessionConfiguration) throws {
         self.configuration = configuration
         self.source = try Self.source(configuration)
-        self.report = Self.providerReport(source)
+        let fallbackNotes = configuration.jackTrip.audioBackend == .jackGraph
+            ? ""
+            : announceExternalConnectorMediaFallbackWarnings(
+                [externalConnectorAudioCaptureFallbackWarning(configuration)].compactMap { $0 }
+            )
+        self.report = Self.providerReport(source, fallbackNotes: fallbackNotes)
     }
 
     var providerReport: ExternalConnectorMediaProviderReport { report }
@@ -208,7 +213,7 @@ final class JackTripSessionAudioFrameProvider: JackTripAudioFrameProviding, Jack
         }
     }
 
-    private static func providerReport(_ source: Source) -> ExternalConnectorMediaProviderReport {
+    private static func providerReport(_ source: Source, fallbackNotes: String) -> ExternalConnectorMediaProviderReport {
         let audioSource: String
         let evidence: [ExternalConnectorEvidenceClass]
         switch source {
@@ -230,7 +235,7 @@ final class JackTripSessionAudioFrameProvider: JackTripAudioFrameProviding, Jack
             "JACK graph backend selected. Dry runs use deterministic local frames; "
                 + "measured runs require local JACK graph capture evidence."
         default:
-            "JackTrip public session audio provider selection for DEFAULT UDP packetization."
+            "JackTrip public session audio provider selection for DEFAULT UDP packetization." + fallbackNotes
         }
         return ExternalConnectorMediaProviderReport(
             audioSource: audioSource,

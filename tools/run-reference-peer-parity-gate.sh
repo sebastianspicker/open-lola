@@ -7,7 +7,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "$repo_root/tools/lib/common.sh"
 
-output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-reference-peer-parity-$$}}"
+output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/open-lola-reference-peer-parity.XXXXXX")}}"
 connector="${2:-${OPEN_LOLA_REFERENCE_PARITY_CONNECTOR:-all}}"
 open_lola_bin="${OPEN_LOLA_BIN:-$(open_lola_default_cli_binary)}"
 peer_host="${OPEN_LOLA_REFERENCE_PEER_HOST:-}"

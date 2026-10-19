@@ -24,7 +24,7 @@ extension AppExecutionController {
                 self?.finishValidation(exitCode: exitCode)
             }
         } catch {
-            lastError = String(describing: error)
+            lastError = AppRunFailureMessage.describe(error)
             status = "Validation unavailable."
             phase = .validationFailed
         }
@@ -45,7 +45,7 @@ extension AppExecutionController {
                 self?.finishValidation(exitCode: exitCode)
             }
         } catch {
-            lastError = String(describing: error)
+            lastError = AppRunFailureMessage.describe(error)
             status = "Validation unavailable."
             phase = .validationFailed
         }

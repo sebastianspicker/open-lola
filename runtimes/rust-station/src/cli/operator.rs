@@ -1,14 +1,18 @@
 //! Explicit operator-facing connect/listen command mapping.
 
+use super::interrupt::{self, CancelWatcher};
+use super::notices;
+use super::report;
+use super::route;
 use super::{CliAudioBackend, CliVideoBackend};
 use crate::config::{default_settings, load_settings, StationSettings};
 use crate::station::{
-    apply_profile_to_settings, load_session_input, run_session, SessionConfig, SessionOptions,
-    SessionResult, SessionRuntime,
+    apply_profile_to_settings, load_session_input, run_session, SessionConfig, SessionHandle,
+    SessionOptions, SessionResult, SessionRuntime, SessionRuntimeControl,
 };
 use clap::{Args, ValueEnum};
 use std::path::PathBuf;
-use std::{thread, time::Duration};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum CliPeerMode {
@@ -26,6 +30,9 @@ impl CliPeerMode {
         }
     }
 }
+
+const INTERRUPT_POLL: Duration = Duration::from_millis(50);
+const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Shared operator controls for a direct LoLa initiator or responder.
 #[derive(Args, Debug, Clone)]
@@ -70,6 +77,8 @@ pub struct OperatorSessionArgs {
     packet_size: Option<u32>,
     #[arg(long)]
     control_dialect: Option<String>,
+    /// Seconds allowed for negotiation only; it does not limit the stream (use
+    /// --duration, or --continuous with --duration, for that).
     #[arg(long, default_value_t = 5.0)]
     timeout: f64,
     #[arg(long, default_value_t = 3)]
@@ -80,6 +89,12 @@ pub struct OperatorSessionArgs {
     /// through SessionRuntime after that bounded interval.
     #[arg(long)]
     continuous: bool,
+    /// Record the session's audio and video under this directory.
+    #[arg(long)]
+    record: Option<PathBuf>,
+    /// Also write the result JSON to this file.
+    #[arg(long)]
+    report: Option<PathBuf>,
     #[arg(long)]
     settings: Option<PathBuf>,
     /// Open-Lola JSON session or documented recoverable LastSsn `.ssn` input.
@@ -121,15 +136,11 @@ pub(super) fn run_operator_command(
             }
         };
     settings = apply_operator_overrides(settings, remote_ip, &args);
-    if let Some(dialect) = &args.control_dialect {
-        match serde_json::from_value(serde_json::json!(dialect)) {
-            Ok(value) => settings.network.control_dialect = value,
-            Err(error) => {
-                eprintln!("invalid control dialect: {error}");
-                return 2;
-            }
-        }
+    if let Err(error) = apply_control_dialect(&mut settings, args.control_dialect.as_deref()) {
+        eprintln!("invalid control dialect: {error}");
+        return 2;
     }
+    route::apply_route_local_ip(&mut settings, args.local_ip.is_some());
     if let Err(error) = settings.validate() {
         eprintln!("invalid settings: {error}");
         return 2;
@@ -138,23 +149,45 @@ pub(super) fn run_operator_command(
         eprintln!("timeout must be finite and between 0.001 and 86400 seconds");
         return 2;
     }
-    let options = match session_options(&args, peer_mode, &settings) {
+    let mut options = match session_options(&args, peer_mode, &settings) {
         Ok(options) => options,
         Err(error) => {
             eprintln!("operator options error: {error}");
             return 2;
         }
     };
+    if let Some(notice) = notices::synthetic_media_notice(
+        report::command_name(peer_mode),
+        settings.audio.backend,
+        settings.video.backend,
+    ) {
+        eprintln!("{notice}");
+    }
+    interrupt::install();
     let result = if args.continuous {
         run_continuous(settings, args.timeout, args.duration, options)
     } else {
+        let control = SessionRuntimeControl::default();
+        options.runtime_control = Some(control.clone());
+        let _watcher = CancelWatcher::spawn(control, interrupt::interrupted);
         run_session(settings, args.timeout, options)
     };
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&result.to_json()).unwrap()
-    );
-    i32::from(!result.ok)
+    report::finish_run(
+        report::command_name(peer_mode),
+        result,
+        args.report.as_deref(),
+    )
+}
+
+fn apply_control_dialect(
+    settings: &mut StationSettings,
+    dialect: Option<&str>,
+) -> Result<(), String> {
+    if let Some(dialect) = dialect {
+        settings.network.control_dialect = serde_json::from_value(serde_json::json!(dialect))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn apply_operator_overrides(
@@ -165,6 +198,10 @@ fn apply_operator_overrides(
     apply_network_overrides(&mut settings, remote_ip, args);
     apply_audio_overrides(&mut settings, args);
     apply_video_overrides(&mut settings, args);
+    if let Some(directory) = args.record.as_ref() {
+        settings.recording.enabled = true;
+        settings.recording.path = directory.display().to_string();
+    }
     settings
 }
 
@@ -298,6 +335,11 @@ fn base_session_options(
     options.camera_backend = settings.video.backend;
     options.audio_backend = settings.audio.backend;
     options.audio_only = args.audio_only;
+    options.record = settings.recording.enabled;
+    options.record_dir = settings
+        .recording
+        .enabled
+        .then(|| PathBuf::from(&settings.recording.path));
     options.max_stream_width = settings.video.width;
     options.max_stream_height = settings.video.height;
     options.use_catalog_geometry = settings.video.backend == crate::config::VideoBackend::Ximea;
@@ -331,6 +373,27 @@ fn ensure_stream_enabled(options: &SessionOptions) -> Result<(), String> {
         return Err("at least one stream direction must be enabled".into());
     }
     Ok(())
+}
+
+/// Wait for the session to end on its own, the duration to elapse, or an interrupt.
+fn wait_for_end_or_interrupt(handle: &SessionHandle, duration: Duration) {
+    let started = Instant::now();
+    let deadline = started + duration;
+    let mut next_progress = started + PROGRESS_INTERVAL;
+    while !interrupt::interrupted() {
+        let slice = (Instant::now() + INTERRUPT_POLL).min(deadline);
+        if handle.wait_inactive_until(slice) || slice >= deadline {
+            return;
+        }
+        if Instant::now() >= next_progress {
+            next_progress += PROGRESS_INTERVAL;
+            let counters = handle.snapshot().counters;
+            eprintln!(
+                "{}",
+                report::progress_line(&counters, started.elapsed().as_secs())
+            );
+        }
+    }
 }
 
 fn run_continuous(
@@ -368,7 +431,7 @@ fn run_continuous(
             }
         }
     };
-    thread::sleep(Duration::from_secs_f64(duration));
+    wait_for_end_or_interrupt(&handle, Duration::from_secs_f64(duration));
     handle.stop();
     let snapshot = handle.wait();
     snapshot.result.unwrap_or_else(|| SessionResult {
@@ -379,3 +442,67 @@ fn run_continuous(
         ..Default::default()
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::{Cli, Commands};
+    use clap::Parser;
+
+    pub(super) fn listen_args(extra: &[&str]) -> OperatorSessionArgs {
+        let argv = ["rusty-lola", "listen"]
+            .into_iter()
+            .chain(extra.iter().copied());
+        match Cli::try_parse_from(argv).expect("parse listen").cmd {
+            Some(Commands::Listen { options, .. }) => options,
+            _ => panic!("expected listen"),
+        }
+    }
+
+    #[test]
+    fn record_and_report_flags_parse_and_map_onto_session_options() {
+        let args = listen_args(&["--record", "/rec/dir", "--report", "/out/run.json"]);
+        assert_eq!(
+            args.report.as_deref(),
+            Some(std::path::Path::new("/out/run.json"))
+        );
+        let settings = apply_operator_overrides(default_settings(), None, &args);
+        let options = session_options(&args, "listen", &settings).unwrap();
+        assert!(options.record);
+        assert_eq!(
+            options.record_dir.as_deref(),
+            Some(std::path::Path::new("/rec/dir"))
+        );
+    }
+
+    #[test]
+    fn recording_is_off_without_the_flag_and_follows_enabled_settings() {
+        let args = listen_args(&[]);
+        let options = session_options(&args, "listen", &default_settings()).unwrap();
+        assert!(!options.record);
+        assert!(options.record_dir.is_none());
+        let mut settings = default_settings();
+        settings.recording.enabled = true;
+        settings.recording.path = "/from/settings".into();
+        let options = session_options(&args, "listen", &settings).unwrap();
+        assert!(options.record);
+        assert_eq!(
+            options.record_dir.as_deref(),
+            Some(std::path::Path::new("/from/settings"))
+        );
+    }
+
+    #[test]
+    fn continuous_run_returns_when_the_session_ends_before_the_duration() {
+        let mut options = SessionOptions::demo();
+        options.peer_mode = "no-such-peer-mode".into();
+        let started = Instant::now();
+        let result = run_continuous(default_settings(), 1.0, Some(30.0), options);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(!result.ok);
+    }
+}
+
+#[cfg(test)]
+#[path = "operator_tests.rs"]
+mod flag_tests;

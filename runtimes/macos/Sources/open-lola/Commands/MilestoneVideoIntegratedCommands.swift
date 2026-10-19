@@ -39,7 +39,7 @@ private func handleMilestoneVideoCaptureCommand(_ arguments: [String]) throws ->
 private func handleMilestoneVideoTransportCommand(_ arguments: [String]) throws -> Bool {
     switch arguments {
     case ["video-transport-synthetic-smoke"]:
-        let report = try VideoTransportSyntheticSmoke.run()
+        let report = try runAtUserInitiatedQoS { try VideoTransportSyntheticSmoke.run() }
         try printValidatedJSONReport(report)
     case let args where args.first == "video-transport-run":
         try runVideoTransportCommand(args)
@@ -91,7 +91,7 @@ private func runVideoCaptureCommand(_ args: [String]) throws {
 
 private func runVideoTransportCommand(_ args: [String]) throws {
     let configuration = try VideoTransportRunConfiguration.parse(Array(args.dropFirst()))
-    let report = try VideoTransportRunner.run(configuration: configuration)
+    let report = try runAtUserInitiatedQoS { try VideoTransportRunner.run(configuration: configuration) }
     try writeValidatedReport(report, to: configuration.outputPath)
     print("video transport report written: \(configuration.outputPath)")
     print("frames-sent: \(report.transmitted.framesSent)")

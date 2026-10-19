@@ -7,7 +7,9 @@ import OpenLolaMediaPlatform
 import Darwin
 
 func shouldBindLoLaTransmitControlPort(_ configuration: ExternalConnectorSessionConfiguration) -> Bool {
-    guard configuration.connector == .lola, configuration.role.transmits, !configuration.peer.isEmpty else {
+    guard configuration.connector == .lola,
+          configuration.effectiveLoLaControlSide == .initiator,
+          !configuration.peer.isEmpty else {
         return false
     }
     if configuration.localHost != "0.0.0.0", configuration.localHost == configuration.peer {

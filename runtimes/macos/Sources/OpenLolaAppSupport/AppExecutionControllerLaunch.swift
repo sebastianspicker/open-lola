@@ -19,7 +19,6 @@ extension AppExecutionController {
         lastCommand = []
         do {
             settings.execute = execute
-            settings.requirePreflight = true
             executionKind = .directMacPeer
             externalConnectorReportPath = nil
             let arguments = try settings.supervisorArguments(
@@ -33,7 +32,7 @@ extension AppExecutionController {
             )
             return true
         } catch {
-            let startError = String(describing: error)
+            let startError = AppRunFailureMessage.describe(error)
             lastError = startError
             status = "Run failed to start."
             phase = .failedToStart
@@ -52,6 +51,10 @@ extension AppExecutionController {
         lastCommand = []
         do {
             let request = try launchRequest(operatorSurface: operatorSurface, execute: execute)
+            if let preflightArguments = try connectionPreflightArguments(operatorSurface: operatorSurface, execute: execute) {
+                try runConnectionPreflight(arguments: preflightArguments, request: request, execute: execute)
+                return true
+            }
             try launchProcess(
                 arguments: request.arguments,
                 execute: execute,
@@ -60,7 +63,7 @@ extension AppExecutionController {
             )
             return true
         } catch {
-            let startError = String(describing: error)
+            let startError = AppRunFailureMessage.describe(error)
             lastError = startError
             status = "Run failed to start."
             phase = .failedToStart
@@ -98,7 +101,6 @@ extension AppExecutionController {
             operatorSurface.directPeerCommandFields.executablePath
         )
         settings.execute = execute
-        settings.requirePreflight = true
         executionKind = .directMacPeer
         externalConnectorReportPath = nil
         return AppLaunchRequest(
@@ -198,6 +200,14 @@ extension AppExecutionController {
         finished.closeOutputHandles()
         process = nil
         finishReport(stopRequested: wasStopRequested)
+        // Set after finishReport so nothing recorded while finishing replaces the failure explanation.
+        if !wasStopRequested, finished.terminationStatus != 0 {
+            recordError(AppRunFailureMessage.make(
+                exitCode: finished.terminationStatus,
+                stderrTail: AppRunFailureMessage.stderrTail(atPath: stderrPath),
+                stderrPath: stderrPath
+            ))
+        }
     }
     func finishedStatus(_ exitCode: Int32, stopRequested: Bool) -> String {
         if stopRequested {
@@ -254,7 +264,7 @@ extension AppExecutionController {
         lastValidationFinishedAt = nil
     }
 
-    private func startManagedProcess(
+    func startManagedProcess(
         arguments: [String],
         terminationHandler: @escaping @Sendable (ManagedProcess) -> Void
     ) throws -> ManagedProcess {

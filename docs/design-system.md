@@ -106,9 +106,10 @@ The implementation is SwiftUI/AppKit presentation over existing application
 controllers. Generated references guide composition; generated text, controls,
 room images, and invented measurements are not runtime assets.
 
-`OpenLolaAppSupportTests` checks navigation, start prerequisites, contrast, and
-optional deterministic rendering. Set `OPEN_LOLA_UI_RENDER_DIR` to an absolute
-external directory when running its screenshot tests to produce offline PNGs.
-Those images exercise the actual view hierarchy with isolated synthetic state.
-They do not prove live capture, peer exchange, physical latency, VoiceOver
+The start-gate policy and the run-failure message text are covered by a test
+suite whose sources are not published. No test
+renders views, checks contrast or navigation, or reads `OPEN_LOLA_UI_RENDER_DIR`.
+Verify layout, contrast and navigation by hand in the running app with synthetic
+state, and keep any screenshots outside the repository.
+Neither the tests nor that manual pass prove live capture, peer exchange, physical latency, VoiceOver
 usability, signing, distribution, or hardware interoperability.

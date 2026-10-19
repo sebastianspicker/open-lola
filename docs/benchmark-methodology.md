@@ -75,6 +75,54 @@ The budget model is in [latency-budget.md](latency-budget.md), profile policy in
 [latency-profiles.md](latency-profiles.md), and test commands in
 [testing.md](testing.md).
 
+## E2E aggregate measurement sources
+
+`e2e-benchmark-run` copies each field from a measured input or leaves it nil
+("not measured"); a nil gating field withholds PASS and is named in the notes.
+
+`direct-p2p-session-run` (audio-only and audio-video) now records two optional
+report blocks:
+
+- `resources`: CPU p50/p99/max and peak resident memory of the peer process.
+  A utility-QoS timer samples every 250 ms, never on an audio thread. CPU is
+  the `getrusage` user+system delta over the wall delta times active cores
+  (0–100 % of the machine). Memory is `MACH_TASK_BASIC_INFO` resident size,
+  in MiB. Up to 4,096 samples are kept for percentiles; max and peak cover the
+  whole run. The newest sample also fills the CPU and memory fields of the
+  peer metrics messages, so the remote values in the report are real.
+- `host`: machine model (`sysctl hw.model`), chip (`machdep.cpu.brand_string`)
+  and macOS version of the peer. It carries no host name, user name, serial
+  number or address.
+- `mediaTraffic`: UDP payload bytes sent and received on the audio and video
+  transports, the wall duration, and reordered and duplicate packets. A packet
+  is reordered when its sequence number is below the highest seen on its
+  stream and it is not a duplicate. It is a duplicate when that number already
+  arrived within a 256-packet bitmap window. AES67 RTP audio carries no
+  transport sequence number, so with `--audio-transport aes67-st2110-l24` both
+  order counters stay nil.
+
+Pass the session reports to `e2e-benchmark-run` with `--source-session <path>`
+and `--receiver-session <path>`, both optional. With them, the direct profile
+rows get:
+
+- throughput: the busiest one-way rate, bytes × 8 ÷ duration, in Mbit/s;
+- reordered and duplicate packets: summed over the sessions, and nil unless
+  every session counted them;
+- CPU p99 and resident memory: the maximum across the sessions and the other
+  inputs.
+
+The WAN row keeps throughput and packet order nil. The `host` block of the
+receiver session fills the receiver-peer model, chip and OS version, and the
+source session's `host` replaces the source-peer values taken from the other
+inputs. Receiver-peer fields stay `unknown` without a receiver session report
+(or with one written before `host` existed). Without session reports, the
+output is unchanged.
+
+No source exists yet for GPU load, impairment runs (no link injector; dummynet
+needs root), reconnect timing (no reconnect drill), receive-to-render latency,
+cue timing, or WAN. Those fields stay nil, so an aggregate run cannot reach
+PASS.
+
 
 ## Reproducible optimization comparisons
 
@@ -208,14 +256,15 @@ identical outputs are the stronger evidence.
 
 The Swift packetization benchmark uses seed 14921, 50 warmup iterations,
 11 samples, and 1,000 iterations per sample at two channels or 400 at 64.
-Both use float32, 32 frames, and MTU 1200. Run the prepared and public APIs in
-the same final binary to reduce cross-build timing confounds:
+Both use float32, 32 frames, and MTU 1200. The prepared and public APIs ran in
+the same final binary to reduce cross-build timing confounds.
 
-```bash
-OPEN_LOLA_PACKETIZATION_BENCHMARK_OUTPUT=/private/tmp/open-lola-packetization.json \
-  swift test --disable-sandbox --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter packetizationOptimizationBenchmark
-```
+The Swift benchmark tests behind these figures (including
+`packetizationOptimizationBenchmark` and its
+`OPEN_LOLA_PACKETIZATION_BENCHMARK_OUTPUT` variable) are not part of the
+repository's test targets, so there is no command in this tree that reruns them.
+Treat the Swift tables as recorded results. A rerun needs a harness restored
+from the snapshot that produced them.
 
 | Channels and API | Median us | p95 us | SD us |
 |---|---|---|---|
@@ -256,14 +305,10 @@ counts and per-operation peak memory were not measured.
 The release-mode reassembly/eager-packetization harness uses seed
 `0x4c4f4c4132303236`, 15 measured repetitions, three warmups for ordinary
 reassembly/video, and two for maximum-fragment reassembly. The same harness
-source runs against both source snapshots. Retain a copy of this test in the
-before-edit snapshot when reproducing the comparison:
-
-```bash
-cargo test --release --test optimization_benchmark \
-  rust_hot_path_benchmarks -- --ignored --nocapture --test-threads=1 \
-  > /private/tmp/open-lola-rust-benchmark.log
-```
+source ran against both source snapshots. That harness
+(`tests/optimization_benchmark.rs`, test `rust_hot_path_benchmarks`) is not in
+this repository, so the table below is a recorded result and cannot be rerun
+from this tree; restore the harness from the snapshot that produced it first.
 
 Each ordinary reassembly sample processes three 1-MiB frames with 768 fragments;
 each maximum-fragment sample processes one frame of 16,384 one-byte fragments.
@@ -373,41 +418,17 @@ selected the captured baseline with `--source-root` and repeated against the
 candidate tree with the same interpreter. That command retired with the
 connector, so its recorded results remain historical comparisons.
 
-Run Swift measurements separately to avoid the test runner executing different
-workloads concurrently. Build once in release mode before using `--skip-build`:
+The Swift benchmark tests and the `optimization_benchmark`,
+`audio_optimization_benchmark` and `jpeg_optimization_benchmark` Rust integration
+tests that produced the recorded figures below are not in this repository
+(test sources are not published), so their
+`--filter` names and `OPEN_LOLA_*_BENCHMARK_OUTPUT` / `RUSTY_LOLA_AUDIO_BENCHMARK_OUTPUT`
+/ `RUSTY_LOLA_JPEG_BENCHMARK_OUTPUT` variables do not select anything here.
+
+The opt-in Rust measurements that do exist are ignored library tests. The output
+variables select external files. Manual check, run separately from other load:
 
 ```bash
-swift test -c release --disable-sandbox --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter resamplingMatchesDirtyBaseline
-OPEN_LOLA_RESAMPLING_BENCHMARK_OUTPUT="$EVIDENCE_DIR/resampling.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter resamplingOptimizationBenchmark
-OPEN_LOLA_PLAYOUT_BENCHMARK_OUTPUT="$EVIDENCE_DIR/playout.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter playoutBufferingOptimizationBenchmark
-OPEN_LOLA_PACKETIZATION_BENCHMARK_OUTPUT="$EVIDENCE_DIR/packetization.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter packetizationOptimizationBenchmark
-cargo test --release --no-default-features --test optimization_benchmark \
-  -- --ignored --nocapture --test-threads=1
-```
-
-The other isolated Swift workloads and Rust measurements use these opt-in
-entry points (the output variables select external files):
-
-```bash
-OPEN_LOLA_DATAGRAM_BENCHMARK_OUTPUT="$EVIDENCE_DIR/datagrams.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter datagramHotPathOptimizationBenchmark
-OPEN_LOLA_SESSION_BENCHMARK_OUTPUT="$EVIDENCE_DIR/session.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter sessionHotPathOptimizationBenchmark
-RUSTY_LOLA_AUDIO_BENCHMARK_OUTPUT="$EVIDENCE_DIR/audio.json" \
-  cargo test --release --test audio_optimization_benchmark \
-  -- --ignored --nocapture --test-threads=1
-RUSTY_LOLA_JPEG_BENCHMARK_OUTPUT="$EVIDENCE_DIR/jpeg.json" \
-  cargo test --release --test jpeg_optimization_benchmark \
-  -- --ignored --nocapture --test-threads=1
 RUSTY_LOLA_INTERNAL_AUDIO_BENCHMARK_OUTPUT="$EVIDENCE_DIR/audio-writer.json" \
   cargo test --release --lib reusable_audio_writer_has_zero_steady_state_allocations \
   -- --ignored --nocapture --test-threads=1

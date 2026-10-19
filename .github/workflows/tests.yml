@@ -87,9 +87,20 @@ jobs:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Reject Swift compiler warnings
-        run: make swift-build SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
-      - name: Run Swift regression tests
-        run: make swift-test SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
+        run: make swift-build OPEN_LOLA_SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
+      - name: Build Swift package (tests run only where test sources are present)
+        run: make swift-test OPEN_LOLA_SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
+
+  release-export:
+    name: Release export and hygiene
+    runs-on: macos-26
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Export a source candidate and run the release hygiene scan
+        run: |
+          mkdir -p "$RUNNER_TEMP/open-lola-release"
+          bash tools/export-release-candidate.sh "$RUNNER_TEMP/open-lola-release"
 
   rust:
     runs-on: ubuntu-24.04

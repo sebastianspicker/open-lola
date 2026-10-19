@@ -36,6 +36,7 @@ extension ExternalConnectorSessionConfiguration {
         "--dry-run",
         "--media",
         "--control-transport",
+        "--lola-control-side",
         "--duration-seconds",
         "--control-port",
         "--audio-port",
@@ -91,6 +92,7 @@ extension ExternalConnectorSessionConfiguration {
     ])
 
     private static let loLaControlOnlyArguments = Set([
+        "--lola-control-side",
         "--video-compression",
         "--video-bayer"
     ])
@@ -174,6 +176,7 @@ private struct ExternalConnectorSessionParsedOptions {
     var outputPath: String
     var dryRun: Bool
     var durationSeconds: Int
+    var lolaControlSide: LoLaControlSide?
     var controlPort: UInt16?
     var audioPort: UInt16?
     var peerAudioPort: UInt16?
@@ -198,7 +201,7 @@ private static func makeExternalConnectorSessionConfiguration(
 _ input: ExternalConnectorSessionInput
 ) throws -> ExternalConnectorSessionConfiguration {
 let values = input.values
-let options = try parseExternalConnectorSessionParsedOptions(values)
+let options = try parseExternalConnectorSessionParsedOptions(values, connector: input.connector)
 let configuration = ExternalConnectorSessionConfiguration(.init(
 connector: input.connector,
 role: input.role,
@@ -211,6 +214,7 @@ config.videoExecutable = values["--video-executable"]
 config.dryRun = options.dryRun
 config.mediaMode = input.mediaMode
 config.controlTransport = input.controlTransport
+config.lolaControlSide = options.lolaControlSide
 config.durationSeconds = options.durationSeconds
 config.controlPort = options.controlPort
 config.audioPort = options.audioPort
@@ -255,13 +259,15 @@ return configuration
 }
 
 private static func parseExternalConnectorSessionParsedOptions(
-_ values: [String: String]
+_ values: [String: String],
+connector: ExternalConnectorKind
 ) throws -> ExternalConnectorSessionParsedOptions {
-let media = try parseExternalConnectorMediaOptionValues(values)
+let media = try parseExternalConnectorMediaOptionValues(values, defaults: .defaults(for: connector))
 return ExternalConnectorSessionParsedOptions(
 outputPath: try requiredExternalConnectorValue("--output", values),
 dryRun: try optionalExternalConnectorBoolean("--dry-run", values) ?? true,
 durationSeconds: media.durationSeconds,
+lolaControlSide: try values["--lola-control-side"].map(parseLoLaControlSide),
 controlPort: try optionalExternalConnectorPort("--control-port", values),
 audioPort: try optionalExternalConnectorPort("--audio-port", values),
 peerAudioPort: try optionalExternalConnectorPort("--peer-audio-port", values),

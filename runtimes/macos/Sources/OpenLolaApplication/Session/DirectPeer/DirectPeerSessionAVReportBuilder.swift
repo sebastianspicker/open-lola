@@ -10,10 +10,11 @@ func buildAVReport(
     configuration: DirectPeerSessionAVRunConfiguration,
     runner: PeerSessionRunner,
     control: DirectPeerSessionControlSocket,
-    runtime: DirectPeerSessionAVRuntimeResult
+    runtime: DirectPeerSessionAVRuntimeResult,
+    resourceRecorder: DirectPeerSessionResourceRecorder
 ) throws -> DirectPeerSessionReport {
     try writeAoIPSDPIfNeeded(configuration)
-    let report = DirectPeerSessionReport(
+    var report = DirectPeerSessionReport(
         id: "m06-direct-p2p-av-\(configuration.avProfile.rawValue)-"
             + "\(configuration.manual.role.rawValue)-\(Int(Date().timeIntervalSince1970))",
         capturedAt: ISO8601DateFormatter().string(from: Date()),
@@ -25,6 +26,13 @@ func buildAVReport(
         avRuntime: try avRuntimeMetadata(for: configuration, runtime: runtime),
         verdict: .partial,
         notes: avReportNotes(for: configuration)
+    )
+    // AES67 RTP audio arrives as raw datagrams without transport sequence tracking, so order counters would
+    // cover only video and are left unmeasured.
+    resourceRecorder.finish(
+        &report,
+        runner: runner,
+        sequenceNumbersCoverReceivedMedia: configuration.audioTransport != .aes67ST2110L24
     )
     try report.validate()
     return report

@@ -76,7 +76,7 @@ if result.returncode != 0:
 PY
 }
 
-# Resolve an explicit evidence directory or create a process-specific temporary default.
+# Resolve an explicit evidence directory or create a private, unpredictable temporary default.
 parity_output_dir() {
   local suffix="$1"
   local explicit_dir="${2:-}"
@@ -86,7 +86,12 @@ parity_output_dir() {
     return
   fi
 
-  printf '%s\n' "${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-$suffix-$$}"
+  if [[ -n "${OPEN_LOLA_OUTPUT_DIR:-}" ]]; then
+    printf '%s\n' "$OPEN_LOLA_OUTPUT_DIR"
+    return
+  fi
+
+  mktemp -d "${TMPDIR:-/tmp}/open-lola-$suffix.XXXXXX"
 }
 
 # Run Docker in the foreground while ensuring its named container stops on exit or signal.
