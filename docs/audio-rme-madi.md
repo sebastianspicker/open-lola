@@ -1,58 +1,59 @@
 # RME MADI audio
 
-Status: Core Audio source paths implemented; physical RME evidence open
-Verdict: PARTIAL
-
-The macOS runtime uses public Core Audio APIs to enumerate devices and model
-low-latency input and output operation. RME and MADI names describe an intended
-hardware class; they are not evidence that a specific interface, driver, clocking
-topology, or channel count has passed.
+In code today: the macOS runtime reads Core Audio device properties, runs
+multichannel MADI-style send, receive, and full-duplex paths over any Core Audio
+device (`madi-*` CLI commands), and validates RME fastest-path reports. No RME
+interface, driver, or clock setup has been tested, so the hardware sections are
+design notes.
 
 ## Evidence Labels
 
-| Boundary | Label |
+| Area | Label |
 |---|---|
 | Core Audio HAL properties, `AudioDeviceIOProc`, and AUHAL | `public API` |
 | MADI channel and clock vocabulary | `public standard` |
 | Device reports, route metadata, and fastest-path validator | `original open-lola design` |
 | Accepted buffer and latency values for a named device | `experimentally derived requirement` |
 
-## Implemented source boundary
+## What the code does
 
-The media platform can read device identity, stream and channel counts, nominal
-sample rates, buffer-frame ranges, latency, safety offsets, and clock-domain
-information. Realtime and loopback code uses explicit callback ownership and
-preallocated handoff paths. Reports keep requested settings, accepted device
-settings, callback observations, route metadata, and missing evidence separate.
+The media platform reads device identity, stream and channel counts, nominal
+sample rates, buffer-frame ranges, latency, safety offsets, and clock domain.
+Realtime and loopback code gives each callback its own storage and uses
+preallocated handoff buffers. Reports keep requested settings, accepted device
+settings, callback observations, route metadata, and missing evidence apart.
 
-Device selection must use stable Core Audio identifiers rather than display names,
-and input and output devices are independent choices. A same-device or built-in
-loopback is diagnostic evidence only; it must not be described as a network or
-RME/MADI result.
+Select devices by their stable Core Audio UID, not their display name. Input and
+output are separate choices. A same-device or built-in loopback is a diagnostic
+only; never report it as a network or RME/MADI result.
 
 ## Runtime rules
 
-- Negotiate sample rate, channel count, format, and buffer size before starting
-  media.
-- Keep allocation, blocking I/O, logs, file writes, and network setup outside the
-  callback.
-- Preserve channel order explicitly across capture, packetization, receive,
-  routing, and playback.
-- Record clock source and domain and any drift correction; do not infer lock from
-  matching nominal rates.
-- Fail, or report a visible fallback, when the requested device or mode is
-  unavailable.
+- Negotiate sample rate, channel count, format, and buffer size before media
+  starts.
+- Keep allocation, blocking I/O, logging, file writes, and network setup out of
+  the callback.
+- Keep channel order fixed through capture, packetization, receive, routing, and
+  playback.
+- Record the clock source, clock domain, and any drift correction. Matching
+  nominal rates do not mean the clocks are locked.
+- If the requested device or mode is unavailable, fail or report a visible
+  fallback.
 
-## Physical validation
+## What a hardware result needs
 
-A hardware claim needs the exact interface and driver version, connection and
-clock topology, sample rate, active channel count, requested and accepted buffer
-sizes, sustained callback timing, underrun and overrun counts, loopback or
-two-peer latency, and the evidence artifacts for the same revision. The source
-tree and synthetic reports do not supply that proof.
+Record all of this for one revision:
 
-Channel routing is defined in [audio-routing.md](audio-routing.md), MADI-specific
-mapping in [rme-madi-routing.md](rme-madi-routing.md), and measurement practice in
-[benchmark-methodology.md](benchmark-methodology.md).
+- interface model and driver version;
+- connection and clock topology;
+- sample rate and active channel count;
+- requested and accepted buffer sizes;
+- sustained callback timing, underrun and overrun counts;
+- loopback or two-peer latency;
+- the report files from that run.
+
+See [audio-routing.md](audio-routing.md) for channel routing,
+[rme-madi-routing.md](rme-madi-routing.md) for MADI mapping, and
+[benchmark-methodology.md](benchmark-methodology.md) for measurement.
 
 VERDICT: PARTIAL

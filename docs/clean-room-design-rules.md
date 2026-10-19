@@ -1,75 +1,78 @@
 # Clean-room design rules
 
-Status: active interoperability and publication boundary
-Verdict: PARTIAL
-
-Open LoLa is independently implemented. Compatibility work may describe the
-minimum externally observable behavior needed to interoperate, but it must not
-copy or redistribute proprietary implementation material.
+Open LoLa is written independently. Compatibility work may describe the minimum
+externally visible behavior needed to interoperate with LoLa. It must not copy or
+redistribute proprietary implementation material.
 
 ## Evidence Labels
+
+Tag every requirement with where it came from:
 
 | Input or decision | Label |
 |---|---|
 | Published protocol, networking, media, and platform specifications | `public standard` or `public API` |
-| Independently chosen Open LoLa packet, report, UI, and session behavior | `original open-lola design` |
+| Packet, report, UI, and session behavior chosen by Open LoLa | `original open-lola design` |
 | Sanitized black-box observations needed for compatibility | `experimentally derived requirement` |
 | Unverified explanations or proposed behavior | `implementation hypothesis` |
 
-## Permitted inputs
+## Allowed inputs
 
 - public standards and public platform APIs;
-- original source, fixtures, tests, measurements, and designs created for this
-  project;
-- concise behavioral facts observed through lawful black-box operation;
-- sanitized packet dimensions, field relationships, message identifiers, and
-  state transitions that are necessary to implement compatibility; and
-- material whose contributor has verified authority to share.
+- source, fixtures, tests, measurements, and designs written for this project;
+- short behavioral facts observed through lawful black-box operation;
+- sanitized packet sizes, field relationships, message identifiers, and state
+  transitions that compatibility actually needs;
+- material the contributor has confirmed they may share.
 
-Interoperability facts must be restated in original language and reduced to a
-testable contract. The shared `interop/lola2` corpus is a synthetic
-reconstruction derived from current project code and documentation; it does not
-claim original capture provenance.
+Restate interoperability facts in your own words and reduce each one to a
+testable rule. The `interop/lola2` corpus is a synthetic reconstruction built from
+current project code and docs. It is not derived from original captures.
 
 ## Prohibited material
 
-Do not commit or publish proprietary source, copied decompiler output, binary
-excerpts, installers, DLLs, restricted manuals, license keys, activation data,
-raw private captures, confidential logs, real topology, personal data, or
-unreviewed extracted assets. Do not use proprietary symbol names or internal
-implementation structure when a behavioral description is sufficient.
+Do not commit or publish:
 
-Compatibility documentation may contain the small field names and byte
-relationships required for an independently written implementation. That is not
-permission to publish raw captures, copied templates, long binary-derived tables,
-or an analysis diary. When rights or provenance are unclear, keep the material
-outside the repository and request legal or maintainer review.
+- proprietary source, copied decompiler output, or binary excerpts;
+- installers, DLLs, restricted manuals, license keys, or activation data;
+- raw private captures, confidential logs, real network topology, or personal
+  data;
+- extracted assets that have not been reviewed.
+
+Do not use proprietary symbol names or internal structure when a description of
+the behavior is enough.
+
+Compatibility docs may name the few fields and byte relationships an independent
+implementation needs. That does not allow raw captures, copied templates, long
+tables derived from binaries, or analysis diaries. If rights or provenance are
+unclear, keep the material out of the repository and ask a maintainer or legal
+reviewer.
 
 ## Engineering rules
 
-1. Record the source class for each requirement.
-2. Convert observations into the smallest implementation-independent rule.
-3. Add positive and negative fixtures without embedding private payloads.
+1. Record the source class of each requirement.
+2. Reduce each observation to the smallest rule that does not depend on any one
+   implementation.
+3. Add positive and negative fixtures without private payloads.
 4. Keep Open LoLa's own protocol separate from LoLa compatibility behavior.
-5. Treat a passing synthetic or localhost case as evidence for that case only.
-6. Route third-party code through the vendor and notice review in
+5. A passing synthetic or localhost case is evidence for that case only.
+6. Send third-party code through the vendor and notice review in
    [RELEASING.md](RELEASING.md).
 
-Public documentation uses `Open LoLa` for the project name. Code identifiers,
-package names, commands, and environment variables retain their literal forms.
+Public docs call the project `Open LoLa`. Code identifiers, package names,
+commands, and environment variables keep their literal spelling.
 
 ## Review checklist
 
-- The contributor can explain the right to share every input.
-- No private or proprietary artifact is required to understand the change.
-- Behavioral details are no broader than the implemented compatibility need.
+- The contributor can explain why they may share every input.
+- No private or proprietary artifact is needed to understand the change.
+- Behavioral details go no further than the compatibility the code implements.
 - Evidence is labeled as public, synthetic, localhost, measured hardware,
   reference peer, or not measured.
 - The change does not claim affiliation, endorsement, field readiness, or
-  publication approval.
+  approval to publish.
 
-The legal boundary is described in [LEGAL.md](../LEGAL.md), source contracts in
-[source-contracts.md](source-contracts.md), and exact source-candidate policy in
-[RELEASING.md](RELEASING.md).
+See [LEGAL.md](../LEGAL.md) for the legal position,
+[source-contracts.md](source-contracts.md) for compatibility promises, and
+[RELEASING.md](RELEASING.md) for the release file policy.
 
 VERDICT: PARTIAL

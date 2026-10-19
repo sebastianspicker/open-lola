@@ -1,10 +1,9 @@
 # Packet capture
 
-Capture traffic on the selected native Linux interface or Windows Npcap adapter.
-Store captures outside the checkout and sanitize them before sharing. The table
-below maps a question to the filter and observation that answers it.
+Capture on the native Linux interface or Windows Npcap adapter the station uses.
+Store captures outside the checkout and sanitize them before sharing.
 
-| Question | Capture filter | Required observation |
+| Question | Capture filter | What to look for |
 |---|---|---|
 | Is control reachable? | `udp port 7000` | Matching status request and ACK. |
 | Was media negotiated? | `udp port 7000` | QuickConn and matching ACK or rejection. |
@@ -19,7 +18,7 @@ timeout 10 tcpdump -i eth0 -n -w /tmp/lola.pcap \
 cargo run -p rusty-lola --no-default-features -- decode-pcap /tmp/lola.pcap
 ```
 
-On Windows, list adapters with `tshark -D`, then use the selected interface:
+On Windows, list adapters with `tshark -D`, then capture on the one you need:
 
 ```powershell
 & 'C:\Program Files\Wireshark\tshark.exe' -i 1 -a duration:10 `
@@ -27,25 +26,36 @@ On Windows, list adapters with `tshark -D`, then use the selected interface:
   -w "$env:TEMP\lola.pcapng"
 ```
 
-The offline decoder reads classic PCAP (either endianness, with microsecond or
-nanosecond magic) and PCAPNG, including Ethernet/VLAN, raw IPv4, Linux cooked,
-and cooked-v2 link headers. It reports endpoint and frame occurrences, preludes,
-fragment counts, unique and duplicate bytes, flags, conflicts, malformed drops,
-and completeness. Each new prelude starts a new occurrence, so repeated wire IDs
-cannot combine partial occurrences into complete evidence. It caps input at
-256 MiB, one million packets, 4096 frame occurrences, and 256 PCAPNG interfaces.
+## Offline decoder
 
-Container corruption fails the command. Malformed media inside a readable capture
-is counted, and later valid traffic remains visible. Unsupported link-layer
-records and non-UDP or fragmented-IP packets are ignored. The decoder does not
-validate packet checksums, because transmit captures can precede NIC checksum
-offload. A complete frame is a structural capture observation, not proof of
-playback, physical timing, peer identity, or original LoLa behavior.
+`decode-pcap` reads classic PCAP (either endianness, microsecond or nanosecond
+magic) and PCAPNG. It understands Ethernet/VLAN, raw IPv4, Linux cooked, and
+cooked-v2 link headers. It reports endpoints and frame occurrences, preludes,
+fragment counts, unique and duplicate bytes, flags, conflicts, malformed drops,
+and completeness.
+
+Each new prelude starts a new occurrence, so fragments from different frames
+that reuse a wire ID are never merged into one complete frame. Input is capped
+at 256 MiB, one million packets, 4096 frame occurrences, and 256 PCAPNG
+interfaces.
+
+- A corrupt capture file fails the command.
+- Malformed media inside a readable capture is counted, and later valid traffic
+  is still decoded.
+- Unsupported link-layer records, non-UDP packets, and fragmented IP packets are
+  ignored.
+- Checksums are not validated, because transmit-side captures are taken before
+  NIC checksum offload fills them in.
+
+A complete frame in a capture shows the packets were well formed. It does not
+show playback, physical timing, peer identity, or original LoLa behavior.
+
+## Packet sizes
 
 Audio UDP payloads are exactly 1066 bytes, with a 33-byte fragment header and an
 eight-byte serialized-body header. For stereo 16-bit PCM with 64 frames, the PCM
 payload is 256 bytes and the fragment length is 264. Senders use frame ID
 `sequence + 1`, while receive freshness compares the serialized sequence
-independently. Video carries a 64-byte prelude followed by normal fragments. The
-versioned [corpus](../interop/lola2/README.md) defines synthetic regression
+independently. Video sends a 64-byte prelude followed by normal fragments. The
+versioned [corpus](../interop/lola2/README.md) has synthetic regression
 examples.

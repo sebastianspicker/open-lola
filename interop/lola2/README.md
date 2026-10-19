@@ -1,42 +1,43 @@
 # LoLa 2.0 compatibility corpus
 
-This is an implementation-neutral, versioned wire-behavior corpus for the LoLa 2.0
-compatibility surface. `manifest.json` is intentionally small enough to review:
-ASCII controls are represented as their exact useful prefix plus the required
-NUL-padding rule, and media vectors record the exact fixed fields and compact
-payload bytes.
+A versioned set of LoLa 2.0 wire-behavior cases that any implementation can
+test against. `manifest.json` is kept small enough to review by hand: ASCII
+control messages are stored as their meaningful prefix plus the NUL-padding
+rule, and media vectors store the exact fixed fields and short payload bytes.
 
-## Provenance and status
+## Origin
 
-The corpus was recovered from the behavior described in the former Python
-connector protocol reference and checked against that codec before retirement.
-Current capture guidance is in [packet capture](../../docs/packet-capture.md).
-Its vectors are synthetic reconstructions. They are **not** original Windows LoLa
-captures and must not be represented as such.
+The cases were rebuilt from the protocol reference of the former Python
+connector and checked against that codec before it was retired. They are
+synthetic, **not** captures of the original Windows LoLa software, and must not
+be described as such. For capture guidance, see
+[packet capture](../../docs/packet-capture.md).
 
-The `version` field is the compatibility-corpus version, not a LoLa product or
-wire-protocol version. Additive cases require a minor version bump, while
-changing a case's expected wire bytes or acceptance category requires a major
-bump. Keep each case immutable after release and add a replacement case instead.
+## Versioning
 
-## Consumer contract
+The `version` field is the corpus version, not a LoLa product or protocol
+version. Adding cases needs a minor version bump. Changing a case's expected
+wire bytes or acceptance category needs a major bump. Once released, a case does
+not change; add a replacement case instead.
 
-Consumers load every case, perform the listed encode or decode operation, and
-compare it to the normalized `accept` or `reject.*` category. Control cases also
-verify exact 1024-byte NUL padding. SID vectors define lexical signed-decimal
-canonicalization independently of each runtime's narrower operational session-ID
-range. This keeps compatibility evidence independent of a mutable whole-source
-hash while still making divergences visible in ordinary test runs.
+## Using the corpus
 
-The additional `migration-control-oracle.json` records 110 synthetic ASCII and
-OSC15 parser observations generated before Python retirement. Rust tests consume
-this frozen oracle; Python is not a runtime or test dependency of the Cargo
-package. Native device tests and hardware evidence remain separate.
+A consumer loads every case, runs the listed encode or decode operation, and
+compares the result with the normalized `accept` or `reject.*` category. Control
+cases also check the exact 1024-byte NUL padding. SID vectors define how a
+signed decimal is canonicalized, independent of the narrower session-ID range
+each runtime accepts. Because the cases are fixed data rather than a hash of the
+whole source, a divergence shows up in ordinary test runs.
 
-Two consumers replay the corpus: a Rust station compatibility test and a macOS
-connector corpus test. Test sources are kept out of the published tree.
-The macOS test compares encoded control datagrams, audio fragments and video
-packets with the corpus byte for byte and decodes the corpus bytes back. It
-re-encodes every accepted ASCII oracle observation. It skips the 55 OSC15
-observations, because only the Rust station implements that dialect, and
-asserts that list.
+`migration-control-oracle.json` holds 110 synthetic ASCII and OSC15 parser
+observations recorded before the Python code was retired. Rust tests read this
+frozen file; the Cargo package does not need Python to run or test. Device tests
+and hardware measurements are separate.
+
+Two test suites replay the corpus, one in the Rust station and one for the macOS
+connector. Their sources are not published. The macOS test compares encoded
+control datagrams, audio fragments, and video packets with the corpus byte for
+byte, and decodes the corpus bytes back. It re-encodes every accepted ASCII
+oracle observation. It skips the 55 OSC15 observations, because only the Rust
+station implements that dialect, and checks that the skipped list is exactly
+those.

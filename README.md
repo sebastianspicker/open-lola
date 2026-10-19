@@ -7,7 +7,7 @@
 
 # Open LoLa
 
-**An independent, experimental source project for configuring, running, and measuring low-latency audiovisual sessions.**
+**An independent, experimental project for configuring, running, and measuring low-latency audio and video sessions.**
 
 [![tests](https://github.com/sebastianspicker/open-lola/actions/workflows/tests.yml/badge.svg)](https://github.com/sebastianspicker/open-lola/actions/workflows/tests.yml)
 [![release readiness](https://github.com/sebastianspicker/open-lola/actions/workflows/release-readiness.yml/badge.svg)](https://github.com/sebastianspicker/open-lola/actions/workflows/release-readiness.yml)
@@ -17,38 +17,38 @@
 
 </div>
 
-Open LoLa contains a native **macOS operator application and CLI** and a single **Rust
-station** for Windows and native Linux. The two runtimes share protocol fixtures and
-evidence conventions; they do not share runtime code. Python is repository tooling only.
+Open LoLa has two runtimes: a native **macOS app and CLI**, and a **Rust station**
+for Windows and Linux. They share protocol test fixtures but no runtime code.
+Python is used only for repository tooling.
 
 > Open LoLa is not affiliated with or endorsed by the LoLa project,
 > Conservatorio di Musica Giuseppe Tartini, or GARR.
 
 ## Screenshot tour
 
-The Signal Desk is the macOS operator surface. It keeps configuration, measured
-observations, and report validation visually separate, so a synthetic or local
-run cannot be mistaken for field evidence.
+The Signal Desk is the macOS operator window. It shows configuration, measured
+values, and report validation in separate areas, so a synthetic or local run is
+not confused with a field measurement.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/open-lola-signal-desk-dark.png">
   <img src=".github/assets/open-lola-signal-desk-light.png" alt="Open LoLa Signal Desk showing a validated session: worst-peer audio p99 of 4.7 ms, packet loss 0.0%, jitter p99 0.3 ms, and a four-stage evidence chain from source to validated.">
 </picture>
 
-*Offline render of the real SwiftUI hierarchy with a synthetic fixture. It is not a
-live measurement.*
+*Offline render of the real SwiftUI views with synthetic data. It is not a live
+measurement.*
 
-Four workspaces carry a session from intent to evidence:
+The app has four workspaces:
 
 | Workspace | What it is for |
 |---|---|
-| **Session** | Arm, run, and follow the recorded evidence chain |
+| **Session** | Arm and run a session, and follow its progress |
 | **Setup** | Devices, routing, and the direct-peer connection |
 | **Monitor** | Streams, packet fixtures, and local preview |
 | **Evidence** | Report validation and diagnostics |
 
-The browser demo mirrors those four workspaces with fixture data. These views are
-rendered from [web/demo](web/demo), not from live hardware:
+The browser demo in [web/demo](web/demo) shows the same four workspaces with
+fixture data, not live hardware:
 
 <p align="center">
   <img width="49%" src="web/demo/assets/tour/demo-session.png" alt="Session workspace: a next-action card, a staged audio path, and audio health marked Not measured.">
@@ -59,53 +59,53 @@ rendered from [web/demo](web/demo), not from live hardware:
   <img width="49%" src="web/demo/assets/tour/demo-evidence.png" alt="Evidence workspace: current session evidence kept separate from the historical fixture report.">
 </p>
 
-Want to click through it yourself? [web/demo](web/demo) is a static, fixture-backed
-walkthrough that runs in any browser. It changes only local interface state: no device
-discovery, network access, or native code.
+To try it, open [web/demo](web/demo) in any browser (see the quick start for a
+local server). It only changes page state: it does not discover devices, use the
+network, or run native code.
 
 ## Status
 
-The repository is a source alpha with a `PARTIAL` product verdict. Local builds, tests,
-loopback traffic, synthetic reports, and offline UI renders do not prove physical
-latency, device compatibility, reference-peer interoperability, hostile-network safety,
-signing, notarization, or distribution readiness. See [current state](docs/current-state.md)
-for the exact evidence boundary.
+Open LoLa is a source alpha, and its overall verdict is `PARTIAL`. Local builds,
+tests, loopback runs, synthetic reports, and offline renders do not prove
+physical latency, device compatibility, interoperability with a reference peer,
+or safety on hostile networks. Nothing is signed, notarized, or distributed.
+[Current state](docs/current-state.md) lists what has and has not been shown.
 
 ## Components
 
-| Path | Purpose | Technology | Independent use | Documentation |
+| Path | Purpose | Technology | How it is used | Documentation |
 |---|---|---|---|---|
-| `runtimes/macos/` | Operator app, CLI, direct-peer sessions, media adapters, integrations, and evidence | SwiftPM, SwiftUI, AppKit, Core Audio, AVFoundation | Built and run on macOS 14 or later | [Architecture](docs/architecture.md) |
+| `runtimes/macos/` | Operator app, CLI, direct-peer sessions, media adapters, integrations, and reports | SwiftPM, SwiftUI, AppKit, Core Audio, AVFoundation | Built and run on macOS 14 or later | [Architecture](docs/architecture.md) |
 | `runtimes/rust-station/` | Windows and Linux LoLa 2.0 station with native and diagnostic backends | Rust, egui, ALSA, V4L2, PortAudio, XIMEA, Npcap | Cargo package and `rusty-lola` executable | [Rust station](runtimes/rust-station/README.md) |
-| `interop/lola2/` | Versioned synthetic cross-runtime wire corpus | JSON | Consumed by the Rust and macOS corpus tests (test sources are not published) | [Corpus contract](interop/lola2/README.md) |
+| `interop/lola2/` | Versioned synthetic wire corpus shared by both runtimes | JSON | Read by the Rust and macOS corpus tests (test sources are not published) | [Corpus](interop/lola2/README.md) |
 | `web/demo/` | Fixture-backed Signal Desk walkthrough | Static HTML, CSS, JavaScript | Served by any static file server | This README |
-| `tools/` | Verification, local packaging, release export, and interoperability helpers | Shell, Python, Swift, PowerShell | Invoked from the repository root | [Tool index](tools/README.md) |
-| `third_party/` | Vendored Opus and JPEG XS source | C/C++ and upstream support files | Opus is compiled through its package target; JPEG XS only in an opt-in build | [Third-party notices](THIRD_PARTY_NOTICES.md) |
+| `tools/` | Checks, local packaging, release export, and interoperability helpers | Shell, Python, Swift, PowerShell | Run from the repository root | [Tool index](tools/README.md) |
+| `third_party/` | Vendored Opus and JPEG XS source | C/C++ and upstream support files | Opus is always built; JPEG XS only in an opt-in build | [Third-party notices](THIRD_PARTY_NOTICES.md) |
 
-The macOS Swift target graph, runtime flows, state ownership, and integration boundaries
-are documented in [docs/architecture.md](docs/architecture.md).
+[docs/architecture.md](docs/architecture.md) covers the macOS Swift targets,
+runtime flows, and which module owns which state.
 
 ## Prerequisites
 
-The complete repository gate is defined for macOS and currently uses:
+The full repository check runs on macOS and needs:
 
-- Xcode 26.6 with Swift 6.3.3 or newer (CI uses this version; newer Xcode releases are
+- Xcode 26.6 with Swift 6.3.3 or newer (CI uses this version; a newer Xcode is
   used when `/Applications/Xcode-26.6.0.app` or `/Applications/Xcode_26.6.app`
   is absent, see below);
-- Python 3.14.6 for the pinned development environment, with Python 3.11 as
-  the tooling lower bound;
+- Python 3.14.6 for the pinned development environment (tooling supports 3.11
+  and later);
 - `uv` 0.10.7 or newer (CI pins 0.10.7);
 - Rust 1.99.0 with Cargo, rustfmt, and Clippy (pinned in `rust-toolchain.toml`;
-  rustup installs it automatically); and
-- `shellcheck` for shell validation.
+  rustup installs it automatically);
+- `shellcheck`.
 
-Windows is required for the station's XIMEA, PortAudio/ASIO, Npcap, and native
-GUI evidence. Native Linux device validation targets Ubuntu 24.04 x86_64;
-see [Linux migration and validation](docs/linux-migration.md).
+Testing the station's XIMEA, PortAudio/ASIO, Npcap, and native GUI support
+needs Windows. Linux device testing targets Ubuntu 24.04 x86_64; see
+[Linux migration and validation](docs/linux-migration.md).
 
 ## Quick start
 
-Run setup and repository commands from the repository root.
+Run all commands from the repository root.
 
 ```bash
 uv sync --locked --extra dev
@@ -113,10 +113,10 @@ make architecture
 ```
 
 `make` uses `/Applications/Xcode-26.6.0.app` or `/Applications/Xcode_26.6.app`
-when present and otherwise the Xcode selected by `xcode-select -p`; set
+if present, otherwise the Xcode selected by `xcode-select -p`. Set
 `DEVELOPER_DIR` to choose a different one.
 
-Build the macOS package outside the checkout and inspect the CLI:
+Build the macOS package outside the checkout and try the CLI:
 
 ```bash
 export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
@@ -129,19 +129,20 @@ OPEN_LOLA_CLI="$(swift build --disable-sandbox \
 "$OPEN_LOLA_CLI" session-capabilities
 ```
 
-JPEG XS video compression is not part of the default build. The vendored JPEG XS
-reference software is licensed for evaluation and testing only and grants no
-patent licence, so do not distribute binaries built with it. To build it in for
-local evaluation, set `OPEN_LOLA_ENABLE_JPEG_XS=1` when SwiftPM resolves the
-package, for example `OPEN_LOLA_ENABLE_JPEG_XS=1 swift build ...` (use a
-separate `--scratch-path`). Without it, `--video-compression jpeg-xs` is
-rejected with a message that says JPEG XS is not built in.
+`--help` lists the session commands first. [Running a session](docs/running-a-session.md)
+has recipes for two Macs, a supervised run, and the Rust station. None of them
+has been tested on hardware yet.
 
-`--help` lists the session commands first. See
-[Running a session](docs/running-a-session.md) for the two-Mac, supervised, and
-Rust-station recipes (not yet verified on hardware).
+JPEG XS video compression is not in the default build. The vendored JPEG XS
+reference code is licensed for evaluation and testing only and grants no patent
+licence, so do not distribute binaries built with it. To include it for local
+testing, set `OPEN_LOLA_ENABLE_JPEG_XS=1` when SwiftPM resolves the package, for
+example `OPEN_LOLA_ENABLE_JPEG_XS=1 swift build ...`, and use a separate
+`--scratch-path`. Without it, `--video-compression jpeg-xs` fails with a message
+saying JPEG XS is not built in.
 
-In a graphical macOS session, assemble and launch the ad-hoc local test bundle:
+In a graphical macOS session, build and launch a local test app bundle
+(ad-hoc signed, not for distribution):
 
 ```bash
 OPEN_LOLA_APP_DIST_DIR=/private/tmp/open-lola-app-dist \
@@ -149,40 +150,30 @@ OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build \
   bash tools/macos/build_and_run.sh run
 ```
 
-This helper is for local validation, not distribution signing or notarization.
-
-Run the Rust station self-test (synthetic localhost media):
+Run the Rust station self-test with synthetic media on localhost, and show its
+help:
 
 ```bash
 cargo run -p rusty-lola --no-default-features -- selftest --duration 0.25
-```
-
-Run the Rust station help:
-
-```bash
 cargo run -p rusty-lola -- --help
 ```
 
-Serve the static demonstration:
+Serve the browser demo:
 
 ```bash
 python3 -m http.server 4173 --bind 127.0.0.1 --directory web/demo
 ```
 
-The demonstration changes only local browser state. It cannot discover
-devices, launch native software, open media streams, or contact peers.
-
 ## Configuration
 
-The runtimes use different configuration systems: macOS operator settings are
-persisted in `UserDefaults`, the Rust station layers settings/session files and
-CLI overrides for Windows and Linux. Python is repository tooling only.
-See [docs/configuration.md](docs/configuration.md) for precedence, storage, and
-trusted-input boundaries.
+The macOS app stores its settings in `UserDefaults`. The Rust station reads
+settings and session files and lets CLI flags override them.
+[docs/configuration.md](docs/configuration.md) covers precedence, storage, and
+which inputs are trusted.
 
 ## Verification
 
-Run focused lanes while developing:
+Run the focused checks while you work:
 
 ```bash
 make architecture
@@ -192,35 +183,32 @@ make test-rust
 make lint
 ```
 
-For a cross-runtime or release-boundary change, run:
+Before a change that touches both runtimes or the release export, run:
 
 ```bash
 make verify
 ```
 
-`make verify` is a source gate and deliberately ends with a `PARTIAL` product
-verdict. It is not publication approval. Exact commands, CI coverage, and
-unproved hardware gates are in [docs/testing.md](docs/testing.md).
+`make verify` checks the source only. It always ends with a `PARTIAL` verdict and
+does not approve a release. [docs/testing.md](docs/testing.md) lists the exact
+commands, what CI covers, and the hardware checks still missing.
 
 ## Compatibility and security
 
-Intentional public contracts include SwiftPM product/module names, the native
-runtime CLIs, report and persistence formats, the Rust package/settings format,
-and documented wire/corpus behavior. See
+Stable interfaces include the SwiftPM product and module names, both CLIs, the
+report and settings formats, and the documented wire and corpus behavior. See
 [docs/source-contracts.md](docs/source-contracts.md).
 
-Current control and media paths do not authenticate peers. Use isolated,
-trusted networks and reviewed local executables. Read [SECURITY.md](SECURITY.md)
-before operating a listener or a process-, DLL-, SSH-, or packet-capture-based
-integration.
+Control and media traffic is not authenticated. Use an isolated, trusted network
+and executables you have reviewed. Read [SECURITY.md](SECURITY.md) before you run
+a listener or use the process, DLL, SSH, or packet-capture integrations.
 
-## Contributing and release policy
+## Contributing and releases
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing an owning boundary.
-Source-candidate preparation is documented in
-[docs/RELEASING.md](docs/RELEASING.md), and No command grants
-authority to publish.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before you start.
+[docs/RELEASING.md](docs/RELEASING.md) explains how a source candidate is
+prepared. No command in this repository publishes a release.
 
-First-party source and documentation are licensed under
-[Apache-2.0](LICENSE). Vendored components retain their own terms; see
+First-party source and documentation are licensed under [Apache-2.0](LICENSE).
+Vendored components keep their own licenses; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LEGAL.md](LEGAL.md).

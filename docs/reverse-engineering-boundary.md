@@ -1,40 +1,35 @@
 # Reverse-engineering boundary
 
-Status: active publication boundary
-Verdict: PARTIAL
+The repository may contain independently written compatibility code and short,
+sanitized descriptions of LoLa behavior. It must not contain proprietary
+binaries, decompiler output, extracted strings or binary excerpts, restricted
+manuals, raw private captures, address-level notes, hashes, command transcripts,
+or private lab paths.
 
-This repository may contain independently written compatibility code and
-sanitized behavioral contracts. It must not contain proprietary binaries,
-decompiler output, extracted strings or binary excerpts, restricted manuals, raw
-private captures, address-level notes, hashes, command transcripts, or private
-lab paths.
-
-## Evidence Labels
+## Evidence labels
 
 | Material | Label |
 |---|---|
 | Public specifications and APIs | `public standard` or `public API` |
-| Independently authored source and synthetic fixtures | `original open-lola design` |
+| Independently written source and synthetic fixtures | `original open-lola design` |
 | Sanitized black-box behavior needed for compatibility | `experimentally derived requirement` |
 | Unconfirmed interpretations | `implementation hypothesis` |
 
-## Public repository rule
+## What public docs may say
 
-Public documentation may state the smallest independently reviewable behavior
-needed for compatibility, its evidence class, and the validation still missing.
-It may not expose private evidence, reproduce proprietary structure, or imply
-reference-peer interoperability from source, synthetic, localhost, or historical
-observations.
+A public doc may state the smallest behavior needed for compatibility that a
+reviewer can check independently, its evidence label, and what validation is
+still missing. It must not expose private evidence or reproduce proprietary
+structure. It must not suggest interoperability with a reference peer based on
+source, synthetic, localhost, or historical results.
 
-Private captures, binaries, extraction output, environment details, and lab notes
-remain outside Git. Any sanitization must remove credentials, personal data,
-hostnames, topology, payload content, and material whose publication rights are
+Keep private captures, binaries, extraction output, environment details, and lab
+notes out of Git. Sanitizing means removing credentials, personal data,
+hostnames, topology, payload content, and anything whose publication rights are
 unclear.
 
-The shared `interop/lola2` corpus is a synthetic reconstruction. Current source
-does not close byte-for-byte reference-peer, Windows hardware and driver, or
-publication approval gates. See
+The `interop/lola2` corpus is a synthetic reconstruction. The current source has
+not been shown to match a reference peer byte for byte, has not been tested on
+Windows hardware and drivers, and has not been approved for publication. See
 [clean-room design rules](clean-room-design-rules.md) for contributor practice
 and [RELEASING.md](RELEASING.md) for release approval.
-
-VERDICT: PARTIAL

@@ -1,11 +1,12 @@
 # Audio routing
 
-Status: source-level route and receive-mix contracts implemented
-Verdict: PARTIAL
+In code today: the macOS runtime has multichannel packetization and reassembly,
+route descriptors, and receiver-mix and RME matrix metadata models. Full-duplex
+RME/MADI playback, gain behavior, and stability at high channel counts have not
+been tested on hardware.
 
-Audio routes preserve stream identity, channel order, and evidence about every
-explicit transformation. The runtime must not silently truncate, reorder,
-duplicate, or mix negotiated channels.
+A route keeps stream identity and channel order and records every change it
+makes. Channels are never silently dropped, reordered, duplicated, or mixed.
 
 ## Evidence Labels
 
@@ -18,36 +19,32 @@ duplicate, or mix negotiated channels.
 
 ## Route model
 
-A route binds a session stream ID to an ordered source channel range, packet
+A route maps a session stream ID to an ordered source channel range, its packet
 fragments, an ordered destination channel range, and optional receiver mix
-metadata. Channel descriptors carry stable IDs and labels, and metadata revisions
-allow changes without changing packet order mid-deadline.
+metadata. Channel descriptors have stable IDs and labels. Metadata carries a
+revision number, so a route can change without reordering packets inside one
+audio deadline.
 
-Two principal modes exist:
+There are two modes:
 
-- identity or send-all preserves negotiated channel order from capture to output;
-- explicit matrix metadata describes operator-selected routes and gains.
+- identity (send-all): keeps the negotiated channel order from capture to output;
+- matrix: metadata describes routes and gains the operator chose.
 
-Matrix or mix behavior belongs outside the realtime transport framing. Missing or
-invalid metadata must not cause an implicit remap, and gain and mute changes are
-bounded, validated, and reportable.
+Matrix and mix processing happen outside the realtime transport framing. Missing
+or invalid metadata never triggers a remap. Gain and mute changes are bounded,
+validated, and reported.
 
 ## Invariants
 
-- Negotiated total channel count and fragment ranges agree.
-- Every channel offset and range is in bounds and non-overlapping for one audio
+- The negotiated total channel count matches the fragment ranges.
+- Channel offsets and ranges are in bounds and do not overlap within one audio
   deadline.
-- Reassembly completes before a block is offered to playback.
-- Receiver mix references known stream and channel identities.
-- Fallback to fewer channels is explicit and visible.
+- A block is complete before it goes to playback.
+- Receiver mixes refer only to known stream and channel IDs.
+- Falling back to fewer channels is visible.
 - Route changes never block the audio callback.
 
-The current source supports multichannel packet and reassembly and receiver
-routing models. Physical full-duplex RME/MADI playback, gain behavior, and
-high-channel stability remain unproved.
-
-Wire fragmentation is documented in
-[multichannel-transport.md](multichannel-transport.md) and receive policy in
-[rx-buffering.md](rx-buffering.md).
+See [multichannel-transport.md](multichannel-transport.md) for wire
+fragmentation and [rx-buffering.md](rx-buffering.md) for receive policy.
 
 VERDICT: PARTIAL

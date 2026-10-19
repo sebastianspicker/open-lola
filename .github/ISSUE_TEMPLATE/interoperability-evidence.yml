@@ -1,5 +1,5 @@
 name: Interoperability or evidence report
-description: Share sanitized, clearly classified interoperability or measurement evidence.
+description: Share sanitized interoperability or measurement results.
 title: "[Evidence]: "
 labels:
   - interoperability
@@ -7,14 +7,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        Source-alpha evidence does not establish product PASS or field readiness.
-        Submit only public, authorized, sanitized evidence. Never upload private
-        packet/media captures, secrets, personal data, or confidential material.
+        Results shared here do not change the PARTIAL verdict on their own.
+        Submit only public, authorized, sanitized material. Never upload private
+        packet or media captures, secrets, personal data, or confidential material.
   - type: textarea
     id: claim
     attributes:
-      label: Claim under examination
-      description: State one narrow, falsifiable claim without overstating readiness.
+      label: Claim being tested
+      description: One narrow claim that your results could prove wrong.
     validations:
       required: true
   - type: dropdown
@@ -33,19 +33,19 @@ body:
   - type: textarea
     id: method
     attributes:
-      label: Sanitized method and environment
-      description: Describe revision, public setup, measurements, and controls; omit identifiers and private topology.
+      label: Method and environment
+      description: Revision, setup, what you measured, and how. Leave out identifiers and private network details.
     validations:
       required: true
   - type: textarea
     id: result
     attributes:
       label: Result and limits
-      description: Give measured values where available, uncertainty, failures, and what this evidence does not prove.
+      description: Measured values, uncertainty, failures, and what the results do not show.
     validations:
       required: true
   - type: textarea
     id: attachments
     attributes:
-      label: Public attachments or excerpts
-      description: Provide only sanitized, authorized artifacts or redacted excerpts.
+      label: Attachments or excerpts
+      description: Only sanitized, authorized files or redacted excerpts.

@@ -1,17 +1,10 @@
 # Testing and verification
 
-Status: active
-Verdict: PARTIAL
+Test sources (the Swift test targets and the Rust integration tests) are not
+published with this repository. Without them, `make swift-test` builds the
+package and prints a `SKIPPED:` line. Rust unit tests inside `src/` still run.
 
-Test sources (the Swift test targets and the Rust integration tests) are kept out
-of the published repository. Without them, `make swift-test`
-builds the package and prints a `SKIPPED:` line; Rust unit tests inside `src/` still run.
-
-Tests here protect observable behavior and architecture. A passing check proves
-only the named source, synthetic, localhost, or packaging scope; it does not
-establish hardware, reference-peer, security, signing, or distribution claims.
-
-## Full source gate
+## Full gate
 
 Run from the repository root:
 
@@ -19,23 +12,29 @@ Run from the repository root:
 make verify
 ```
 
-The Make target sets the documented headless and raw-checkout residue skips
-(`OPEN_LOLA_SKIP_INTERACTIVE_APP=1`, `OPEN_LOLA_SKIP_LIVE_RESIDUE=1`) and the
-script prints a `SKIPPED:` line for each. Run `make verify-full` in a logged-in
-GUI session on a checkout without generated residue to run both gates too. The
-gate variables, including the `OPEN_LOLA_TEST_OPEN_LOLA_CLI` and
-`OPEN_LOLA_RELEASE_HYGIENE_LIVE_ROOT` redirects (which print a warning), are
-listed in [configuration.md](configuration.md#build-and-gate-variables). Either
-target runs the architecture, tracked-boundary, documentation, and source-comment
-checks; the first-party 600-line and CCN 19 budgets; ShellCheck; Python tooling
-lint, type, and verifier self-tests; Rust formatting, Clippy, tests, and
-selftest; release hygiene; the Swift build and tests; and the CLI evidence
-probes. The final product verdict remains `PARTIAL` by design.
+`make verify` sets `OPEN_LOLA_SKIP_INTERACTIVE_APP=1` and
+`OPEN_LOLA_SKIP_LIVE_RESIDUE=1`, so it skips the GUI launch probe and the
+raw-checkout residue scan and prints a `SKIPPED:` line for each. To run those
+two checks as well, use `make verify-full` in a logged-in GUI session on a
+checkout without generated files. All gate variables, including the
+`OPEN_LOLA_TEST_OPEN_LOLA_CLI` and `OPEN_LOLA_RELEASE_HYGIENE_LIVE_ROOT`
+redirects (which print a warning), are listed in
+[configuration.md](configuration.md#build-and-gate-variables).
 
-A raw checkout is not a source release candidate. Verify an exported candidate
+Both targets run:
+
+- architecture, tracked-path, documentation and source-comment checks;
+- the 600-line file and CCN 19 function budgets for first-party code;
+- ShellCheck, plus Python lint, type checks and verifier self-tests;
+- Rust formatting, Clippy, tests and selftest;
+- release hygiene, the Swift build and tests, and the CLI probes.
+
+The final product verdict stays `PARTIAL` by design.
+
+A raw checkout is not a release candidate. Verify an exported candidate
 separately as described in [RELEASING.md](RELEASING.md).
 
-## Focused lanes
+## Individual targets
 
 ```bash
 make architecture
@@ -47,8 +46,7 @@ make swift-test
 make lint
 ```
 
-`swift-build` owns the warnings-as-errors build. `make verify` and the release-readiness script
-remain independently runnable complete gates.
+`swift-build` is the warnings-as-errors build.
 
 The underlying commands are:
 
@@ -79,24 +77,30 @@ actionlint
 
 ```
 
-`make code-quality` enumerates one live, non-ignored first-party manifest of
-Swift, Rust, Python, shell, PowerShell, web, and bridge sources. It excludes
-corpora, archives, generated output, and vendored upstream code while retaining
-`third_party/opus/openlola_bridge/`. Every file is limited to 600 physical lines,
-and every Lizard-supported function to CCN 19. Shell paths deliberately use
-Lizard's C-like parser; the retired WSL PowerShell lane has no remaining runtime
-source. Normalized-token clones (shared runs between two files, 70 tokens or 140 summed over all copies) are compared against the
-reviewed `tools/code-duplication-baseline.json`, and the gate never rewrites that
-baseline. New, increased, grown, stale, schema, or tool-drifted entries fail for
-review. Any temporary file-size exception must be recorded with a reason in
-`tools/code-line-budget-exceptions.txt`; the current ledger has no exceptions.
+### Code-quality budgets
 
-`make lint` additionally requires Swift warnings as errors with an external
-scratch path, `node --check` for every static demo JavaScript module, and
-Actionlint 1.7.12. Native Linux and Windows CI lanes compile and test both GUI and
+`make code-quality` checks every tracked, non-ignored first-party source file:
+Swift, Rust, Python, shell, PowerShell, web and the Opus bridge. It skips
+corpora, archives, generated output and vendored upstream code, but keeps
+`third_party/opus/openlola_bridge/`.
+
+- Each file may have at most 600 physical lines.
+- Each function Lizard can parse may have a CCN of at most 19. Shell files go
+  through Lizard's C-like parser.
+- Duplicated code is measured as shared normalized-token runs between two files
+  (70 tokens, or 140 summed over all copies). Results are compared against
+  `tools/code-duplication-baseline.json`. The gate never rewrites that file;
+  any new, grown or stale entry, or a schema or tool-version change, fails and
+  needs review.
+- A temporary file-size exception needs a reason in
+  `tools/code-line-budget-exceptions.txt`. There are currently none.
+
+`make lint` also builds Swift with warnings as errors in an external scratch
+path, runs `node --check` on the demo JavaScript, and requires Actionlint
+1.7.12. Native Linux and Windows CI jobs build and test both the GUI and
 CLI-only configurations.
 
-Documentation-only changes should run:
+### Documentation-only changes
 
 ```bash
 bash tools/verify-docs.sh
@@ -106,19 +110,14 @@ git diff --check
 
 ## CI coverage
 
-The main workflow covers repository quality, Python 3.11 through 3.13 tooling,
+The main workflow runs repository quality checks, Python 3.11 to 3.13 tooling,
 macOS Swift, Ubuntu 24.04 Rust, and Windows Rust release builds and tests. The
-Python matrix keeps its existing job identities and shared quality dependency; it
-runs repository verifier tests instead of the retired connector. Release
-readiness includes the pinned macOS gate and the Python 3.11 tooling lane. CodeQL
-analyzes Python tooling and Swift independently. Rust jobs test native adapter
+Python matrix runs the repository verifier tests. Release readiness includes
+the pinned macOS gate and the Python 3.11 tooling job. CodeQL analyzes the
+Python tooling and Swift separately. Rust jobs test the native adapter
 substitutes, the shared corpus, and CLI-only and all-feature builds. Native
-virtual-device and physical cases are opt-in and described in
-[ALSA](linux-alsa.md) and [V4L2](linux-v4l2.md).
-
-CI configuration is execution evidence only for the exact workflow run and
-revision. It does not replace an unavailable platform, device, peer, or manual
-gate.
+virtual-device and physical tests are opt-in; see [ALSA](linux-alsa.md) and
+[V4L2](linux-v4l2.md). A green CI run covers only that run and revision.
 
 ## Evidence vocabulary
 
@@ -126,42 +125,43 @@ Use these labels in reports and documentation:
 
 | Label | Meaning |
 |---|---|
-| `source` | A source or static contract exists. |
+| `source` | The code or static definition exists. |
 | `synthetic` | Generated data exercised an implemented path. |
-| `localhost` | Real process/socket behavior ran on one host. |
+| `localhost` | Real processes and sockets ran on one host. |
 | `measured hardware` | Named physical devices and conditions were measured. |
-| `reference peer` | An independently operated peer participated in the run. |
+| `reference peer` | An independently operated peer took part in the run. |
 | `not measured` | The required observation does not exist. |
 
-State the revision, platform, toolchain, command, relevant configuration, and
-result. A claim is validated only for that exact scope, and hypotheses or planned
-acceptance thresholds must not appear as implemented capability.
+Record the revision, platform, toolchain, command, relevant configuration and
+result. A result holds only for that scope. Do not describe hypotheses or
+planned acceptance thresholds as implemented features.
 
-## What the suites protect
+## What the suites cover
 
-- Swift regression targets cover transport timing, direct-peer scheduling,
-  media buffering and rendering, LoLa connector lifecycle and negotiation, and
-  two concurrent synthetic peers using the full A/V loop and headless preview.
-  Run them with `make swift-test` in a checkout that has the test sources.
-  The broader synthetic CLI probes remain separate from these regression tests.
-  Core Audio lifetime tests inject HAL creation, startup, stop, and destruction
-  failures, then exercise real callback functions after graph release, including
-  an in-flight callback held beyond the teardown timeout and split registrations.
-  These tests need no physical audio device and support Address Sanitizer runs.
-- Python verifies documentation, architecture, and code-quality tooling. Its
-  retired runtime assertions are mapped in
+- Swift regression tests cover transport timing, direct-peer scheduling, media
+  buffering and rendering, LoLa connector lifecycle and negotiation, and two
+  concurrent synthetic peers running the full A/V loop with headless preview.
+  Run them with `make swift-test` in a checkout that has the test sources. The
+  broader synthetic CLI probes are separate.
+- Core Audio lifetime tests inject failures into HAL creation, startup, stop and
+  destruction. They then call the real callback functions after the graph is
+  released, including a callback still running past the teardown timeout and
+  split registrations. They need no audio device and can run under Address
+  Sanitizer.
+- Python tests cover the documentation, architecture and code-quality tooling.
+  Where the old runtime assertions went is listed in
   [Linux migration](linux-migration.md).
-- Rust tests cover protocol, configuration, resources, media, lifecycle, and
-  diagnostic/native API substitutes, along with malformed-packet recovery,
-  bounded drains, cancellation, capture parsing, trust boundaries, and repeated
-  selftests.
-- The architecture checker enforces runtime layout, Swift target dependencies,
-  facade shape, import and side-effect boundaries, and retired Python-module
-  rules.
+- Rust tests cover protocol, configuration, resources, media, lifecycle and the
+  diagnostic and native API substitutes. They also cover malformed-packet
+  recovery, bounded drains, cancellation, capture parsing, trust checks and
+  repeated selftests.
+- The architecture checker enforces the runtime layout, Swift target
+  dependencies, facade shape, import and side-effect rules, and the retired
+  Python-module rules.
 
-These suites do not prove a graphical macOS session, real network conditions,
+None of this proves a graphical macOS session, real network conditions,
 physical devices, Windows driver behavior, native Linux realtime performance,
-signed or notarized installation, or publication approval. Record those results
-separately, and never substitute synthetic or historical evidence.
+signed or notarized installation, or approval to publish. Record those results
+separately; synthetic or old results do not count for them.
 
 VERDICT: PARTIAL

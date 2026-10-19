@@ -1,11 +1,11 @@
 # RX buffering
 
-Status: implemented policy and benchmark-report contracts
-Verdict: PARTIAL
+In code today: the macOS runtime implements and reports all four RX modes, and
+the Rust station has a bounded audio receive queue. Both have run on localhost
+only; no mode has been measured on real devices and routes.
 
-Receive buffering trades added latency for tolerance of network jitter and
-scheduling variation. The selected policy is negotiated and reported; it may not
-change silently.
+A receive buffer trades latency for tolerance of jitter. The mode is negotiated
+and reported, and never changes silently.
 
 ## Evidence Labels
 
@@ -18,47 +18,51 @@ change silently.
 
 ## Modes
 
-| Mode | Intent | Profile relationship |
+| Mode | Intent | Used by profile |
 |---|---|---|
 | Direct | Minimum intentional buffering; late data is dropped | Direct Audio First only |
 | Small | Fixed small target for bounded AV operation | Balanced AV or Multi-Video Performance |
-| Adaptive | Bounded target adjustment from observed conditions | Multi-Video Performance |
-| Stable/WAN | Continuity-first fixed target with visible latency cost | WAN Stable only |
+| Adaptive | Target adjusts within bounds from observed conditions | Multi-Video Performance |
+| Stable/WAN | Fixed target that favours continuity, with visible latency cost | WAN Stable only |
 
-The receiver tracks sequence continuity, packet age, jitter, occupancy, late and
+The receiver tracks sequence gaps, packet age, jitter, occupancy, late and
 incomplete blocks, underruns and overruns, concealment, drift estimate, target
-changes, and added buffer duration. Adaptive policy changes stay within declared
-bounds and are included in the report. macOS adaptive audio uses the p99 of
-the latest 128 interarrival-delay changes; differences cancel the offset between
-peer and local clocks. Transport jitter remains a separate smoothed observation.
+changes, and the buffer duration it adds. Adaptive changes stay within declared
+bounds and appear in the report.
+
+On macOS, adaptive audio uses the p99 of the latest 128 changes in interarrival
+delay. Using differences cancels the offset between the peer and local clocks.
+Transport jitter is tracked separately as a smoothed value.
 
 ## Runtime rules
 
-- Validate stream, format, fragment, and deadline identity before enqueue.
+- Check stream, format, fragment, and deadline identity before enqueueing.
 - Use bounded storage and deterministic eviction.
 - Complete a multichannel deadline before playback, or apply the negotiated PLC
   policy.
-- Keep clock-drift handling distinct from network-jitter buffering.
-- Reset or reconnect without presenting stale media as current.
+- Handle clock drift separately from network jitter buffering.
+- After a reset or reconnect, never play stale media as current.
 - Never use an adaptive increase to claim Direct Audio First performance.
 
-The Rust station implements the audio side of this policy as a bounded
-receive queue measured in local-device frames: valid peer packets are combined
-or split into one local block per audio deadline. Queue depth and prefill use
-local blocks, so a different peer packet size does not change the playback rate
-or local-block interpretation. At least one peer packet is retained when it
-exceeds that depth. The oldest samples are replaced at the depth bound; a queue that
-stays above its prefill target for about 0.7 s discards one block so a late
-burst does not leave its latency behind for the rest of the session. When the
-PortAudio capture ring has a block ready, that block paces the audio deadline
-ahead of the wall clock, so capture, playout and the device share one clock;
-the wall clock remains the fallback for receive-only sessions. A capture
-backlog above two blocks is trimmed to one so a stalled session thread does
-not add its stall to the capture latency.
+## Rust station audio queue
 
-The source includes localhost and report-level exercises of these modes. A buffer
-profile passes only after repeated measurement on the claimed devices, route,
-stream set, and duration. See [latency profiles](latency-profiles.md) and
+The queue is measured in local-device frames.
+
+- Valid peer packets are combined or split into one local block per audio
+  deadline. Queue depth and prefill count local blocks, so a different peer
+  packet size does not change the playback rate.
+- At least one peer packet is kept even when it is larger than the queue depth.
+- At the depth limit, the oldest samples are overwritten.
+- If the queue stays above its prefill target for about 0.7 s, one block is
+  discarded, so a late burst does not add latency for the rest of the session.
+- When the PortAudio capture ring has a block ready, that block sets the audio
+  deadline instead of the wall clock. Capture, playout, and the device then share
+  one clock. Receive-only sessions fall back to the wall clock.
+- A capture backlog above two blocks is trimmed to one, so a stalled session
+  thread does not add its stall to capture latency.
+
+A buffer profile passes only after repeated measurement on the claimed devices,
+route, stream set, and duration. See [latency profiles](latency-profiles.md) and
 [benchmark methodology](benchmark-methodology.md).
 
 VERDICT: PARTIAL

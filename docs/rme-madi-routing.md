@@ -1,11 +1,11 @@
 # RME MADI routing
 
-Status: source-level mapping and evidence model; physical routing open
-Verdict: PARTIAL
+In code today: the macOS runtime has RME matrix metadata models and route
+reports. Nothing reads or sets a TotalMix matrix, and no RME routing has been
+tested on hardware. The rules below are a design note.
 
-This page specializes the general [audio routing](audio-routing.md) contract for
-RME/MADI-class devices. It does not prescribe one TotalMix workspace or claim a
-validated hardware matrix.
+This page applies the [audio routing](audio-routing.md) rules to RME/MADI-class
+devices.
 
 ## Evidence Labels
 
@@ -18,24 +18,29 @@ validated hardware matrix.
 
 ## Mapping rules
 
-- Discover the selected input and output devices by stable UID.
-- Record physical stream and channel counts and the clock domain before applying a
-  logical route.
-- Preserve zero- and one-based numbering conventions explicitly at each UI or
-  file boundary.
-- Keep capture order, network order, and playback order visible in the report.
-- Represent unused channels and any gain, mute, or matrix operation explicitly.
-- Never infer a physical TotalMix route from a successful Core Audio inventory or
-  source-level packet test.
+- Find the input and output devices by stable UID.
+- Record physical stream and channel counts and the clock domain before applying
+  a route.
+- At each UI or file boundary, state whether channels are numbered from zero or
+  one.
+- Show capture order, network order, and playback order in the report.
+- List unused channels and every gain, mute, or matrix operation.
+- A successful Core Audio inventory or packet test says nothing about the
+  physical TotalMix route.
 
-The safest baseline is identity routing across the negotiated contiguous range.
-Use an explicit matrix only when every source and destination mapping and gain is
-validated and reported. A sample-rate or clock mismatch must fail preflight or
-produce a visible non-passing result.
+Start with identity routing across the negotiated contiguous range. Use a matrix
+only when every source, destination, and gain is validated and reported. A
+sample-rate or clock mismatch must fail preflight or produce a visible
+non-passing result.
 
-A physical validation record needs the RME model, driver and firmware, MADI mode,
-optical or coax topology, clock source and lock, sample rate, channel count,
-requested and accepted buffers, a matrix snapshot or sanitized description, and
-sustained full-duplex evidence for the same build.
+## What a hardware result needs
+
+- RME model, driver, and firmware;
+- MADI mode and optical or coax topology;
+- clock source and lock state;
+- sample rate and channel count;
+- requested and accepted buffer sizes;
+- a matrix snapshot or sanitized description;
+- sustained full-duplex results from the same build.
 
 VERDICT: PARTIAL

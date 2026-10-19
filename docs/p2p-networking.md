@@ -1,11 +1,9 @@
 # P2P networking
 
-Status: source and localhost direct-peer paths implemented; field proof open
-Verdict: PARTIAL
-
-Open LoLa uses explicit peer configuration and preflight before direct media
-execution. Direct-peer operation is preferred where the route and evidence
-support it; NAT, rendezvous, and relay behavior remain separate, visible choices.
+Open LoLa connects to peers you configure by hand and runs a preflight before any
+media starts. Localhost and manual-address direct-peer runs work in the macOS
+source; physical network runs have not been validated. NAT traversal,
+rendezvous, and relay are separate options you choose, never automatic.
 
 ## Evidence Labels
 
@@ -18,43 +16,43 @@ support it; NAT, rendezvous, and relay behavior remain separate, visible choices
 
 ## Session flow
 
-1. Resolve explicit local and remote peer identities and endpoints.
+1. Resolve the local and remote peer identities and endpoints from configuration.
 2. Run route, NAT, and capability preflight.
-3. Exchange capabilities and propose the session profile, streams, MTU, and
-   endpoint set.
+3. Exchange capabilities and propose the profile, streams, MTU, and endpoints.
 4. Accept or reject the configuration before media starts.
-5. Start control, audio, video, and metrics sockets at explicit boundaries.
-6. Exchange bounded media and timing observations.
+5. Open the control, audio, video, and metrics sockets.
+6. Exchange media and timing data with bounded queues.
 7. Pause or stop media, request final metrics, and shut down in order.
 
-The macOS source supports localhost and manual-address two-peer runs plus a
-localhost all-pairs mesh probe. Mesh topology reports validate configuration;
-they do not prove physical multi-peer media. SSH is an explicit advanced lab
-execution mode, not an implicit transport dependency.
+The macOS source supports two-peer runs on localhost or manual addresses, and a
+localhost all-pairs mesh probe. Mesh reports check the configuration; they do not
+show that physical multi-peer media works. SSH is an optional lab mode, not
+something the transport depends on.
 
 ## Transport rules
 
-- Control does not carry audio media.
-- Media packets carry type, stream identity, sequence and timestamp information,
-  and bounded payload length.
-- Receivers reject unexpected sources, malformed sizes, unsupported stream
-  identities, stale or late data, and incomplete frames according to policy.
-- Loss, jitter, packet age, reconnect, and shutdown are visible in reports.
-- Video, OSC, sACN, Art-Net, and other auxiliary work must not block audio.
+- Control never carries audio.
+- Media packets carry type, stream ID, sequence and timestamp, and a bounded
+  payload length.
+- Receivers drop packets from unexpected sources, with bad sizes or unknown
+  stream IDs, that arrive stale or late, or that belong to incomplete frames, as
+  the profile dictates.
+- Loss, jitter, packet age, reconnects, and shutdown appear in reports.
+- Video, OSC, sACN, Art-Net, and other side traffic must not block audio.
 
-Current direct paths are not authenticated and provide no media confidentiality
-or integrity. Use trusted, isolated networks as required by
+Direct paths are not authenticated and do not protect media confidentiality or
+integrity. Use trusted, isolated networks as described in
 [SECURITY.md](../SECURITY.md).
 
-## Operator boundary
+## Operator notes
 
-Manual host, port, role, route, and output values are trusted configuration. Run
-matching revisions, verify local bind addresses and firewalls, and preserve the
-report from each peer. A successful localhost run or a process exit of zero does
-not establish a physical direct-link result.
+Host, port, role, route, and output values you enter are trusted as given. Run
+the same revision on both peers, check local bind addresses and firewalls, and
+keep the report from each peer. A localhost run or a zero exit code does not
+show that a physical direct link works.
 
-Open LoLa's own packet and session contracts are in
+Open LoLa's own packet and session format is in
 [open-lola-protocol.md](open-lola-protocol.md). LoLa compatibility behavior is
-owned by the runtime component docs and the `interop/lola2` corpus.
+covered by the runtime docs and the `interop/lola2` corpus.
 
 VERDICT: PARTIAL

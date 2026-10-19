@@ -1,14 +1,8 @@
 # Architecture
 
-Open LoLa is a polyglot source repository for configuring, running, and
-evaluating bounded low-latency audiovisual sessions. It holds two runtime
-implementations, a shared synthetic compatibility corpus, vendored codecs, and
-repository tooling. This document maps the component boundaries, the macOS
-target graph, the principal runtime flows, and the invariants that keep the two
-runtimes independent.
-
-The runtimes communicate through documented protocols and files; they do not
-import one another.
+Open LoLa has two runtimes, a shared synthetic test corpus, vendored codecs, and
+repository tooling. The runtimes share only documented protocols and files;
+neither imports the other.
 
 ## System context
 
@@ -34,20 +28,17 @@ flowchart LR
     Corpus -. contract tests .-> Rust
 ```
 
-An operator drives either runtime. Each runtime talks to a configured peer and
-to local audio and video devices, then writes reports and evidence files. Those
-artifacts are evidence, not configuration authorities.
+Reports record what happened; they are never read back as configuration.
 
-`runtimes/macos` is the primary native operator runtime. `runtimes/rust-station`
-is the Windows and native Linux station: Windows uses PortAudio/ASIO and XIMEA
-or Media Foundation (USB/UVC webcams), Linux uses ALSA and V4L2, and diagnostic media is always an explicit selection.
-Python supplies repository tooling only. `interop/lola2` contains synthetic
-encoded and decoded cases with provenance metadata; it is a regression contract,
-not independent reference-peer capture evidence.
+`runtimes/macos` is the main operator runtime. `runtimes/rust-station` is the
+Windows and native Linux station: PortAudio/ASIO with XIMEA or Media Foundation
+(USB/UVC webcams) on Windows, ALSA and V4L2 on Linux. Python is for repository
+tooling only. `interop/lola2` holds synthetic encoded and decoded cases with
+provenance metadata; it is a regression suite, not a reference-peer capture.
 
-## Repository boundaries
+## Repository layout
 
-| Boundary | Responsibility | Build or execution unit |
+| Path | Contents | Built or run as |
 |---|---|---|
 | `Package.swift`, `runtimes/macos/` | macOS libraries, CLI, app, and Swift tests | SwiftPM package |
 | `runtimes/rust-station/` | Station protocol, configuration, devices, transport, UI, and session lifecycle | Cargo package `rusty-lola` |
@@ -56,14 +47,13 @@ not independent reference-peer capture evidence.
 | `tools/` | Verification, local bundle assembly, evidence helpers, and source export | Repository scripts |
 | `web/demo/` | Fixture-backed interface walkthrough | Static files |
 
-Build output, caches, captures, reports, local packages, editor and agent state,
-private material, and `archive/` are not architecture inputs or release content.
-The executable source-candidate policy lives in
+Build output, caches, captures, reports, local and private files, and
+`archive/` are not part of the source or the release; see
 `tools/release-boundary-policy.txt`.
 
 ## macOS target graph
 
-SwiftPM targets are enforced dependency boundaries:
+SwiftPM enforces these target dependencies:
 
 ```mermaid
 flowchart TD
@@ -94,140 +84,142 @@ flowchart TD
     Core --> CLI
 ```
 
-Arrows show the principal layering; every target may also import any target
-below it (for example, `OpenLolaApplication` imports all lower modules).
+Arrows show the main layering. A target may also import any target below it; for
+example, `OpenLolaApplication` imports all lower modules.
 
-| Target | Owns |
+| Target | Contents |
 |---|---|
-| `OpenLolaContracts` | Framework-free shared vocabulary: verdicts, run modes, JSON coding, and the CLI key/value argument syntax |
-| `OpenLolaSessionDomain` | Side-effect-free session policy; depends only on contracts |
+| `OpenLolaContracts` | Shared vocabulary with no framework dependencies: verdicts, run modes, JSON coding, and the CLI key/value argument syntax |
+| `OpenLolaSessionDomain` | Session policy with no side effects; depends only on contracts |
 | `OpenLolaEvidenceModels` | Reusable reports and validators; depends only on contracts |
-| `OpenLolaTransport` | Sockets, packet movement, NAT/network diagnostics, and transport policy. It may use system networking and process APIs, but not UI or media frameworks |
-| `OpenLolaMediaPlatform` | Device, realtime-audio, video, camera-permission, and codec adapters |
-| `OpenLolaIntegrations` | Bridges to external systems: LoLa, UltraGrid, JackTrip, and NMP connector families (`Connectors/`), ATEM/OSC/lighting show control (`Control/`), and the managed child-process runner (`Process/`). It cannot import `OpenLolaApplication` |
-| `OpenLolaApplication` | Composition: CLI command bodies (`CLI/`), direct-peer session orchestration (`Session/`), media and benchmark runners (`Media/`, `IntegratedAV/`), evidence reports and validators that combine several domains (`Evidence/`), capability summaries, and the app-shell engine the SwiftUI app drives (`AppShell/`) |
-| `OpenLolaCore` | A re-export facade and the stable public product. Internal modules can move behind it without changing what product consumers import. The product also includes the C atomics and codec targets |
+| `OpenLolaTransport` | Sockets, packet movement, NAT and network diagnostics, and transport policy. May use system networking and process APIs, but not UI or media frameworks |
+| `OpenLolaMediaPlatform` | Device, realtime audio, video, camera permission, and codec adapters |
+| `OpenLolaIntegrations` | Code that talks to external systems: LoLa, UltraGrid, JackTrip, and NMP connectors (`Connectors/`), ATEM, OSC and lighting show control (`Control/`), and the managed child-process runner (`Process/`). Cannot import `OpenLolaApplication` |
+| `OpenLolaApplication` | Composition: CLI command bodies (`CLI/`), direct-peer session orchestration (`Session/`), media and benchmark runners (`Media/`, `IntegratedAV/`), reports and validators that span several domains (`Evidence/`), capability summaries, and the engine the SwiftUI app drives (`AppShell/`) |
+| `OpenLolaCore` | Re-export facade and the stable public product. Internal modules can move behind it without changing consumer imports. The product also includes the C atomics and codec targets |
 | `OpenLolaAppSupport` | SwiftUI/AppKit presentation (`Sources/OpenLolaAppSupport`) |
-| `open-lola`, `open-lola-app` | Executable targets that perform final composition; each directory also holds its Info.plist and entitlements |
+| `open-lola`, `open-lola-app` | Executable targets that do the final composition; each directory also holds its Info.plist and entitlements |
 
-`tools/verify_architecture.py` checks the target DAG, import allowlists, facade
-shape, parser placement, and the principal side-effect rules.
+`tools/verify_architecture.py` checks the target graph, import allowlists, facade
+shape, parser placement, and the main side-effect rules.
 
-Inside `OpenLolaApplication`, the media, evidence, and direct-peer folders
-reference each other at the feature level: benchmark runners produce reports that
-the evidence validators consume, and session runners reuse media timing policy.
-They stay together in one target on purpose. Splitting them would need
-behavioural rewrites that the current test coverage cannot protect. New code for
-a connector, show-control protocol, or external process belongs in
-`OpenLolaIntegrations`. New code that combines several domains into a runnable
-command or report belongs in `OpenLolaApplication`.
+The media, evidence, and direct-peer folders in `OpenLolaApplication` depend on
+each other (benchmark runners feed the validators; session runners reuse media
+timing). They share a target on purpose, because splitting them would need
+behaviour changes that current tests cannot protect. Put new connectors,
+show-control protocols, and external processes in `OpenLolaIntegrations`, and
+new commands or reports that combine several domains in `OpenLolaApplication`.
 
-## Principal macOS runtime flow
+## macOS runtime flow
 
-The app follows configuration, preflight, explicit arm, execution, monitoring,
-and evidence review. The UI stores operator settings, builds a validated
-execution plan, and starts the CLI through a managed child process. Each run uses
-a unique token that the app writes to a `session.token` sidecar next to the
-report before launch. A zero process exit is not enough: the controller also
-requires the selected report to exist, to be at least as new as that sidecar
-(whose token must equal the run's in-memory token), and to pass its validator.
-The token is not passed to the CLI or embedded in the report, so report schemas
-stay unchanged across the direct-peer and connector runtimes. The token is kept
-after Stop and after the run finishes, so a stopped or finished run can still be
-validated and reviewed; it is replaced only by the next launch or cleared when
-the configuration changes.
+The app steps through configure, preflight, arm, run, monitor, and review. It
+builds a validated execution plan from the operator's settings and starts the CLI
+as a managed child process.
 
-Direct-peer execution then follows this ownership direction:
+Before launch, the app writes a unique run token to a `session.token` file next
+to the report. A run succeeds only if the process exits with zero and the report
+exists, is at least as new as the token file (whose token matches the one in
+memory), and passes its validator. The token never reaches the CLI or the
+report, so report schemas stay the same for direct-peer and connector runs. It
+survives Stop and completion, so finished runs can still be reviewed; the next
+launch replaces it and a configuration change clears it.
 
-1. application policy parses configuration and validates capabilities;
-2. session-domain types negotiate peers, streams, profiles, and lifecycle;
-3. media adapters capture or synthesize frames, and codecs transform payloads;
-4. transports packetize, send, receive, filter, and reassemble media;
-5. device or preview adapters consume accepted frames; and
-6. report models record observed values before validators classify the result.
+A direct-peer run then flows through these layers in order:
 
-Device, socket, process, filesystem, codec, and UI effects stay at explicit
-adapters. Reports may describe missing evidence; they must never create it.
+1. Application policy parses configuration and checks capabilities.
+2. Session-domain types negotiate peers, streams, profiles, and lifecycle.
+3. Media adapters capture or synthesize frames, and codecs transform payloads.
+4. Transports packetize, send, receive, filter, and reassemble media.
+5. Device or preview adapters consume accepted frames.
+6. Report models record observed values, then validators classify the result.
 
-Core Audio IOProc registrations each retain independent callback storage containing
-rings, scratch buffers, counters, and readiness signals. They never reference the
-session graph or its lifecycle lock. Teardown disables processing before stopping
-devices and releases registration ownership only after callbacks drain and HAL
-successfully destroys the IOProc. Failed cleanup can be retried while the graph
-exists; if its final teardown still fails, callback storage remains retained for
-process lifetime so late callbacks stay safe. Disabled output callbacks emit
-silence, and device properties are restored only after every registration is gone.
+Side effects (devices, sockets, processes, files, codecs, UI) happen only in
+adapters. A report may say evidence is missing; it never fills the gap.
+
+### Core Audio callback lifetime
+
+Each Core Audio IOProc registration owns its callback storage (rings, scratch
+buffers, counters, readiness flags), which never references the session graph or
+its lock. Teardown order:
+
+1. Disable processing, then stop devices. Disabled output callbacks emit silence.
+2. Release the registration only after callbacks drain and the HAL destroys the
+   IOProc.
+3. Restore device properties only after every registration is gone.
+
+Failed cleanup can be retried while the graph exists. If final teardown still
+fails, the callback storage is kept for the life of the process so late
+callbacks stay safe.
 
 ## Rust station
 
 The Rust binary dispatches CLI commands into configuration, protocol, transport,
-device, session, and egui layers. Windows defaults request XIMEA video and
-PortAudio/ASIO audio, with Media Foundation as the explicit Windows camera
-backend for ordinary webcams; Linux defaults request ALSA and V4L2. Both fail when the
-selected native backend or exact device format is unavailable, and diagnostic
-media must be selected explicitly. Control, audio, and video use fixed LoLa
-ports; the media plane can use ordinary UDP or Npcap where the platform and
-adapter support it.
+device, session, and egui layers.
 
-Settings defaults are overlaid by an optional settings file, an optional session
-profile, and explicit CLI values. The station can dynamically load native
-libraries, so the search path is an execution trust boundary documented in
-[SECURITY.md](../SECURITY.md) and [configuration.md](configuration.md).
+- Windows defaults to XIMEA video and PortAudio/ASIO audio. Media Foundation is
+  the Windows camera backend for ordinary webcams and must be selected.
+- Linux defaults to ALSA and V4L2.
+- The station fails if the selected native backend or exact device format is
+  unavailable. Diagnostic media must be selected by hand.
+- Control, audio, and video use fixed LoLa ports. Media can go over ordinary UDP
+  or, where the platform and adapter support it, Npcap.
 
-Transport owns bounded packet movement; device adapters own native handles and
-cancellation; session supervision owns start/stop and ordered finalization.
-Capture/encoding and bounded recording workers keep device waits and file writes
-away from audio scheduler deadlines. Protocol values and negotiation policy stay
-independent of egui and native media, and typed controller snapshots and
-commands connect the session runtime to presentation.
+Settings layer in this order: defaults, optional settings file, optional
+session profile, CLI values. The station loads native libraries at runtime, so
+its library search path must be trusted; see [SECURITY.md](../SECURITY.md) and
+[configuration.md](configuration.md).
 
-Native Linux adapters compile independently of the optional `gui` feature. ALSA
-uses nonblocking direct hardware PCMs with exact negotiation; V4L2 uses bounded
-MMAP buffers and finite polling. Inventory is capability evidence only. See
-[Linux migration](linux-migration.md).
+Transport moves packets through bounded queues. Device adapters own native
+handles and cancellation. Session supervision owns start, stop, and ordered
+shutdown. Capture, encoding, and recording run on bounded workers so device waits
+and file writes never delay the audio scheduler. Protocol and negotiation code
+does not depend on egui or native media; typed controller snapshots and commands
+connect the session to the UI.
+
+The Linux adapters build without the optional `gui` feature. ALSA opens
+nonblocking direct hardware PCMs with exact format negotiation; V4L2 uses bounded
+MMAP buffers and polls with timeouts. Device inventory lists what a device
+reports, not that it works. See [Linux migration](linux-migration.md).
 
 ## State and persistence
 
-- The macOS app persists operator choices through `UserDefaults`; selected UI
-  sections use SwiftUI scene/application storage. Logs and generated evidence
-  use operator-selected or cache-based filesystem paths.
-- The Rust station reads and writes its documented settings and session formats.
-  Tracked camera catalogs are package resources; local DLLs and runtime output
-  are not.
-- Reports, packet captures, and external proof bundles are evidence artifacts,
-  not configuration authorities.
+- The macOS app stores operator choices in `UserDefaults`; some UI sections use
+  SwiftUI scene or application storage. Logs and generated reports go to
+  operator-selected or cache paths.
+- The Rust station reads and writes its documented settings and session files.
+  Tracked camera catalogs ship as package resources; local DLLs and runtime
+  output do not.
+- Reports, packet captures, and external proof bundles are records of runs, not
+  configuration.
 
 See [configuration.md](configuration.md) for precedence and safe inputs, and
-[source-contracts.md](source-contracts.md) for compatibility surfaces.
+[source-contracts.md](source-contracts.md) for compatibility promises.
 
-## External and security boundaries
+## External dependencies and security
 
-The runtimes integrate with Core Audio, AVFoundation, optional vendored codecs,
-native Windows DLLs, ALSA, V4L2, Npcap, SSH/SCP, and configured network peers.
-Current wire paths do not provide peer authentication or media confidentiality
-and integrity. Operation therefore assumes trusted hosts, reviewed executables,
-controlled paths, and isolated networks. [SECURITY.md](../SECURITY.md) defines
-the operating boundary.
+The runtimes use Core Audio, AVFoundation, optional vendored codecs, native
+Windows DLLs, ALSA, V4L2, Npcap, SSH/SCP, and configured network peers. The
+current wire protocols do not authenticate peers and do not encrypt or
+integrity-protect media. Run them only on trusted hosts, with reviewed
+executables and controlled paths, on isolated networks.
+[SECURITY.md](../SECURITY.md) has the details.
 
-## Build and release boundaries
+## Build and release
 
-The root Makefile composes language-specific checks. SwiftPM, Cargo, and the
-Python tooling remain independently testable, and the static demo is not part of
-a native runtime.
-
-macOS bundle scripts create ad-hoc-signed local test artifacts. The repository
-has no automated deployment or publication command. A release candidate is a
-source allowlist exported outside the checkout and checked against the release
-policy; it still requires explicit approval and the applicable external
-evidence. See [RELEASING.md](RELEASING.md).
+The root Makefile runs the per-language checks; SwiftPM, Cargo, and the Python
+tooling can each be tested alone. The macOS bundle scripts produce ad-hoc-signed
+local test builds, and there is no deployment or publishing command. A release
+candidate is an allowlisted source export, made outside the checkout and checked
+against the release policy; it still needs maintainer approval and the required
+external evidence. See [RELEASING.md](RELEASING.md).
 
 ## Invariants and non-goals
 
-- The two runtimes remain implementation-independent.
-- Session policy remains framework-free and side-effect-free.
-- Transport does not own UI or device/media frameworks.
-- Vendored trees are not first-party product-logic locations.
-- Synthetic, localhost, source, and offline-render evidence never establishes
-  physical or reference-peer behavior.
-- This source alpha does not claim a supported distribution, hostile-network
-  security, or certified hardware operation.
+- The two runtimes stay independent implementations.
+- Session policy has no framework dependencies and no side effects.
+- Transport does not depend on UI, device, or media frameworks.
+- Vendored trees do not hold Open LoLa product logic.
+- Synthetic, localhost, source, and offline-render results never count as
+  physical or reference-peer evidence.
+- This source alpha is not a supported distribution, is not secure on hostile
+  networks, and is not certified for any hardware.

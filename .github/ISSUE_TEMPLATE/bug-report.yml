@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible, sanitized source-alpha defect.
+description: Report a bug you can reproduce, with sensitive details removed.
 title: "[Bug]: "
 labels:
   - bug
@@ -7,15 +7,15 @@ body:
   - type: markdown
     attributes:
       value: |
-        This project is an experimental source alpha with a PARTIAL verdict.
+        Open LoLa is an experimental source alpha with a PARTIAL verdict.
         Do not include credentials, private captures, personal data, hostnames,
-        or confidential material. For suspected vulnerabilities, use the
-        repository Security tab instead of this form.
+        or confidential material. Report suspected vulnerabilities through the
+        repository Security tab, not this form.
   - type: textarea
     id: summary
     attributes:
-      label: Sanitized summary
-      description: Describe the observed problem without sensitive details.
+      label: Summary
+      description: Describe the problem without sensitive details.
       placeholder: What happened, and what did you expect instead?
     validations:
       required: true
@@ -23,7 +23,7 @@ body:
     id: evidence-classification
     attributes:
       label: Evidence classification
-      description: Choose the strongest evidence actually attached or reproduced.
+      description: Pick the strongest evidence you attached or reproduced.
       options:
         - Source inspection only
         - Synthetic fixture or unit test
@@ -36,8 +36,8 @@ body:
   - type: textarea
     id: reproduction
     attributes:
-      label: Sanitized reproduction steps
-      description: Include minimal public commands, inputs, and results only.
+      label: Steps to reproduce
+      description: The smallest set of commands and inputs that shows the bug, with sensitive details removed.
     validations:
       required: true
   - type: dropdown
@@ -76,7 +76,8 @@ body:
   - type: textarea
     id: evidence
     attributes:
-      label: Logs, reports, and sanitized evidence
+      label: Logs and reports
       description: |
-        Attach redacted logs and the report JSON for the failing run; SUPPORT.md
-        lists where each runtime writes them. State what remains unmeasured.
+        Attach redacted logs and the report JSON from the failing run.
+        SUPPORT.md lists where each runtime writes them. Say what you could
+        not measure.

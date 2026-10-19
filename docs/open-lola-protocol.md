@@ -1,13 +1,10 @@
 # Open LoLa protocol
 
-Status: implemented source and localhost contracts
-Verdict: PARTIAL
+This is Open LoLa's own direct-peer control and media protocol, implemented in
+the macOS runtime and tested on localhost. It is separate from the LoLa
+compatibility behavior in the Rust station and the macOS LoLa connector.
 
-This document describes Open LoLa's own direct-peer control and media protocol.
-It is separate from the LoLa compatibility behavior implemented by the Rust
-station and Linux connector.
-
-## Evidence Labels
+## Evidence labels
 
 | Protocol element | Label |
 |---|---|
@@ -17,50 +14,54 @@ station and Linux connector.
 
 ## Control plane
 
-Control messages are deterministic compact JSON sent outside the audio callback.
-They cover peer identity, capabilities, session proposal, acceptance, and
-rejection, audio metadata, media start and pause, metrics, errors, and shutdown.
-An accepted configuration identifies the session, peers, audio and video streams,
-latency and RX profiles, endpoint sets, MTU, metrics interval, and reconnect
+Control messages are compact, deterministic JSON, sent outside the audio
+callback. Message types cover:
+
+- peer identity and capabilities;
+- session proposal, acceptance, and rejection;
+- audio metadata;
+- media start and pause;
+- metrics, errors, and shutdown.
+
+An accepted configuration names the session, peers, audio and video streams,
+latency and RX profiles, endpoints, MTU, metrics interval, and reconnect
 deadline.
 
-Peers reject incompatible profiles, duplicate or invalid stream IDs, malformed
-endpoints, unsupported formats, and media start before session acceptance. Audio
-metadata is advisory and cannot be required for safe playback.
+A peer rejects incompatible profiles, duplicate or invalid stream IDs, malformed
+endpoints, unsupported formats, and any media start before the session is
+accepted. Audio metadata is advisory; safe playback never depends on it.
 
 ## Media plane
 
-The UDP media envelope identifies protocol version, payload type, stream,
-sequence, monotonic timestamp, and bounded payload length. Payload types cover
-multichannel PCM fragments, timing and metrics, raw or codec video fragments, and
-keepalive behavior.
+The UDP media envelope carries protocol version, payload type, stream, sequence,
+monotonic timestamp, and a bounded payload length. Payload types are
+multichannel PCM fragments, timing and metrics, raw or codec video fragments,
+and keepalive.
 
-UDP PCM v2 splits one audio deadline into contiguous channel ranges that share a
-sample, format, and timing identity. Video fragments carry frame identity,
-dimensions, format, payload offsets, and a fingerprint. Before delivery,
-receivers validate nested metadata, source and stream identity, bounds,
-completeness, duplicate or stale data, and profile policy.
+UDP PCM v2 splits one audio deadline into contiguous channel ranges that share
+sample, format, and timing fields. Video fragments carry frame identity,
+dimensions, format, payload offsets, and a fingerprint. Before delivering
+anything, the receiver checks nested metadata, source and stream identity,
+bounds, completeness, duplicates or stale data, and the profile policy.
 
-There is no reliable retransmission on the fastest media paths. Audio applies the
-negotiated loss behavior, and video drops incomplete or expired frames. Media
-never travels on the control socket.
+The fastest media paths never retransmit. Audio applies the negotiated loss
+behavior, and video drops incomplete or expired frames. Media never travels on
+the control socket.
 
-## Runtime and compatibility
+UDP PCM v1 is a smaller format for diagnostics and fallback. Any channel
+reduction or fallback to v1 must be visible. Migrations of saved reports follow
+[source contracts](source-contracts.md).
 
-The macOS CLI supports source, synthetic, localhost, and manual-address probes for
-capability negotiation, direct two-peer sessions, mesh topology and runtime,
-latency profiles, RX buffering, and AV transport. These commands produce reports
-with final verdict lines. A localhost report remains `PARTIAL` for physical and
-reference-peer claims.
+## CLI probes
 
-UDP PCM v1 remains a smaller diagnostic and fallback format. Any channel
-reduction or legacy fallback must be explicit. Persisted report migrations are
-governed by [source contracts](source-contracts.md).
+The macOS CLI can run source, synthetic, localhost, and manual-address probes for
+capability negotiation, two-peer sessions, mesh topology and runtime, latency
+profiles, RX buffering, and AV transport. Each probe writes a report ending in a
+verdict line. A localhost report stays `PARTIAL` for any physical or
+reference-peer claim.
 
 ## Security
 
-The current protocol does not authenticate peer identity, prevent replay, or
-provide media confidentiality and integrity. Direct operation is restricted to
-trusted, isolated networks as described in [SECURITY.md](../SECURITY.md).
-
-VERDICT: PARTIAL
+The protocol does not authenticate peers, prevent replay, or protect media
+confidentiality or integrity. Use it only on trusted, isolated networks as
+described in [SECURITY.md](../SECURITY.md).

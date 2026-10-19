@@ -1,16 +1,14 @@
 # Benchmark methodology
 
-Status: active measurement and verdict contract
-Verdict: PARTIAL
+A benchmark result counts only if it names the revision, system under test,
+configuration, route, collection method, thresholds and result. A report model
+is not a measurement.
 
-A benchmark is evidence only when it identifies the revision, system under
-test, configuration, route, collection method, thresholds, and result. Report
-models do not substitute for measurements.
-
-This document states the measurement contract first, then records two
-2026-09-06 optimization audits and the native Linux migration measurements.
-Treat it as a historical record: the values describe the named runs and are not
-current product claims.
+The first half of this page is the method. The second half records two
+optimization rounds from 2026-09-06; those numbers describe the named runs only.
+Unless stated otherwise, the recorded runs exclude physical capture, network
+transit and rendering, kept raw data outside the checkout, and say nothing about
+hardware or field latency.
 
 ## Evidence Labels
 
@@ -22,65 +20,64 @@ current product claims.
 
 ## Required identity
 
-Record the source revision, timestamp, host/platform/toolchain, hardware and
-driver/firmware identity, peer identity/class, route and capture points, sample
+Record the source revision, timestamp, host, platform and toolchain, hardware
+and driver/firmware, peer identity or class, route and capture points, sample
 rate, frames, channels, media/codec format, MTU, latency/RX profile, run
-duration, and any fallback. Preserve raw evidence outside the repository when
-it contains sensitive or unclear material.
+duration and any fallback. Keep raw evidence outside the repository if it
+contains sensitive or unclear material.
 
 ## Required measurements
 
-For audio and network paths, record one-way estimate and/or round trip, jitter
-p50/p95/p99/max, packet age/loss/late behavior, underruns/overruns, missed
-deadlines, PLC or concealment, drift, queue/buffer occupancy, callback timing,
-CPU, resident memory, and realtime warnings.
+Audio and network paths: one-way estimate and/or round trip, jitter
+p50/p95/p99/max, packet age, loss and lateness, underruns and overruns, missed
+deadlines, PLC or concealment, drift, queue and buffer occupancy, callback
+timing, CPU, resident memory and realtime warnings.
 
-For video, add capture interval/age, encode/decode time where applicable,
-fragment/reassembly completeness, presentation age, frame drops, stream
-selection, CPU/memory, and an audio-active comparison. For OSC, sACN, Art-Net,
-or fixture control, add cue-to-output timing, destination/universe identity,
-capture evidence, and an audio-active comparison.
+Video adds capture interval and age, encode/decode time where it applies,
+fragment reassembly completeness, presentation age, frame drops, stream
+selection, CPU/memory and a comparison with audio running. OSC, sACN, Art-Net
+and fixture control add cue-to-output timing, destination or universe identity,
+capture evidence and a comparison with audio running.
 
 ## Test matrices
 
-Use only rows needed for the claim:
+Use only the rows the claim needs:
 
-- local device or socket loopback for code-path diagnosis;
-- two-machine direct peer for physical route evidence;
-- audio-only baseline;
+- local device or socket loopback, to diagnose code paths;
+- two machines as direct peers, for physical route evidence;
+- audio only as a baseline;
 - audio plus video;
 - audio plus control/lighting;
-- full integrated stream set;
-- relevant channel counts, codecs, RX modes, and sustained durations; and
-- before/after rows on identical hardware and route for tuning claims.
+- the full integrated stream set;
+- the relevant channel counts, codecs, RX modes and sustained durations;
+- before/after rows on identical hardware and route, for tuning claims.
 
-Non-comparable rows must be excluded explicitly rather than averaged together.
-DSCP, PTP, AVB, switch features, or clock sources are evidence only when
-observed on the tested route.
+Exclude rows that are not comparable; do not average them together. DSCP, PTP,
+AVB, switch features and clock sources count only if observed on the tested
+route.
 
 ## Verdicts
 
 - `PASS`: every required observation and threshold for the stated scope is
   present and passes.
-- `FAIL`: required evidence exists and violates the stated threshold or
-  invariant.
-- `PARTIAL`: source/report shape exists but required measurement, identity, or
-  external evidence is missing.
+- `FAIL`: the required evidence exists and violates a threshold or invariant.
+- `PARTIAL`: the code or report shape exists, but a required measurement,
+  identity or external result is missing.
 
-Synthetic fixtures can validate report shape and validators. Localhost can
-validate process and socket behavior. Neither closes physical device, route,
-reference-peer, security, signing, or distribution claims.
+Synthetic fixtures can validate report shape and validators. Localhost runs can
+validate process and socket behavior. Neither settles device, route or
+reference-peer claims.
 
-The budget model is in [latency-budget.md](latency-budget.md), profile policy in
-[latency-profiles.md](latency-profiles.md), and test commands in
-[testing.md](testing.md).
+See [latency-budget.md](latency-budget.md) for the budget model,
+[latency-profiles.md](latency-profiles.md) for profiles, and
+[testing.md](testing.md) for test commands.
 
 ## E2E aggregate measurement sources
 
 `e2e-benchmark-run` copies each field from a measured input or leaves it nil
-("not measured"); a nil gating field withholds PASS and is named in the notes.
+("not measured"). A nil gating field blocks PASS and is named in the notes.
 
-`direct-p2p-session-run` (audio-only and audio-video) now records two optional
+`direct-p2p-session-run` (audio-only and audio-video) records these optional
 report blocks:
 
 - `resources`: CPU p50/p99/max and peak resident memory of the peer process.
@@ -111,63 +108,45 @@ rows get:
 - CPU p99 and resident memory: the maximum across the sessions and the other
   inputs.
 
-The WAN row keeps throughput and packet order nil. The `host` block of the
-receiver session fills the receiver-peer model, chip and OS version, and the
-source session's `host` replaces the source-peer values taken from the other
-inputs. Receiver-peer fields stay `unknown` without a receiver session report
-(or with one written before `host` existed). Without session reports, the
-output is unchanged.
+The WAN row keeps throughput and packet order nil. The receiver session's
+`host` block fills the receiver-peer model, chip and OS version. The source
+session's `host` replaces the source-peer values from the other inputs.
+Receiver-peer fields stay `unknown` without a receiver session report, or with
+one written before `host` existed. Without session reports the output is
+unchanged.
 
-No source exists yet for GPU load, impairment runs (no link injector; dummynet
-needs root), reconnect timing (no reconnect drill), receive-to-render latency,
-cue timing, or WAN. Those fields stay nil, so an aggregate run cannot reach
-PASS.
-
+Nothing yet measures GPU load, impairment (no link injector; dummynet needs
+root), reconnect timing (no reconnect drill), receive-to-render latency, cue
+timing or WAN. Those fields stay nil, so an aggregate run cannot reach PASS.
 
 ## Reproducible optimization comparisons
 
-Capture the working tree before editing a measured path, including untracked
-first-party files and existing changes. Record the commit and a SHA-256
-manifest of those source bytes; a commit alone does not identify a dirty
-checkout. Keep snapshots, raw samples, profiles, and build products outside
-the checkout. Use the same generated inputs, toolchain, optimization level,
-warmup, repetition count, and deterministic seed for both revisions.
+Before editing a measured path, snapshot the working tree, including untracked
+first-party files and uncommitted changes. Record the commit and a SHA-256
+manifest of those files; a commit alone does not identify a dirty checkout.
+Keep snapshots, raw samples, profiles and build products outside the checkout.
+Use the same generated inputs, toolchain, optimization level, warmup,
+repetition count and seed for both revisions.
 
-Report median, nearest-rank p95, standard deviation, minimum and maximum,
-plus allocation counts, bytes copied, work counts, and peak resident memory
-where the measurement method supports them. State unavailable measurements
-explicitly. Process peak memory includes the test harness and runtime; it is
-not a per-operation allocation measurement. Record overlapping builds or
-other competing load, and treat contaminated timing comparisons as diagnostic.
+Report median, nearest-rank p95, standard deviation, minimum and maximum. Where
+the method allows, add allocation counts, bytes copied, work counts and peak
+resident memory, and say which were not measured. Process peak memory includes
+the harness and runtime, so it is not a per-operation figure. Treat timings
+from a host with overlapping builds or other load as diagnostic only.
 
-The optimization matrix includes audio channel counts 2, 8, 32, and 64 where
-supported by the runtime, small and 1920-by-1080 video frames, and ordered and
-reordered fragments through the supported fragment limit. Do not extend a
-runtime's negotiated channel or packet limits to satisfy a benchmark. Include
-empty and rejected receive polls as well as successful traffic.
+Cover audio at 2, 8, 32 and 64 channels where the runtime supports them, small
+and 1920-by-1080 video frames, and ordered and reordered fragments up to the
+fragment limit. Do not raise a runtime's negotiated channel or packet limits
+for a benchmark. Include empty and rejected receive polls.
 
-Correctness suites enforce packet bytes, numerical parity, bounded work,
-queue capacity, buffer ownership, and cancellation. Wall-clock thresholds do
-not gate shared CI. Retain an optimization when comparable measurements or a
-deterministic reduction in work supports it; record a rejected approach and
-its reason. Synthetic timings do not establish field or hardware latency.
+Correctness suites check packet bytes, numerical parity, bounded work, queue
+capacity, buffer ownership and cancellation. Wall-clock thresholds do not gate
+shared CI. Keep an optimization when comparable measurements or a
+deterministic reduction in work support it; record rejected approaches with the
+reason.
 
-Historical measurement: the retired Python audio-drain harness ran the real
-coordinator against a finite socket double. It recorded payload hashes, final
-sequence and counters, observed yields, maximum reads between yields, timings, a
-separate tracemalloc peak, and separately profiled decode, parse, and reassembly
-call counts. It covered 1, 2, and 8 channels at 16 bits with 1, 64, and 257
-datagrams; the negotiated callback-size limit excluded larger 16-bit blocks.
-
-The benchmark command retired with the Python connector, so the measurements
-below describe the historical implementation. They include event-loop and
-harness setup and are a fairness and allocation comparison, not an estimate of
-physical audio latency. `PYTHONPATH` could select an external before-edit
-snapshot's connector tree for the baseline. Compare input and output hashes
-before interpreting the timing samples.
-
-For build-cache evaluation, use a new external scratch directory for the cold
-build and repeat the identical command against that directory for warm builds:
+To measure build caching, use a new external scratch directory for the cold
+build, then repeat the same command against it for warm builds:
 
 ```bash
 export DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer
@@ -179,28 +158,24 @@ export SWIFT_BUILD_PATH="$(mktemp -d /private/tmp/open-lola-swift-bench.XXXXXX)"
 /usr/bin/time -lp make swift-build
 ```
 
-These `time` flags are for macOS; on Linux use `/usr/bin/time -v`. Warm build
-reuse measures local incremental compilation, not GitHub cache transfer cost
-or hit rate. The routine Python jobs reuse setup-uv dependency caching. Any
-additional Rust or Swift CI cache needs its own restore/save-size and timing
-evidence before adoption.
+These `time` flags are for macOS; on Linux use `/usr/bin/time -v`. A warm build
+measures local incremental compilation, not GitHub cache transfer cost or hit
+rate. The routine Python jobs use setup-uv dependency caching. Any further Rust
+or Swift CI cache needs its own restore/save size and timing measurements first.
 
 ## Optimization audit, 2026-09-06
 
-The baseline was a dirty working-tree snapshot of 1,728 source and supporting
-files, not just its parent commit. Its SHA-256 manifest fingerprint was
+The baseline was a dirty working-tree snapshot of 1,728 files, SHA-256 manifest
+fingerprint
 `1d1a674764368d80acfee5d1d490bf0b8ae1c0e1f3e5ea75b27f56cb8a9a80af`,
-with parent commit `4add2df44cfd8cade3106e3a8f734a105059f288`.
+parent commit `4add2df44cfd8cade3106e3a8f734a105059f288`.
 Runs used Darwin arm64, Xcode 26.6, Swift 6.3.3, Rust/Cargo 1.96.0,
-uv 0.10.7, and Python 3.14.7. Python correctness was also checked on 3.11.14.
-The pinned Python 3.14.6 was unavailable to the installed uv catalog and
-could not be provisioned for this run. No pin was changed.
-Raw samples, source manifests, harness copies, and logs remain external to the
-checkout. The smoke reports' fixed fixture timestamp is not the execution date.
+uv 0.10.7 and Python 3.14.7 (the pinned 3.14.6 was unavailable); Python
+correctness was also checked on 3.11.14.
 
-### Candidate dispositions
+### Candidates
 
-| Candidate | Disposition and deterministic evidence |
+| Candidate | Outcome and evidence |
 |---|---|
 | 1. Rust reassembly | Retained offset-ordered interval lookup and fragment-index membership. At most two neighboring intervals are examined per insertion; assembly no longer sorts fragment payloads. Membership uses a bounded bitset, at most 2,048 bytes per maximum-size fragment set. |
 | 2. Rust UDP receive | Retained one 65,535-byte receive scratch buffer under the receive lock. Empty and rejected media polls do not allocate receive storage or copy rejected payloads. Media sockets become nonblocking once; control timeout behavior is preserved. |
@@ -216,31 +191,27 @@ checkout. The smoke reports' fixed fixture timestamp is not the execution date.
 | Additional: duplicate history | Retained a 256-slot circular history with set membership and in-place dictionary mutation. Eviction no longer shifts 255 entries; wraparound and duplicate behavior remain covered. |
 | Python dead helpers | Removed only message_ip and loopback_alias_capability after checking imports, exports, registration, tests, docs, and invocation contracts. The separate Rust symbol remains. |
 
-Rejected approaches include:
+Rejected:
 
 - pooling MADI output Data that callers may retain;
 - replacing the Swift receive API beyond scratch reuse;
-- imposing raw PCM fragment validation on unrelated codecs or MADI receive
-  admission; and
+- applying raw PCM fragment validation to unrelated codecs or to MADI receive
+  admission;
 - adding Rust or Swift CI caches without restore/save measurements.
 
-A HashSet for Rust fragment membership was replaced by the bounded bitset
-because its metadata cost was unnecessary. Repeating prepared-plan validation on
-every Swift fragment was also removed from the prepared session path.
-
-Performance regression tests assert bytes, buffer ownership and reuse,
-fragment limits, duplicate/overlap precedence, congestion counters, cancellation,
-and bounded cooperative work. They do not assert timing thresholds. The
-reviewed duplication inventory was reconciled for maximal-clone regrouping in
-unchanged files and normalized standard-library imports in the benchmark tool;
-line, complexity, and duplication detector settings were preserved.
+Performance regression tests check bytes, buffer ownership and reuse, fragment
+limits, duplicate/overlap precedence, congestion counters, cancellation and
+bounded cooperative work, but not timing.
 
 ### Audio measurements
 
-Python uses seed 20260906, five warmups and 31 measured repetitions. These rows
-are 257-datagram bursts. Times are microseconds; SD is population standard
-deviation. All nine workloads, including 1- and 64-datagram bursts, had equal
-input hashes, PCM hashes, final sequences, and complete receive counters.
+Python (retired connector): the harness ran the real coordinator against a
+finite socket double at 16 bits with 1, 2 and 8 channels and 1, 64 and 257
+datagrams; the callback-size limit ruled out larger blocks. Timings include
+event-loop and harness setup. Seed 20260906, five warmups, 31 measured
+repetitions. The rows are 257-datagram bursts. Times are microseconds; SD is
+population standard deviation. All nine workloads had equal input hashes, PCM
+hashes, final sequences and complete receive counters.
 
 | Channels | Median before / after | p95 before / after | SD before / after | Tracemalloc peak bytes before / after |
 |---|---|---|---|---|
@@ -250,21 +221,16 @@ input hashes, PCM hashes, final sequences, and complete receive counters.
 
 For a 257-datagram burst, uninterrupted reads fell from 257 to 64, heartbeat
 opportunities rose from zero to four, and media/audio/reassembly call counts
-changed from 258/258/1 to 257/257/0. Process peak RSS was 37,076,992 versus
-36,798,464 bytes. Baseline timing variance was substantial; bounded work and
+went from 258/258/1 to 257/257/0. Process peak RSS was 37,076,992 versus
+36,798,464 bytes. Baseline timings varied widely, so the bounded work and
 identical outputs are the stronger evidence.
 
-The Swift packetization benchmark uses seed 14921, 50 warmup iterations,
-11 samples, and 1,000 iterations per sample at two channels or 400 at 64.
-Both use float32, 32 frames, and MTU 1200. The prepared and public APIs ran in
-the same final binary to reduce cross-build timing confounds.
-
-The Swift benchmark tests behind these figures (including
-`packetizationOptimizationBenchmark` and its
-`OPEN_LOLA_PACKETIZATION_BENCHMARK_OUTPUT` variable) are not part of the
-repository's test targets, so there is no command in this tree that reruns them.
-Treat the Swift tables as recorded results. A rerun needs a harness restored
-from the snapshot that produced them.
+Swift packetization: seed 14921, 50 warmup iterations, 11 samples, and 1,000
+iterations per sample at two channels or 400 at 64, all float32, 32 frames and
+MTU 1200, in Swift's debug configuration. Prepared and public APIs ran in the
+same binary. The benchmark (`packetizationOptimizationBenchmark`,
+`OPEN_LOLA_PACKETIZATION_BENCHMARK_OUTPUT`) is not in this repository; a rerun
+needs the harness restored from the original snapshot.
 
 | Channels and API | Median us | p95 us | SD us |
 |---|---|---|---|
@@ -275,16 +241,14 @@ from the snapshot that produced them.
 | 64, final public | 30.971 | 31.441 | 0.167 |
 | 64, final prepared | 30.659 | 30.891 | 0.191 |
 
-The baseline/final public timing shift indicates that cross-run conditions
-matter. Retention rests on eliminated repeated planning and exact packet
-parity; the same-binary prepared advantage is small. The baseline snapshot's
-harness calls only the public API. Timing runs use Swift's debug configuration.
+The shift between baseline and final public timings shows that run conditions
+matter. The change was kept because it removes repeated planning and keeps
+packets identical; the prepared API's advantage is small.
 
-MADI measurements run `open-lola madi-rx-synthetic-smoke` once for warmup and
-11 more times. It produces all five channel counts with float32, 32 frames,
-and 48 kHz. Run the built CLI at `$SWIFT_BUILD_PATH/debug/open-lola` and keep
-each stdout report outside the checkout. The measured field includes receive
-and depacketization as well as mixing; it does not isolate the mix kernel.
+MADI: run `open-lola madi-rx-synthetic-smoke` once for warmup and 11 more
+times, using the built CLI at `$SWIFT_BUILD_PATH/debug/open-lola`. It covers all
+five channel counts with float32, 32 frames and 48 kHz. The timing includes
+receive and depacketization, not just the mix kernel.
 
 | Channels | Median us before / after | p95 us before / after | SD us before / after |
 |---|---|---|---|
@@ -294,26 +258,24 @@ and depacketization as well as mixing; it does not isolate the mix kernel.
 | 32 | 206.834 / 129.291 | 234.416 / 132.667 | 9.656 / 3.178 |
 | 64 | 393.333 / 231.250 | 501.375 / 242.500 | 31.803 / 6.348 |
 
-Each report has matching input/output byte counts and zero allocation warnings.
-Those fields are neither byte-for-byte payload proof nor a complete allocator
-profile. Independent int16/float32 tests check numerical bytes, routing,
-clipping, pan, mute, revisions, and retention of prior output. Swift allocator
-counts and per-operation peak memory were not measured.
+Each report had matching input/output byte counts and zero allocation warnings,
+which is neither proof of identical payloads nor an allocator profile. Separate
+int16/float32 tests check numerical bytes, routing, clipping, pan, mute and
+revisions. Swift allocator counts and per-operation peak memory were not
+measured.
 
 ### Rust measurements
 
-The release-mode reassembly/eager-packetization harness uses seed
+The release-mode reassembly and eager-packetization harness used seed
 `0x4c4f4c4132303236`, 15 measured repetitions, three warmups for ordinary
-reassembly/video, and two for maximum-fragment reassembly. The same harness
-source ran against both source snapshots. That harness
+reassembly and video, and two for maximum-fragment reassembly. The harness
 (`tests/optimization_benchmark.rs`, test `rust_hot_path_benchmarks`) is not in
-this repository, so the table below is a recorded result and cannot be rerun
-from this tree; restore the harness from the snapshot that produced it first.
+this repository.
 
-Each ordinary reassembly sample processes three 1-MiB frames with 768 fragments;
-each maximum-fragment sample processes one frame of 16,384 one-byte fragments.
-Times below are milliseconds per sample. Allocations are totals across all
-measured samples, including reassembler setup and parsed-fragment ownership.
+Each ordinary reassembly sample processes three 1-MiB frames with 768
+fragments; each maximum-fragment sample one frame of 16,384 one-byte fragments.
+Times are milliseconds per sample. Allocations are totals across all measured
+samples, including reassembler setup and parsed-fragment ownership.
 
 | Workload | Median before / after | p95 before / after | SD before / after | Allocation calls before / after | Allocated bytes before / after |
 |---|---|---|---|---|---|
@@ -322,17 +284,15 @@ measured samples, including reassembler setup and parsed-fragment ownership.
 | 16384, ordered | 315.887 / 2.609 | 360.154 / 3.126 | 14.319 / 0.216 | 286741 / 286726 | 48551952 / 26957832 |
 | 16384, shuffled | 312.669 / 3.147 | 338.768 / 3.642 | 8.383 / 0.224 | 278536 / 278521 | 43570152 / 21582192 |
 
-The compatibility eager helper was also measured at 64-by-64 BGRA and full-HD
-Mono8/BGRA. Its allocation counts and bytes were exactly unchanged, as expected.
-Its timing changes do not demonstrate session streaming savings. Whole-harness
-peak RSS was 45,596,672 before and 43,483,136 bytes after. Raw samples retain
-minimum, maximum, standard deviation, coefficient of variation, allocation and
-deallocation counts; the host was not reserved against unrelated background
-load. Deterministic neighbor bounds and copy reductions support retention.
+The eager helper was also measured at 64-by-64 BGRA and full-HD Mono8/BGRA; its
+allocation counts and bytes were unchanged, as expected. Whole-harness peak RSS
+was 45,596,672 bytes before and 43,483,136 after. The host was not isolated
+from background load, so the change rests on the deterministic neighbor bounds
+and copy reductions.
 
-The session cursor has a separate same-binary comparison against the retained
-eager helper. It uses constant 0x5a full-HD BGRA input, three warmups, and
-15 samples of one frame each:
+The session cursor was compared against the eager helper in the same binary,
+with constant 0x5a full-HD BGRA input, three warmups and 15 samples of one
+frame each:
 
 ```bash
 cargo test --release \
@@ -346,87 +306,49 @@ cargo test --release \
 | Eager helper | 0.786 | 0.982 | 0.065 | 91081 | 256206300 |
 | Streaming cursor | 0.413 | 0.465 | 0.023 | 31 | 124437240 |
 
-Both paths emitted 8,494,716 wire bytes per frame. Allocation totals cover
-15 frames and harness overhead; independent packet tests compare actual bytes,
-including packet-size clamping and the shared compatibility corpus. This
-comparison excludes capture, codec, socket, and presentation time. The
-separate removal of validation-only serialization is an additional deterministic
-copy reduction, not included in these cursor timings.
+Both paths emitted 8,494,716 wire bytes per frame. Allocation totals cover 15
+frames plus harness overhead. Codec and socket time are excluded.
 
-### Build measurements and scope
+### Build measurements
 
 For `make -n test-swift lint`, Swift test invocations fell from two to one and
-build invocations remained one. Each of the six interpreter-independent CI
-quality steps now runs once instead of three times. Release-readiness remains
-independently complete, and `make verify` includes both Rust feature variants.
+build invocations stayed at one. Each of the six interpreter-independent CI
+quality steps now runs once instead of three times.
 
-The Swift baseline cold run had ModuleCache/concurrent-load contamination;
-the purported warm baseline rebuilt and cannot be compared as a no-op build.
-The final cold/warm observations were 53.42/1.45 seconds. Rust's baseline and
-final cold builds also overlapped other work; no cross-version cache saving is
-claimed. Local incremental reuse alone does not justify further CI caches.
+The Swift baseline cold build was contaminated by ModuleCache and concurrent
+load, and the warm baseline rebuilt, so neither is comparable. The final
+cold/warm builds took 53.42/1.45 seconds. Rust cold builds also overlapped other
+work, so no cache saving is claimed.
 
-The final `make verify` completed with source-gate verdict pass and product
-runtime verdict partial. Architecture fixtures, documentation checks, quality
-fixtures, Ruff, strict mypy, workflow/web/shell/PowerShell checks, Python tests
-and loopback self-test, both Rust feature variants, strict Clippy, and Swift
-build/tests passed. Default and CLI-only Rust help output matched; headless UI
-succeeded in both variants and disabled interactive UI returned the rebuild
-instruction. Opt-in timing benchmarks were run separately from correctness
-gates.
-
-Windows/Npcap execution, physical media devices, reference peers, field latency,
-signing, notarization, and distribution remain outside this local proof.
-Interactive native-app launch and exported-candidate residue checks were not
-run by the headless local gate.
-
-VERDICT: PARTIAL
+The final headless `make verify` passed the source gate with product runtime
+verdict partial. Windows/Npcap, physical devices, reference peers, signing and
+distribution were not covered.
 
 ## Follow-up optimization matrix, 2026-09-06
 
-This follow-up starts from the actual dirty tree left by the preceding audit:
-1,734 tracked or untracked files, parent commit
-`4add2df44cfd8cade3106e3a8f734a105059f288`, and SHA-256 manifest fingerprint
-`78739cf802099c349345769db2a495fd185d3be5b27ae17e32ee27fa183c3c0b`.
-The snapshot, original harness bytes, harness overlays, raw samples, source
-hashes, toolchain records, and verification logs are held outside the checkout.
-Harness overlays add parity tests and the same measurement configuration to
-both versions; runtime sources in the baseline remain unchanged.
+The follow-up started from the tree the first audit left: 1,734 files, parent
+commit `4add2df44cfd8cade3106e3a8f734a105059f288`, SHA-256 manifest fingerprint
+`78739cf802099c349345769db2a495fd185d3be5b27ae17e32ee27fa183c3c0b`, same
+toolchains. Harness overlays added parity tests and identical measurement
+settings to both versions without changing baseline runtime sources.
 
-The available toolchains were Xcode 26.6 / Swift 6.3.3, stable Rust/Cargo
-1.96.0, uv 0.10.7, and Python 3.14.7 on Darwin arm64. Python 3.14.6 was not
-available; its pin was preserved. Baseline architecture, Python, Swift, both
-Rust feature configurations, and lint passed. A preview test using a debug-only
-injection hook is now compiled under the same condition as that hook; the
-normal debug gate continues to run it.
-
-New timing workloads use five complete warmup samples and 31 measured samples.
-Percentiles use nearest rank; with 31 samples p99 is the maximum and has little
-tail resolution. Raw samples accompany median, p95, p99, population standard
-deviation, and range. Memory runs are separate from timing. Traced peaks and
-process RSS are different quantities; neither is a literal byte-copy counter.
-Static copy counts describe identified operations and are labeled separately.
-Concurrent compilation and other host load are recorded with affected runs;
-those timings cannot establish a hardware or scheduling guarantee.
+Timing workloads use five warmup samples and 31 measured samples. Percentiles
+are nearest-rank, so p99 is the maximum and says little about the tail. Memory
+runs are separate from timing runs. Traced peaks and process RSS measure
+different things, and neither counts copied bytes.
 
 ### Reproduction
 
-Use external directories for the Python environment, caches, Swift scratch
-space, Cargo target directory, and all outputs. The opt-in benchmarks do not
-participate in correctness timing gates. The historical Python media benchmark
-selected the captured baseline with `--source-root` and repeated against the
-candidate tree with the same interpreter. That command retired with the
-connector, so its recorded results remain historical comparisons.
-
 The Swift benchmark tests and the `optimization_benchmark`,
-`audio_optimization_benchmark` and `jpeg_optimization_benchmark` Rust integration
-tests that produced the recorded figures below are not in this repository
-(test sources are not published), so their
-`--filter` names and `OPEN_LOLA_*_BENCHMARK_OUTPUT` / `RUSTY_LOLA_AUDIO_BENCHMARK_OUTPUT`
-/ `RUSTY_LOLA_JPEG_BENCHMARK_OUTPUT` variables do not select anything here.
+`audio_optimization_benchmark` and `jpeg_optimization_benchmark` Rust
+integration tests that produced the figures below are not in this repository.
+Their `--filter` names and the `OPEN_LOLA_*_BENCHMARK_OUTPUT`,
+`RUSTY_LOLA_AUDIO_BENCHMARK_OUTPUT` and `RUSTY_LOLA_JPEG_BENCHMARK_OUTPUT`
+variables do nothing here.
 
-The opt-in Rust measurements that do exist are ignored library tests. The output
-variables select external files. Manual check, run separately from other load:
+The opt-in Rust benchmarks that are in the repository are ignored library
+tests. The output variables name external files. Run them by hand, away from
+other load:
 
 ```bash
 RUSTY_LOLA_INTERNAL_AUDIO_BENCHMARK_OUTPUT="$EVIDENCE_DIR/audio-writer.json" \
@@ -441,58 +363,46 @@ RUSTY_LOLA_PREVIEW_BENCHMARK_OUTPUT="$EVIDENCE_DIR/preview.json" \
 ```
 
 The resampling fixtures compare exact Float bit patterns across 192 irregular
-chunks, retained outputs, partial input frames, and reset at 2/8/64 channels,
+chunks, retained outputs, partial input frames and reset, at 2/8/64 channels,
 with equal rates and both 44.1/48 kHz directions. The playout workload splits
-4,096-frame input bursts into 32-frame output blocks; it isolates accumulation
-and conversion using an in-process target, not a physical callback.
+4,096-frame input bursts into 32-frame output blocks. It measures accumulation
+and conversion against an in-process target, not a physical callback.
 
-### Npcap reporting cadence
+### Npcap statistics
 
-The prior snapshot-only description did not match the implementation:
-`receive_kind` also queried kernel statistics after each poll. Receive polling
-now updates software counters only. A fallible terminal report snapshot and
-finalization refresh the kernel counters, with the final cached result copied
-into the report before the transport is released. Refresh failures remain
-visible and do not remove transport fields from the partial report. Fake
-capture tests establish query counts and lifecycle behavior; actual Npcap call
-cost and Windows driver behavior require native measurements.
+`receive_kind` used to query kernel statistics after every poll. Receive
+polling now updates only software counters. A fallible terminal report snapshot
+and finalization refresh the kernel counters, and the last cached result goes
+into the report before the transport is released. Refresh failures stay visible
+and do not remove transport fields from a partial report. Fake-capture tests
+check query counts and lifecycle; real Npcap cost needs native Windows
+measurements.
 
 ### CI cache decision
 
-No additional CI cache is enabled by this follow-up. The latest completed
-routine run inspected was GitHub Actions run `33325140399`, at the parent
-commit on 2026-08-30. Its Windows Rust steps took 78 seconds for Clippy,
-74 seconds for tests, and 185 seconds for release compilation. Linux Rust
-Clippy/tests took 57/62 seconds; the Swift test step took 90 seconds, including
-80.32 seconds reported for its build. These are step observations from one
-older workflow run, not distributions for the dirty-tree workflow.
+No CI cache was added. The latest completed routine run checked was GitHub
+Actions run `33325140399`, at the parent commit on 2026-08-30. Its Windows Rust
+steps took 78 seconds for Clippy, 74 seconds for tests and 185 seconds for the
+release build. Linux Rust Clippy/tests took 57/62 seconds. The Swift test step
+took 90 seconds, 80.32 of them in the build. That run has no cache restore/save
+timings or sizes, so the cache stays blocked until CI numbers exist.
 
-That run has no comparable Rust/Swift cache restore/save transfer timings or
-sizes. It also predates the existing local workflow changes. Local incremental
-reuse cannot supply the missing network-cache evidence, so the additional
-cache candidate remains blocked by unavailable CI measurements. All existing
-required jobs and platform coverage are preserved.
+### FIFO candidates
 
-### FIFO candidate decision
-
-The standalone linear resampler's head-index candidate was rejected. In the
-reverse-order confirmation, two-channel 44.1-to-48 kHz conversion rose from
+The head-index change to the standalone linear resampler was rejected. In the
+reverse-order confirmation run, two-channel 44.1-to-48 kHz conversion rose from
 31.334 to 35.167 microseconds per 48-block sample, and 48-to-44.1 kHz rose from
-28.166 to 31.291 microseconds. The first comparison also regressed those
-workloads. Higher-channel results varied by run and did not justify accepting
-a regression in the common two-channel path. The original resampler remains,
-with the new exact-bit-pattern fixtures and release benchmark retained. The
-rejected implementation and both raw comparisons are preserved externally.
+28.166 to 31.291 microseconds; the first comparison showed the same. The
+original resampler stays, with the new exact-bit-pattern fixtures and release
+benchmark.
 
-The decoded playout accumulator is a separate retained candidate. It consumes
-complete blocks by advancing a head index, clears fully consumed storage, and
-compacts an incomplete tail only after at least 4,096 consumed samples and a
-consumed prefix at least half the storage. Output arrays and Data remain
-independently owned. In the 4,096-frame burst workload, the old accumulator
-shifted `32 * channels * (127 * 128 / 2)` Float elements per burst; the new
-accumulator shifts none when the burst is completely consumed. This is a
-source-derived work count, not an allocator observation. Output block creation
-and conversion still occur and are included in the measurements.
+The decoded playout accumulator change was kept. It consumes complete blocks by
+advancing a head index, clears fully consumed storage, and compacts an
+incomplete tail only after at least 4,096 consumed samples and when the
+consumed prefix is at least half the storage. In the 4,096-frame burst
+workload, the old accumulator shifted `32 * channels * (127 * 128 / 2)` Float
+elements per burst; the new one shifts none when the burst is fully consumed.
+That count comes from the code, not an allocator.
 
 ### Follow-up outcomes
 
@@ -511,10 +421,9 @@ and conversion still occur and are included in the measurements.
 ### Python measurements
 
 All six diagnostic frame and fragment-assembly hashes matched. Warm generation
-times below are milliseconds per frame. Columns show baseline / candidate; SD
-is population standard deviation. The formal baseline overlapped compilation
-and its late RGB/RGBA runs were heavily contended. These distributions describe
-the observed run; their ratios are not stable speedup estimates.
+times are milliseconds per frame, baseline / candidate. The baseline overlapped
+compilation and its late RGB/RGBA runs were heavily contended, so the ratios are
+not stable speedup estimates.
 
 | Geometry / format | Median | p95 | p99 | SD |
 |---|---|---|---|---|
@@ -525,25 +434,20 @@ the observed run; their ratios are not stable speedup estimates.
 | 1920x1080 RGB | 1936.463 / 1.319 | 3051.488 / 1.348 | 5170.130 / 1.367 | 608.399 / 0.020 |
 | 1920x1080 RGBA | 1962.678 / 1.255 | 2531.817 / 1.333 | 3288.232 / 1.387 | 272.239 / 0.037 |
 
-The cache retains one static frame per capture, at most 8,294,400 pixel bytes
-for the tested RGBA geometry. Cold and warm traced peaks and process RSS are
-reported separately, including this memory tradeoff. Warm heartbeat maximum-gap
-medians were 1.09–1.67 milliseconds in the candidate; this is an event-loop
-probe with a 1-millisecond heartbeat, not physical audio latency.
+The cache holds one static frame per capture, at most 8,294,400 pixel bytes for
+the tested RGBA geometry. Warm heartbeat maximum-gap medians were 1.09–1.67
+milliseconds in the candidate (an event-loop probe with a 1-millisecond
+heartbeat).
 
-Initial whole-harness assembly timings appeared slower for smaller frames.
-Repeating assembly alone with interleaved baseline/candidate runs resolved that
-signal: all six workloads and both orders improved, with median reductions of
-21.4–29.6%. Separate traced transient peaks fell approximately 7.2–8 times.
-Both initial and repeated results remain in the evidence set; no size-dependent
-dispatch or unverified copy counter was introduced.
+In the first whole-harness run, assembly looked slower for smaller frames.
+Rerunning assembly alone with baseline and candidate interleaved showed all six
+workloads improving in both orders, with median reductions of 21.4–29.6% and
+traced transient peaks about 7.2–8 times lower.
 
 ### Swift release measurements
 
-The following measurements use microseconds per operation. The receive rows
-compare external source snapshots; send rows compare eager and prepared paths
-in the same candidate binary. Raw reports retain all 31 samples and workload
-seeds. These exclude physical capture, network transit, and rendering.
+Times are microseconds per operation. Receive rows compare source snapshots;
+send rows compare the eager and prepared paths in the same candidate binary.
 
 | Workload | Median before / after | p95 before / after | p99 before / after | SD before / after |
 |---|---|---|---|---|
@@ -560,20 +464,16 @@ seeds. These exclude physical capture, network transit, and rendering.
 | Video datagrams 320x180 | 766.333 / 543.639 | 907.805 / 588.139 | 927.653 / 588.153 | 76.487 / 21.219 |
 | Video datagrams 1920x1080 | 26220.875 / 19661.209 | 28642.792 / 20772.375 | 28663.709 / 21069.458 | 1069.937 / 741.992 |
 
-The cursor also has separate one-datagram, stalled-consumer, and backpressure
-supersession workloads. Swift reports source-derived work counts; per-operation allocator counts were
-not instrumented: the parser drops temporary arrays/serialization,
-reassembly owns one destination per deadline, and senders reuse datagram storage.
-RSS observations include the SwiftPM/test harness and are not per-operation
-allocation counts. Synthetic packet timings do not establish network deadlines.
+Per-operation allocator counts were not instrumented for Swift; the work
+reductions come from the code: the parser drops its temporary arrays and
+serialization, reassembly owns one destination per deadline, and senders reuse
+datagram storage.
 
 ### Rust release measurements
 
-Audio rows process 8,192 operations; JPEG rows process 16 frames. Timings are
-microseconds per sample. Allocation measurements use separate passes with
-counting disabled during timing; internal writer/ring measurements exclude
-initial storage preparation. Baseline and candidate packet/JPEG byte lengths
-and checksums match, with exact byte comparisons in the correctness suites.
+Audio rows process 8,192 operations; JPEG rows process 16 frames. Times are
+microseconds per sample. Allocations were measured in separate passes. Baseline
+and candidate packet and JPEG byte lengths and checksums match.
 
 | Workload | Median before / after | p95 before / after | p99 before / after | Allocated bytes before / after |
 |---|---|---|---|---|
@@ -582,29 +482,26 @@ and checksums match, with exact byte comparisons in the correctness suites.
 | RGB JPEG | 41239.000 / 37658.208 | 41613.375 / 38325.084 | 41614.708 / 38767.375 | 21555504 / 10496304 |
 | Grayscale frame JPEG | 35906.958 / 32438.417 | 36472.750 / 32954.958 | 38347.750 / 33182.250 | 27371904 / 16312704 |
 
-The public owned capture wrapper still allocates one block and had a repeated
-median of 1,492.083 microseconds versus 1,445.083 in the baseline, within the
-baseline range and variability. The production caller-buffered path avoids
-those repeated allocations. Internal audio writing and callback-ring transfer
-each performed 8,192 operations with zero steady-state allocations.
+The public owned capture wrapper still allocates one block; its repeated median
+was 1,492.083 microseconds against 1,445.083 in the baseline, within baseline
+variability. The caller-buffered production path avoids those allocations.
+Internal audio writing and callback-ring transfer each ran 8,192 operations with
+zero steady-state allocations.
 
-Preview polling uses a pre-published 96x96 RGB frame. Both changed-token and
-unchanged-token reads allocated zero bytes; the old two-owned-copy oracle
-allocated 452,984,832 bytes in 16,384 allocations over 8,192 reads. This measures
-snapshot preparation and reuse, not publication, image conversion, or GPU upload.
-The GUI generation gate is correctness-tested, including rapid session changes.
+Preview polling of a pre-published 96x96 RGB frame allocated zero bytes for both
+changed and unchanged tokens. The old two-copy path allocated 452,984,832 bytes
+in 16,384 allocations over 8,192 reads. GPU upload is not included.
 
-The bounded 50-microsecond wait reduced the median poll count from 4,968 to
-7 for a synthetic 500-microsecond deadline, but moved median completion from
-500.083 to 559.375 microseconds. Production yield polling remains unchanged.
-Native callback cancellation/deadline behavior and CPU cost need physical
-PortAudio/ASIO measurements before adopting a different waiting policy.
+The bounded 50-microsecond wait cut the median poll count from 4,968 to 7 for a
+synthetic 500-microsecond deadline, but moved median completion from 500.083 to
+559.375 microseconds, so production yield polling is unchanged. Changing it
+needs physical PortAudio/ASIO measurements first.
 
 ### Playout and verification
 
-Final playout burst measurements use the original resampler and the retained
-head-index accumulator. Each sample is eight 4,096-frame inputs split into
-32-frame output blocks. Times are microseconds per sample.
+These runs use the original resampler and the new head-index accumulator. Each
+sample is eight 4,096-frame inputs split into 32-frame output blocks. Times are
+microseconds per sample.
 
 | Channels | Median before / after | p95 before / after | p99 before / after | SD before / after |
 |---|---|---|---|---|
@@ -612,32 +509,20 @@ head-index accumulator. Each sample is eight 4,096-frame inputs split into
 | 8 | 833.209 / 220.000 | 840.833 / 228.375 | 851.792 / 241.375 | 4.493 / 4.113 |
 | 64 | 8544.625 / 920.750 | 8649.084 / 945.083 | 8871.042 / 969.583 | 79.062 / 13.630 |
 
-Process peak RSS for these equivalent playout harnesses was 77,578,240 bytes
-before and 77,529,088 after. This includes SwiftPM and the test runner; it
-does not measure the accumulator allocation in isolation. Other Swift datagram
-RSS probes ran different workload sets and are excluded from memory comparisons.
+Process peak RSS for these harnesses was 77,578,240 bytes before and 77,529,088
+after, including SwiftPM and the test runner.
 
-Final architecture, Swift build/tests, Python Ruff/mypy/tests/self-test, both
-Rust feature configurations, strict Clippy, repository quality, shell, workflow,
-web, and PowerShell checks passed. The complete `make verify` exited zero with
-`source-gate-verdict: pass` and `product-runtime-verdict: partial`. The final
-Swift suite contained 54 tests and the Python suite contained 81 tests.
-Documentation, source-documentation, and whitespace checks passed.
-
-The duplication inventory was reconciled only for normalized import/declaration
-prefixes and maximal-clone regrouping in unchanged files. Line, complexity,
-and duplication thresholds were preserved. The independent ownership review
-found and verified fixes for cross-session preview generations, send error
-precedence, lock-wait exclusion from packetization metrics, and final cleanup
-error reporting.
-
-Windows/Npcap execution, ASIO and physical media devices, reference peers,
-interactive GPU rendering, signing, notarization, and distribution remain
-unverified. No CI cache was added, no production wait policy was changed, and
-no dependency version was upgraded.
+The complete `make verify` exited zero with `source-gate-verdict: pass` and
+`product-runtime-verdict: partial`. The final Swift suite had 54 tests and the
+Python suite 81. Separate review found and fixed bugs in cross-session preview
+generations, send error precedence, lock-wait time counted in packetization
+metrics, and final cleanup error reporting. Windows/Npcap, ASIO, physical
+devices, reference peers and GPU rendering remain unverified.
 
 ## Native Linux migration measurements
 
-The [2026-09-08 verification record](linux-migration-verification.md) records
-sustained session, allocation, and timing observations after the Linux
+The [2026-09-08 verification record](linux-migration-verification.md) holds the
+sustained session, allocation and timing measurements taken after the Linux
 migration, including the shared-host contention that limits timing acceptance.
+
+VERDICT: PARTIAL

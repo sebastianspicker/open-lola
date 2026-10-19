@@ -1,46 +1,49 @@
 # Release manifest
 
-Status: active source-candidate allowlist
-Verdict: PARTIAL
+What goes into a source candidate. The exporter and hygiene checker enforce
+this list.
 
 ## Include
 
-- root manifests, locks, license and community files, and public documentation;
+- root manifests, lockfiles, license and community files, and public
+  documentation;
 - `runtimes/**`;
 - `interop/lola2/**`;
-- the codec subset selected by `Package.swift`, required upstream headers and
-  notices, and `third_party/opus/openlola_bridge/**`;
-- active `tools/**`, `web/demo/**`, and public `.github/**` workflow and assets.
+- the codec subset selected by `Package.swift`, the required upstream headers
+  and notices, and `third_party/opus/openlola_bridge/**`;
+- active `tools/**`, `web/demo/**`, and public `.github/**` workflows and
+  assets.
 
 ## Exclude
 
-- private, internal, reverse-engineering, research, and local archive payloads;
-- tool indexes and machine-local agent and editor state;
-- credentials, captures, runtime reports, caches, build products, packages, and
+- private, internal, reverse-engineering, research and local archive material;
+- tool indexes and machine-local editor and tool state;
+- credentials, captures, runtime reports, caches, build products, packages and
   test output;
-- uncompiled upstream CI, tests, training, demos, and build-system collateral
-  not selected for the candidate.
+- upstream CI, tests, training data, demos and build-system files that are not
+  compiled into the candidate.
 
-The executable policy is `tools/release-boundary-policy.txt`. The exporter starts
-from an explicit top-level allowlist and then strips unselected vendor material.
-`tools/verify-release-hygiene.sh` independently rejects forbidden items and
-verifies notices, compiled subsets, and the first-party bridge fence.
+The path rules live in `tools/release-boundary-policy.txt`. The exporter starts
+from a top-level allowlist and then strips unselected vendor material.
+`tools/verify-release-hygiene.sh` separately rejects forbidden items and checks
+notices, compiled subsets and the bridge fence.
 
 ## Vendor Fence And Patch Policy
 
 `COpus` compiles the selected Opus sources and the first-party
-`third_party/opus/openlola_bridge/**` boundary, while `CJpegXSReference` compiles
-the selected JPEG XS reference sources. Upstream edits outside the bridge require
-origin, patch, and notice review.
+`third_party/opus/openlola_bridge/**` code. `CJpegXSReference` compiles the
+selected JPEG XS reference sources. Any upstream edit outside the bridge needs
+origin, patch and notice review.
 
-Generate an inspection candidate with:
+To generate an inspection candidate:
 
 ```bash
 bash tools/export-release-candidate.sh /private/tmp/open-lola-release
 ```
 
-An inspection export from a dirty tree is nonpublishable. Publication requires an
-approved clean revision, exact candidate verification, current notices and
-provenance, independent review, and explicit maintainer authorization.
+An export from a dirty tree must not be published. Publication needs an
+approved clean revision, verification of that exact candidate, current notices
+and provenance, independent review, and maintainer approval. See
+[RELEASING.md](RELEASING.md).
 
 VERDICT: PARTIAL

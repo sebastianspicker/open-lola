@@ -1,61 +1,65 @@
 # Current state
 
-Date: 2026-09-08
-Status: experimental source alpha
-Verdict: PARTIAL
+Last updated 2026-09-08. Open LoLa is an experimental source alpha.
 
-Open LoLa contains two independent runtime implementations:
+The repository has two independent runtimes:
 
-- a modular macOS SwiftPM app and CLI with direct-peer, media, integration,
-  evidence, and operator-interface source;
+- a macOS SwiftPM app and CLI covering direct-peer sessions, media, external
+  integrations, report validation, and the operator interface;
 - a Windows and native Linux Rust station with PortAudio, XIMEA or Media
-  Foundation (USB/UVC webcams), and ALSA/V4L2 backends, explicit diagnostic media, and optional egui presentation.
+  Foundation (USB/UVC webcams), and ALSA/V4L2 backends, diagnostic media you
+  select by hand, and an optional egui UI.
 
-The runtimes share the versioned synthetic regression corpus in `interop/lola2`,
-which is not original packet-capture or current reference-peer evidence. The
-Rust station and the macOS connector replay it in test suites whose sources are
-not published.
-Vendored codecs remain under `third_party`, repository automation under `tools`,
-and the fixture-backed browser walkthrough under `web/demo`.
+Both runtimes use the versioned synthetic regression corpus in `interop/lola2`.
+It is not a packet capture from LoLa or a current reference peer. The Rust
+station and the macOS connector replay it in tests whose sources are not
+published. Vendored codecs live in `third_party`, repository scripts in `tools`,
+and the fixture-backed browser walkthrough in `web/demo`.
 
-The current source defines direct-peer session negotiation, UDP audio and video
-transport, buffering and drift models, report validation, Rust LoLa 2 station
-behavior, native Linux device APIs, and bounded offline capture decoding. Python
-supplies repository tooling. Local bundle, native-helper, and external-proof
-tools are validation surfaces, not a deployment platform.
+## What the source implements
 
-The macOS app follows Configure → Check → Run → Review with a persistent
-transport shelf. Check summarizes the current configuration; Run separates
-process status, local device preview, and recorded observations. Workspaces keeps
-media, routing, packets, validation, and diagnostics accessible, while Configure
-separates media selection from peer connection fields. Light, dark, and system
-appearance use the Quiet signal design described in
-[design-system.md](design-system.md). Explicit arming, input locks, stop
-confirmation, and report validation requirements remain in effect. Local preview
-is not received peer-video proof.
+- direct-peer session negotiation;
+- UDP audio and video transport;
+- receive buffering and clock drift models;
+- report validation;
+- the Rust LoLa 2 station;
+- native Linux device access;
+- offline decoding of packet captures, with size limits.
 
-Local software gates are defined in [testing.md](testing.md). They do not
-establish:
+Python is used for repository tooling. The local bundle, native helper, and
+external proof scripts are for testing, not deployment.
+
+The macOS app follows Configure, Check, Run, Review, with a transport shelf that
+stays visible. Check summarizes the current configuration. Run shows process
+status, local device preview, and recorded values separately. Workspaces gives
+access to media, routing, packets, validation, and diagnostics. Light, dark, and
+system appearance follow [design-system.md](design-system.md). Arming, input
+locks, stop confirmation, and report validation still apply. The local preview
+does not show that peer video was received.
+
+## What has not been shown
+
+The local checks in [testing.md](testing.md) do not show:
 
 - physical two-peer latency, jitter, loss, or long-run stability;
 - RME MADI, Blackmagic, ATEM, DeckLink, UltraStudio, XIMEA, ASIO, or Npcap
-  operation on a claimed production configuration;
-- current interoperability with a reference Windows LoLa, UltraGrid, or
+  working in a production setup;
+- interoperability with a current reference Windows LoLa, UltraGrid, or
   JackTrip peer;
-- native production Linux capture/playback latency;
-- authenticated identity, replay protection, or media integrity and
+- native Linux capture and playback latency in production;
+- peer authentication, replay protection, or media integrity and
   confidentiality;
-- signed distribution, notarization, Gatekeeper acceptance, or clean-machine
-  installation; or
-- publication approval for the exact vendored codec and fixture set.
+- signed distribution, notarization, Gatekeeper acceptance, or installation on
+  a clean machine;
+- approval to publish the exact vendored codec and fixture set.
 
-The macOS bundle helpers use ad-hoc signing, and the static UI images are
-offline renders. Report validators evaluate supplied observations but cannot
-upgrade synthetic, localhost, source, or historical evidence into field proof.
+The macOS bundle scripts use ad-hoc signing, and the static UI images are
+offline renders. Report validators check the values they are given. They cannot
+turn synthetic, localhost, source, or historical results into field evidence.
 
-See [architecture.md](architecture.md) for ownership,
+See [architecture.md](architecture.md) for code layout,
 [configuration.md](configuration.md) for runtime inputs,
-[source-contracts.md](source-contracts.md) for compatibility surfaces, and
-[RELEASING.md](RELEASING.md) for the source-candidate boundary.
+[source-contracts.md](source-contracts.md) for compatibility promises, and
+[RELEASING.md](RELEASING.md) for what goes into a source release.
 
 VERDICT: PARTIAL

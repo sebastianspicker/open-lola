@@ -1,50 +1,49 @@
-## Scope
+## What changed and why
 
-What changed, and why:
+
 
 - [ ] Documentation or metadata only
 - [ ] Source or runtime behavior
 - [ ] Tests or tooling
-- [ ] Public/repository/release boundary
-- [ ] Fixture, protocol, or interoperability surface
+- [ ] Repository layout or release export
+- [ ] Fixtures, protocol, or interoperability
 
-## Source-alpha and evidence boundary
+## Claims and clean-room rules
 
-- [ ] This change preserves the public `PARTIAL` verdict, or explains the
-      measured and reviewed evidence required for any different claim.
-- [ ] Claims are labeled accurately: source, synthetic, localhost,
-      measured hardware, reference peer, or not measured.
+- [ ] The verdict stays `PARTIAL`, or the PR shows the measured and reviewed
+      evidence that justifies a different claim.
+- [ ] Each claim says what it rests on: source, synthetic, localhost, measured
+      hardware, reference peer, or not measured.
 - [ ] No synthetic, localhost, built-in-device, archived, placeholder, or
-      skip-loud result is presented as field interoperability or product `PASS`.
-- [ ] The change remains clean-room: public/authorized inputs and original
-      implementation only; no proprietary or confidential material.
-- [ ] No secrets, private captures, personal data, hostnames, or internal
-      evidence are included in the change or discussion.
-- [ ] Private evidence and local workflow records remain outside the tracked
-      change.
-- [ ] Changes under `third_party/opus/` or `third_party/jpeg-xs/` are
-      explicitly classified before modification or any public claim.
+      skipped result is presented as field interoperability or a product `PASS`.
+- [ ] Only public or authorized inputs and original code are used; no
+      proprietary or confidential material.
+- [ ] No secrets, private captures, personal data, hostnames, or private
+      evidence appear in the change or the discussion.
+- [ ] Local notes and private evidence are not committed.
+- [ ] Any change under `third_party/opus/` or `third_party/jpeg-xs/` is
+      described and justified.
 
 ## Verification
 
-Commands run and result:
+Commands run and their results:
 
 ```text
 
 ```
 
-Checks not run, why, and resulting uncertainty:
+Checks not run, why, and what that leaves uncertain:
 
 ```text
 
 ```
 
-## Release and reviewer checklist
+## For reviewers
 
-- [ ] I have described runtime, state, UI, protocol, or compatibility risk.
-- [ ] I have identified any changed public claim, fixture provenance, or
-      evidence limitation.
-- [ ] I have identified any release-boundary impact; this PR does not imply a
+- [ ] I have described any runtime, state, UI, protocol, or compatibility risk.
+- [ ] I have listed any changed public claim, fixture source, or evidence
+      limit.
+- [ ] I have noted any effect on the release export. This PR does not imply a
       tag, published artifact, supported release, or field readiness.
-- [ ] I have listed repository-boundary files affected by this PR.
-- [ ] I have requested the applicable source, clean-room, and release review.
+- [ ] I have listed any repository-policy files this PR touches.
+- [ ] I have asked for the source, clean-room, and release reviews that apply.

@@ -1,44 +1,42 @@
 # Contributing to Open LoLa
 
-Thanks for taking a look. Open LoLa is an experimental source alpha, and every
-contribution has to stay clean-room: use public standards and APIs, original
-experiments, and material you are entitled to share. Do not submit proprietary
-binaries or source, decompiler output, confidential captures, credentials, or
-personal data.
+Thanks for taking a look. Open LoLa is an experimental source alpha, and all
+work must be clean-room: use public standards and APIs, your own experiments,
+and material you are allowed to share. Do not submit proprietary binaries or
+source, decompiler output, confidential captures, credentials, or personal data.
 
-## Find the right home for your change
+## Where your change goes
 
-Each concept has one owner. Put your change where it belongs:
+Each concept has one owner:
 
 - macOS code goes in the matching SwiftPM target under `runtimes/macos/Sources/`.
-  `OpenLolaCore` is a facade over the other modules and holds no implementation.
-- Framework-free shared values go in `OpenLolaContracts`.
-- Rust station behavior goes in `runtimes/rust-station/`.
-- Linux compatibility behavior also lives in `runtimes/rust-station/`.
-- Cross-runtime synthetic wire cases go in `interop/lola2/`.
-- Upstream code goes in `third_party/`, with first-party Opus bridging only
-  under `third_party/opus/openlola_bridge/`.
+  `OpenLolaCore` only re-exports the other modules and holds no code of its own.
+- Shared values that need no framework go in `OpenLolaContracts`.
+- Rust station and Linux behavior goes in `runtimes/rust-station/`.
+- Synthetic wire cases shared by both runtimes go in `interop/lola2/`.
+- Upstream code goes in `third_party/`. Our own Opus bridge code lives only in
+  `third_party/opus/openlola_bridge/`.
 
-Keep side effects in explicit device, media, transport, process, filesystem, or
-presentation adapters. Session policy stays independent of UI and concrete media
-frameworks. [Architecture](docs/architecture.md) is the ownership source of truth.
+Keep side effects in device, media, transport, process, filesystem, or
+presentation adapters. Session logic must not depend on the UI or on a specific
+media framework. [Architecture](docs/architecture.md) is the reference for who
+owns what.
 
-## Keep contracts and evidence honest
+## Compatibility and claims
 
-Read [source contracts](docs/source-contracts.md) before changing package, CLI,
-wire, report, preference, or settings behavior. Internal paths and private
-helpers can change freely; public compatibility surfaces need an intentional
-migration.
+Read [source contracts](docs/source-contracts.md) before you change package,
+CLI, wire, report, preference, or settings behavior. Internal paths and private
+helpers can change freely; stable interfaces need a planned migration.
 
-Say what your evidence actually is: source, synthetic, localhost, measured
-hardware, reference peer, or not measured. Never promote a local or generated
-result into field, security, signing, or distribution proof. The rules for
-publishable interoperability work are in
-[clean-room design rules](docs/clean-room-design-rules.md).
+State what kind of evidence you have: source only, synthetic, localhost,
+measured hardware, reference peer, or not measured. Do not present a local or
+generated result as a field, security, signing, or distribution result.
+[Clean-room design rules](docs/clean-room-design-rules.md) covers
+interoperability work you want to publish.
 
-## Verify your change
+## Check your change
 
-Run the narrow lane while developing:
+Run the quick checks while you work:
 
 ```bash
 make architecture
@@ -49,12 +47,12 @@ make test-rust
 git diff --check
 ```
 
-Run `make verify` before a cross-runtime, public-contract, or release-boundary
-change. For documentation-only changes, run the documentation checks listed in
-[docs/testing.md](docs/testing.md). Report every gate you could not run,
-especially hardware, reference-peer, graphical-session, signing, and
-notarization checks.
+Run `make verify` before changing both runtimes, a stable interface, or the
+release export. For documentation-only changes, run the documentation checks in
+[docs/testing.md](docs/testing.md). In your pull request, list every check you
+could not run, especially hardware, reference-peer, graphical-session, signing,
+and notarization checks.
 
-When behavior, commands, configuration, or a compatibility contract changes,
-update the single document that owns it. Please do not add plans, audit ledgers,
-implementation diaries, or duplicate status pages.
+When you change behavior, commands, configuration, or a stable interface,
+update the one document that covers it. Do not add plans, work logs, or
+duplicate status pages.

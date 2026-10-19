@@ -1,32 +1,32 @@
 # Linux V4L2 video capture
 
-The Rust station has a native Linux V4L2 capture backend. It uses the single-
-planar streaming API with memory-mapped buffers. Device inventory also reports
-multi-planar capture capability and modes, but opening a multi-planar-only device
-fails explicitly, because the capture pipeline consumes one packed image plane.
+The Rust station captures video on Linux through V4L2, using the single-planar
+streaming API with memory-mapped buffers. Device inventory also reports
+multi-planar devices and their modes, but opening a multi-planar-only device
+fails, because the capture pipeline expects one packed image plane.
 
-The implementation follows the Linux kernel's
-[memory-mapped streaming contract](https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/mmap.html):
-request buffers, query and map each buffer, queue all buffers, start streaming,
-dequeue a completed buffer, return it to the driver after processing, stop the
-stream, and unmap the buffers.
+Capture follows the kernel's
+[memory-mapped streaming procedure](https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/mmap.html):
+request buffers, query and map each one, queue them all, start streaming,
+dequeue a filled buffer, queue it again after processing, stop streaming, and
+unmap.
 
-## Capture contract
+## How capture works
 
-`V4l2Camera::open` opens the selected character device for read/write with
-`O_NONBLOCK`, requires `V4L2_CAP_VIDEO_CAPTURE` and `V4L2_CAP_STREAMING`, and
-negotiates the requested mode. The driver must return the exact width, height,
-pixel FourCC, and rational frame interval. Driver substitutions fail with a
-negotiation mismatch instead of silently changing the active session.
+`V4l2Camera::open` opens the device read/write with `O_NONBLOCK`, requires
+`V4L2_CAP_VIDEO_CAPTURE` and `V4L2_CAP_STREAMING`, and sets the requested mode.
+The driver must accept the exact width, height, pixel FourCC, and frame
+interval. If the driver substitutes anything, open fails with a negotiation
+mismatch instead of changing the session.
 
-The backend requests four MMAP buffers and accepts two to four allocated buffers,
-whose aggregate mapped length is limited to 1 GiB. A frame wait has a finite
-timeout derived from the configured frame rate, and polling is divided into 25 ms
-slices so a cancellation handle from another thread ends a pending grab
-promptly. Every successfully dequeued, valid-index buffer is queued again even
-when the driver marks it erroneous or frame validation or conversion fails.
+The backend requests four MMAP buffers and accepts two to four, with at most
+1 GiB mapped in total. Waiting for a frame times out after a period derived
+from the frame rate. Polling runs in 25 ms slices, so a cancel from another
+thread ends a pending grab quickly. Every dequeued buffer with a valid index is
+queued again, even when the driver flags it as erroneous or validation or
+conversion fails.
 
-Supported input formats are:
+Supported input formats:
 
 | V4L2 FourCC | Station output |
 |---|---|
@@ -34,28 +34,27 @@ Supported input formats are:
 | `BGR3` | channel-swapped packed `RGB24` |
 | `YUYV` | converted packed `RGB24` |
 | `GREY` | packed `Mono8` |
-| `MJPG` | decoded `RGB24` or `Mono8`, according to the JPEG image |
+| `MJPG` | decoded `RGB24` (color and grayscale JPEG) |
 
-For uncompressed frames, driver row padding is removed according to the
-negotiated `bytesperline`. Short rows, truncated frames, zero-byte buffers,
-out-of-range buffer indices, and buffers carrying `V4L2_BUF_FLAG_ERROR` are all
-rejected.
+For uncompressed frames, row padding is stripped according to the negotiated
+`bytesperline`. Capture rejects short rows, truncated frames, empty buffers,
+out-of-range buffer indices, and buffers flagged `V4L2_BUF_FLAG_ERROR`.
 
 ## Choosing the camera format
 
 The station requests one exact device, size, frame rate and pixel format and
-does not negotiate another (decision D-14). The defaults are `/dev/video0` and
-1280x720 `GREY` at 60 fps; most webcams offer something else. List what the
-camera really offers with `v4l2-ctl --device /dev/video0 --list-formats-ext` or
-`rusty-lola devices` (`video.devices[].formats`), then set `--width`,
-`--height`, `--fps` and `--pixel-format` (connect/listen), or the settings keys
-`video.width`, `video.height`, `video.fps`, `video.pixel_format` and
-`video.device`. When the driver answers with a different format, the error now
-lists the formats the device offers.
+does not fall back to another. The defaults are `/dev/video0` and 1280x720
+`GREY` at 60 fps, which most webcams do not offer. List what the camera offers
+with `v4l2-ctl --device /dev/video0 --list-formats-ext` or `rusty-lola devices`
+(`video.devices[].formats`). Then set `--width`, `--height`, `--fps` and
+`--pixel-format` on `connect`/`listen`, or the settings keys `video.width`,
+`video.height`, `video.fps`, `video.pixel_format` and `video.device`. When the
+driver answers with a different format, the error lists the formats the device
+offers.
 
-## Deterministic and virtual-device checks
+## Tests without a camera
 
-The repository tests do not require a camera. From the repository root, run:
+The repository tests need no camera. From the repository root:
 
 ```bash
 CARGO_TARGET_DIR="${TMPDIR:-/tmp}/open-lola-rust-build" \
@@ -63,14 +62,15 @@ CARGO_TARGET_DIR="${TMPDIR:-/tmp}/open-lola-rust-build" \
   --no-default-features video::v4l2 --lib
 ```
 
-These tests cover format conversion, padded and truncated rows, JPEG dimension
-validation, requeue behavior after processing failures, cancellation timing,
-exact negotiation comparisons, capability-mask selection, mode-range parsing,
-and the UAPI record sizes and ioctl numbers on Linux.
+They cover format conversion, padded and truncated rows, JPEG dimension checks,
+requeueing after processing failures, cancellation timing, exact negotiation
+comparisons, capability-mask selection, mode-range parsing, and, on Linux, the
+UAPI record sizes and ioctl numbers.
 
-For a controlled virtual-device exercise on Linux, install `v4l2loopback`,
-`v4l-utils`, and FFmpeg, then create a loopback node and feed it a bounded test
-source:
+## Virtual-device check
+
+On Linux, install `v4l2loopback`, `v4l-utils`, and FFmpeg, then create a
+loopback node and feed it a test source:
 
 ```bash
 sudo modprobe v4l2loopback devices=1 video_nr=42 \
@@ -80,7 +80,7 @@ ffmpeg -re -f lavfi -i testsrc2=size=640x480:rate=30 \
   -pix_fmt yuyv422 -f v4l2 /dev/video42
 ```
 
-With FFmpeg still running, inventory the node:
+With FFmpeg still running, list the node:
 
 ```bash
 CARGO_TARGET_DIR="${TMPDIR:-/tmp}/open-lola-rust-build" \
@@ -91,12 +91,12 @@ v4l2-ctl --device /dev/video42 --all
 v4l2-ctl --device /dev/video42 --list-formats-ext
 ```
 
-The Rust inventory should report `/dev/video42`, capture and streaming
-capabilities, `YUYV`, the 640x480 mode, and a `1/30` interval. Exercise actual
-capture through a bounded station session against a controlled LoLa peer with
-the V4L2 backend, `/dev/video42`, `YUYV`, 640x480, and 30 fps selected. Record
-the station result separately from the inventory output, then remove the virtual
-device after the test:
+The Rust inventory should show `/dev/video42` with capture and streaming
+capabilities, `YUYV`, the 640x480 mode, and a `1/30` interval. To test capture
+itself, run a bounded station session against a controlled LoLa peer with the
+V4L2 backend, `/dev/video42`, `YUYV`, 640x480, and 30 fps. Record the session
+result separately from the inventory output. Remove the virtual device
+afterwards:
 
 ```bash
 sudo modprobe -r v4l2loopback
@@ -106,27 +106,28 @@ sudo modprobe -r v4l2loopback
 
 On the target Linux host:
 
-1. Run the `devices` command and `v4l2-ctl --list-formats-ext` for the selected
-   node. Choose a discrete mode and interval exactly as reported.
-2. Run a short transmit session against a controlled peer, selecting V4L2 and
-   the exact device, format, width, height, and frame rate. Confirm that the
-   session reports captured and sent video frames and that the peer reports
-   received frames in the expected station format.
-3. Cancel a longer session while the device is producing frames, then repeat
-   while its source is stalled. Confirm bounded shutdown in both cases.
-4. Disconnect or suspend the device during a bounded session. Confirm an
-   explicit capture error and a clean process exit without a stuck worker.
+1. Run `devices` and `v4l2-ctl --list-formats-ext` for the chosen node. Pick a
+   discrete mode and interval exactly as reported.
+2. Run a short transmit session against a controlled peer with V4L2 and the
+   exact device, format, width, height, and frame rate. Check that the session
+   reports captured and sent video frames and that the peer receives frames in
+   the expected format.
+3. Cancel a longer session while the device is producing frames, then again
+   while its source is stalled. Check that shutdown is bounded in both cases.
+4. Unplug or suspend the device during a bounded session. Check for a capture
+   error and a clean exit with no stuck worker.
 5. Repeat start, capture, stop, and restart while watching kernel logs and the
-   process descriptor/map counts for leaks.
+   process's file descriptor and mapping counts for leaks.
 
-Virtual-device, local test, and source-level results do not establish physical
-camera compatibility, field latency, or reference-peer interoperability.
+Virtual-device and unit-test results say nothing about physical camera
+compatibility, field latency, or interoperability with reference peers.
 
-## Software resource limits
+## Resource limits
 
-Capture accepts dimensions up to 8192 with at most 16 MiB of normalized pixels.
-Each mapping is capped at 16 MiB and the mapping set at 128 MiB. Enumeration
-shares a two-second, 16,384-ioctl, 8,192-record budget across at most 64 device
-nodes, and an exhausted budget is an explicit inventory error. YUYV honors
-negotiated BT.601/BT.709 and full/limited range metadata. MJPG normalizes both
-color and grayscale JPEG inputs to RGB24.
+- Dimensions up to 8192, with at most 16 MiB of normalized pixels.
+- Each mapping is capped at 16 MiB and all mappings together at 128 MiB.
+- Enumeration shares a budget of two seconds, 16,384 ioctls, and 8,192 records
+  across at most 64 device nodes. Running out of budget is an inventory error.
+
+YUYV conversion honors the negotiated BT.601/BT.709 and full/limited range
+metadata.
