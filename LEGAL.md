@@ -1,91 +1,59 @@
 # Legal Notes
 
-Last checked: 2026-08-18
+This is not legal advice.
 
-This document records the project's licensing and attribution boundary. It is
-not legal advice.
-
-## Open LoLa License
+## License
 
 First-party Open LoLa source code and documentation are licensed under the
-Apache License, Version 2.0. The complete grant is in [LICENSE](LICENSE), and
-the attribution statement distributed with it is in [NOTICE](NOTICE).
+Apache License, Version 2.0 ([LICENSE](LICENSE), attribution in
+[NOTICE](NOTICE)).
 
-Open LoLa is an independent educational and research interoperability project.
-That description states the project's purpose; it is not a field-of-use
-restriction and does not narrow the Apache-2.0 permissions.
+Open LoLa describes itself as an educational and research interoperability
+project. That describes its purpose; it is not a field-of-use restriction and
+does not narrow the Apache-2.0 grant.
 
-The project license covers only material for which Open LoLa contributors have
-the right to grant those permissions. Third-party components keep their own
-terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the license files
-inside the applicable third-party source directories.
+Third-party code keeps its own license; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). In particular, the vendored
+JPEG XS reference software is licensed for evaluation and conformance testing
+only and is built only with `OPEN_LOLA_ENABLE_JPEG_XS=1`. Builds with JPEG XS
+enabled must not be distributed.
 
-JPEG XS is an exception to what the default build contains. The vendored JPEG XS
-reference software is licensed for evaluation and testing only and grants no
-patent licence, so it is compiled only in an opt-in build
-(`OPEN_LOLA_ENABLE_JPEG_XS=1`) that must not be distributed. The first-party
-bridge to that code (`open_lola_jxs_bridge.*`) sits inside the vendored tree and
-is Apache-2.0 like the rest of the project. The Rust station's crates.io
-dependencies and the runtime-loaded PortAudio, Npcap, and XIMEA libraries are
-listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+## Original LoLa
 
-## Original LoLa Licensing Check
-
-The official LoLa website identifies the original LoLa Low Latency Audio Visual
-Streaming System as a project developed by Conservatorio di Musica Giuseppe
-Tartini in Trieste, Italy, in collaboration with GARR. It identifies
-Conservatorio Tartini as the IPR owner and GARR as its agent and representative.
-
-The site states that original LoLa is licensed software, available without a
-fee for academic and non-profit educational uses and under a shareware license
-in other cases. It directs users to contact the LoLa project for the appropriate
-license, activation code, restricted-area credentials, and installation kit.
-
-The LoLa 2.0.0 manual identifies the manual as copyright 2005-2019 by
-Conservatorio di musica G. Tartini.
-
-Authoritative sources checked:
-
-- [official LoLa website](https://lola.conts.it/)
-- [LoLa 2.0.0 manual](https://lola.conts.it/downloads/Lola_Manual_2.0.0_rev_001.pdf)
+LoLa (Low Latency Audio Visual Streaming System) was developed by Conservatorio
+di Musica Giuseppe Tartini in Trieste in collaboration with GARR. According to
+the [official LoLa website](https://lola.conts.it/), Conservatorio Tartini owns
+the IPR and GARR acts as its agent. LoLa is licensed software: free for
+academic and non-profit educational use, shareware otherwise, with licences,
+activation codes and installers available from the LoLa project. The
+[LoLa 2.0.0 manual](https://lola.conts.it/downloads/Lola_Manual_2.0.0_rev_001.pdf)
+is copyright 2005-2019 Conservatorio di musica G. Tartini.
 
 The Apache-2.0 license in this repository grants no rights in original LoLa
-software, documentation, names, marks, or other proprietary material. Users
-must obtain and use original LoLa under an appropriate license from the
-official project.
+software, documentation, names or marks. To use original LoLa, obtain a licence
+from the LoLa project.
 
-## Open LoLa Boundary
+## What this repository does not contain
 
-Open LoLa publishes independently written interoperability source and
-documentation. It does not publish or redistribute:
+- LoLa installers, executables, DLLs or source code
+- LoLa licence keys, activation codes or restricted-area credentials
+- LoLa manuals, extracted resources, binary patches or decompiler output
+- private packet captures, media captures or venue data
 
-- original LoLa installers, executables, DLLs, or copied source code;
-- LoLa license keys, activation codes, forms, or restricted-area credentials;
-- copied LoLa manuals, extracted resources, binary patches, or decompiler
-  output;
-- private packet captures, media captures, venue data, or lab artifacts.
+Testing against original LoLa requires a lawfully licensed installation used
+within its licence terms. LoLa's licence terms do not apply to the
+independently written code in this repository.
 
-Demonstrations against original LoLa should use a lawfully licensed installation
-and a use permitted by that license. Original LoLa's academic/non-profit terms
-do not apply to or restrict independently written Open LoLa material under
-Apache-2.0.
+## Interoperability
 
-## Interoperability And Reverse Engineering
+The connector implements externally observable network behaviour in
+independently written code. Interoperability rules differ by jurisdiction and
+by contract. Contributors must have the right to contribute their work and must
+not submit decompiler output, LoLa code or binaries, confidential captures or
+licence material.
 
-The connector documents externally observable network behavior and contains
-independently written code. Interoperability and reverse-engineering rules vary
-by jurisdiction and by applicable contract or license terms. Contributors are
-responsible for ensuring they have the right to contribute their work and that
-submissions contain no proprietary or confidential material.
+## Names
 
-Do not contribute copied decompiler output, proprietary LoLa code, binary
-assets, confidential captures, or private license material.
-
-## Naming And Affiliation
-
-"LoLa" identifies the original Low Latency Audio Visual Streaming System.
-"Open LoLa" identifies this independent educational interoperability project.
-No affiliation, sponsorship, or endorsement by Conservatorio Tartini, GARR, or
-the original LoLa project is claimed. The Apache-2.0 license does not grant
-trademark rights beyond reasonable descriptive use allowed by its terms and
-applicable law.
+"LoLa" refers to the original system. "Open LoLa" is this independent project.
+It is not affiliated with, sponsored by or endorsed by Conservatorio Tartini,
+GARR or the LoLa project. The Apache-2.0 license grants no trademark rights.
