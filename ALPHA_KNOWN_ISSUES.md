@@ -52,9 +52,8 @@ it, and what to send us when something goes wrong.
   or video, and the command prints a warning. Workaround: name the capture
   device.
 - **Some benchmark commands are incomplete.** Benchmark reports leave values
-  they could not measure empty, so they will not reach PASS. Two synthetic
-  benchmark commands (video transport and performance audit) can crash on
-  start. You do not need them for sessions.
+  they could not measure empty, so they will not reach PASS. You do not need
+  them for sessions.
 
 ## Rust station (Windows and Linux)
 
@@ -69,18 +68,28 @@ it, and what to send us when something goes wrong.
   start the listener with `--remote-ip <the other computer's address>`. Without
   it, the listener accepts only the same computer and stops with a message
   naming the address it ignored.
+- **Generic webcams on Windows need the Media Foundation camera backend.** The
+  default camera backend is XIMEA. For a USB webcam, start the station with
+  `--camera-backend mediafoundation`; the size and frame rate must match one of
+  the camera's modes, which `rusty-lola devices` lists. This backend has not
+  been run on a Windows machine yet.
 - **Pressing Ctrl-C twice can cut off a recording.** Press it once to stop
   cleanly: the result is printed and any recording is finished. A second press
-  exits at once. After an interruption the result may say "peer disconnected:
-  session cancelled"; that wording is wrong and you can ignore it.
+  exits at once.
 
 ## macOS together with the Rust station
 
-- **They cannot run on the same computer.** Both use the same fixed network
-  ports. Workaround: run them on two machines.
-- **Video between macOS and the Rust station is limited.** The Mac does not yet
-  show video received from the station, and the two sides have different video
-  defaults. Workaround: start with audio-only sessions.
+- **On one computer each side needs its own address.** Both use the same fixed
+  network ports, so one computer can run both only when each side uses a
+  different local address. The "Same host" part of "Running a session" (in the
+  docs folder) explains this and names a script that runs such a session.
+  Otherwise run them on two machines.
+- **Video needs matching settings on both sides.** Both default to 1280×720 at
+  60 fps in greyscale. On Windows and macOS the station's default camera sends
+  colour instead, so either pass `--video-bpp 24` to the Mac or start the
+  station with `--bayer 0`. To see received video on the Mac, add
+  `--video-display appkit`; only greyscale, colour (RGB) and JPEG frames are
+  shown. Workaround if video fails: start with audio-only sessions.
 
 ## How to report a bug
 

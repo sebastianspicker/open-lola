@@ -240,22 +240,16 @@ pub(super) fn inventory() -> MfResult<Vec<MfDeviceInfo>> {
     let _com = ComApartment::enter(api)?;
     let _runtime = MfRuntime::start(api)?;
     let devices = enumerate(api)?;
-    devices
+    // One unreadable device must not hide the others: list it with its reason and go on.
+    Ok(devices
         .iter()
         .map(|device| {
-            let (name, symbolic_link) = describe(api, device)?;
-            let (modes, modes_error) = match probe_modes(api, device) {
-                Ok(modes) => (modes, None),
-                Err(error) => (Vec::new(), Some(error.to_string())),
-            };
-            Ok(MfDeviceInfo {
-                name,
-                symbolic_link,
-                modes,
-                modes_error,
-            })
+            MfDeviceInfo::from_probe(
+                describe(api, device).map_err(|error| error.to_string()),
+                || probe_modes(api, device),
+            )
         })
-        .collect()
+        .collect())
 }
 
 fn probe_modes(api: &MfApi, device: &ComPtr<IMFActivateVtbl>) -> MfResult<Vec<MfMode>> {

@@ -251,7 +251,9 @@ catalogs behave as before; select Media Foundation by name.
   `video.pixel_format` may name `NV12`, `YUY2`, or `RGB32` to force one; empty
   picks the cheapest. MJPEG-only modes are listed but not used.
 - `rusty-lola devices` lists each camera under `mediafoundation.devices` with
-  its native modes.
+  its native modes. A camera whose name cannot be read is still listed, with an
+  `error` field giving the reason; a camera that cannot be opened has a
+  `modes_error` field.
 
 Media Foundation DLLs (`mfplat.dll`, `mf.dll`, `mfreadwrite.dll`, `ole32.dll`)
 load at runtime from `C:\Windows\System32`. Windows N editions need the Media

@@ -73,6 +73,43 @@ pub struct MfDeviceInfo {
     pub modes: Vec<MfMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modes_error: Option<String>,
+    /// Why the device's name and link could not be read; such a device is still
+    /// listed (with empty name, link and modes) so it does not hide the others.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl MfDeviceInfo {
+    /// Builds one inventory entry from the device's (friendly name, symbolic link)
+    /// or the reason it could not be read. Modes are probed only for a readable
+    /// device; a failed probe is kept in `modes_error`.
+    pub fn from_probe(
+        described: Result<(String, String), String>,
+        probe_modes: impl FnOnce() -> MfResult<Vec<MfMode>>,
+    ) -> Self {
+        match described {
+            Ok((name, symbolic_link)) => {
+                let (modes, modes_error) = match probe_modes() {
+                    Ok(modes) => (modes, None),
+                    Err(error) => (Vec::new(), Some(error.to_string())),
+                };
+                Self {
+                    name,
+                    symbolic_link,
+                    modes,
+                    modes_error,
+                    error: None,
+                }
+            }
+            Err(reason) => Self {
+                name: String::new(),
+                symbolic_link: String::new(),
+                modes: Vec::new(),
+                modes_error: None,
+                error: Some(reason),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

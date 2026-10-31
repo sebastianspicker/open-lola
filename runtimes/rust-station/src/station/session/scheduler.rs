@@ -122,8 +122,13 @@ impl DeadlineScheduler {
         self.counters
             .audio_lateness
             .observe(late.as_micros() as u64);
-        if !late.is_zero() {
+        // The loop always wakes slightly after the deadline, so ordinary
+        // wake-up jitter is only recorded as lateness. A block counts as a
+        // deadline miss once it is a whole period late, i.e. a slot was lost.
+        if late >= self.audio_period {
             self.counters.audio_deadline_misses += 1;
+        }
+        if !late.is_zero() {
             self.counters.audio_max_lateness_us = self
                 .counters
                 .audio_max_lateness_us
