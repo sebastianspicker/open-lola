@@ -231,3 +231,8 @@ Desktop.ini
 # Internal status notes and design briefs
 /RELEASE_STATUS.md
 /web/demo/DESIGN_BRIEF.md
+
+# Local alpha working packets; published known issues stay public.
+/ALPHA_AUDIT_*.md
+/ALPHA_IMPLEMENTATION_*.md
+/ALPHA_PR_DESCRIPTION.md

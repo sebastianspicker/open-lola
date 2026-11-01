@@ -2,7 +2,7 @@
   "schema": "open-lola.normalized-token-duplication/v1",
   "tool": {
     "name": "lizard_ext.lizardduplicate",
-    "lizardVersion": "1.24.0",
+    "lizardVersion": "1.24.3",
     "extensionVersion": 1,
     "minimumTokens": 70,
     "normalization": "LizardExtension unified identifiers and constants;sample-hash sequences;pairwise maximal runs"
@@ -186,8 +186,10 @@
     "runtimes/macos/Sources/open-lola/Commands/MilestoneTransportTimingCommands.swift",
     "runtimes/macos/Sources/open-lola/Commands/MilestoneVideoIntegratedCommands.swift",
     "runtimes/macos/Sources/open-lola/Commands/Network/DirectP2PMeasuredEvidenceCommandSupport.swift",
+    "runtimes/macos/Sources/open-lola/Commands/Network/NetworkCommands.swift",
     "runtimes/macos/Sources/open-lola/Commands/Network/NetworkDirectP2PCommands.swift",
     "runtimes/macos/Sources/open-lola/Commands/Network/NetworkNatCommands.swift",
+    "runtimes/macos/Sources/open-lola/Commands/Validation/MilestoneValidationCommands.swift",
     "tools/compare-local-ultragrid-parity-docker.sh",
     "tools/compare-local-ultragrid-parity-native.sh",
     "tools/run-local-ultragrid-rxtx-docker.sh",
@@ -284,6 +286,14 @@
       ],
       252
     ],
+    "159347ad2eb456ce3268544010417ca0370677448d7bad12945624fc88e1f1f9": [
+      5,
+      [
+        173,
+        176
+      ],
+      185
+    ],
     "15cda5d5871082eae0e987361ca78bea5f7b39190a3145eb5207138311d462e4": [
       2,
       [
@@ -314,8 +324,8 @@
     "276deebe55e61812d5f68b20d68edda6755149a80782f8d9cf6a91e2b6990fbd": [
       4,
       [
-        175,
-        176
+        177,
+        178
       ],
       152
     ],
@@ -326,8 +336,8 @@
         1,
         2,
         3,
-        179,
-        180
+        181,
+        182
       ],
       204
     ],
@@ -335,8 +345,8 @@
       3,
       [
         165,
-        173,
-        174
+        174,
+        175
       ],
       186
     ],
@@ -366,8 +376,8 @@
     "2d3532457eb51aa8b18872ccf0f01dfd6a7dd7ad4e88dce70e5e1928422f88b1": [
       2,
       [
-        173,
-        174
+        174,
+        175
       ],
       144
     ],
@@ -402,15 +412,15 @@
       2,
       [
         0,
-        179
+        181
       ],
       572
     ],
     "3da5c7080bf1c63c273604b2b6e5082581de04377acf88d4e1b8ac5c550babe5": [
       2,
       [
-        176,
-        178
+        178,
+        180
       ],
       218
     ],
@@ -497,6 +507,14 @@
         135
       ],
       158
+    ],
+    "46151f25efcf0967a2156d93a001178c2c126a6e9348c4c50d88bae88bf1b8fa": [
+      5,
+      [
+        173,
+        176
+      ],
+      155
     ],
     "4639a95606f399276c28e9a91869de0cd5a961f91a579f43d527b1dd50ab6e0c": [
       5,
@@ -712,8 +730,8 @@
         169,
         170,
         171,
-        173,
-        174
+        174,
+        175
       ],
       476
     ],
@@ -734,7 +752,7 @@
       [
         0,
         3,
-        179
+        181
       ],
       147
     ],
@@ -844,7 +862,7 @@
       [
         1,
         2,
-        180
+        182
       ],
       672
     ],
@@ -874,7 +892,7 @@
       [
         166,
         167,
-        174
+        175
       ],
       153
     ],
@@ -961,8 +979,8 @@
         169,
         170,
         171,
-        173,
-        174
+        174,
+        175
       ],
       378
     ],
@@ -1042,7 +1060,7 @@
         166,
         169,
         170,
-        174
+        175
       ],
       168
     ],
@@ -1081,15 +1099,15 @@
         166,
         167,
         170,
-        174
+        175
       ],
       216
     ],
     "9d1950a1aaf9d307ceea4eebed09478107616d2cf1f834eb886092c11937a9af": [
       2,
       [
-        177,
-        178
+        179,
+        180
       ],
       218
     ],
@@ -1157,8 +1175,8 @@
     "a5c90be96c6e0dd75c97ab919821aa5f827954272aedc65167112ccf058a06ce": [
       4,
       [
-        177,
-        178
+        179,
+        180
       ],
       300
     ],
@@ -1262,8 +1280,8 @@
     "b8ccde68eef405475ff8c67d77ac97fa2c1d6f974d3ead14284b2e31b3dc79db": [
       2,
       [
-        177,
-        178
+        179,
+        180
       ],
       142
     ],
@@ -1312,8 +1330,8 @@
     "c20b0f247d65ad529add212c37ca3214eaceecd491fe9e27c8c081e305486a7e": [
       2,
       [
-        177,
-        178
+        179,
+        180
       ],
       218
     ],
@@ -1587,5 +1605,5 @@
       236
     ]
   },
-  "coveredTokens": 32503
+  "coveredTokens": 32843
 }

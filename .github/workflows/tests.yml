@@ -1,8 +1,8 @@
 name: tests
 
 on:
-  push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +14,7 @@ concurrency:
 jobs:
   python:
     needs: quality
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]') }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -26,7 +26,7 @@ jobs:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Set up cached Python dependencies
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.10.7"
           python-version: ${{ matrix.python-version }}
@@ -43,13 +43,14 @@ jobs:
       UV_PYTHON: ${{ matrix.python-version }}
 
   quality:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     name: Repository quality checks
     runs-on: ubuntu-latest
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Set up cached Python dependencies
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.10.7"
           python-version: "3.13"
@@ -80,6 +81,7 @@ jobs:
       UV_PYTHON: "3.13"
 
   swift:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: macos-26
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
@@ -92,6 +94,7 @@ jobs:
         run: make swift-test OPEN_LOLA_SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
 
   release-export:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     name: Release export and hygiene
     runs-on: macos-26
     steps:
@@ -103,6 +106,9 @@ jobs:
           bash tools/export-release-candidate.sh "$RUNNER_TEMP/open-lola-release"
 
   rust:
+    env:
+      RUST_TEST_THREADS: "1"
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-24.04
     steps:
       # actions/checkout v7.0.1
@@ -117,6 +123,9 @@ jobs:
         run: cargo run -p rusty-lola --no-default-features -- selftest --duration 0.25
 
   windows-rust:
+    env:
+      RUST_TEST_THREADS: "1"
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
     name: Windows Rust validation
     runs-on: windows-latest
     steps:

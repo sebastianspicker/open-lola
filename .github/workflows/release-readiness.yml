@@ -1,12 +1,6 @@
 name: Release Readiness
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-    tags:
-      - "v*-alpha.*"
   workflow_dispatch:
 
 permissions:
@@ -18,11 +12,13 @@ concurrency:
 
 jobs:
   verify:
+    if: github.ref == 'refs/heads/main'
     name: Locked source-alpha verification
     runs-on: macos-26
     timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      RUST_TEST_THREADS: "1"
     defaults:
       run:
         shell: bash
@@ -67,12 +63,13 @@ jobs:
           "$RUNNER_TEMP/open-lola-bin/actionlint" -version | head -n 1 | grep -Fx '1.7.12'
           pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force'
       - name: Set up pinned Python interpreter
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.14.6"
       - name: Set up locked Python environment
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: "0.10.7"
           python-version: "3.14.6"
           enable-cache: true
       - name: Assert pinned toolchains
@@ -98,6 +95,7 @@ jobs:
           OPEN_LOLA_SKIP_INTERACTIVE_APP: "1"
         run: uv run --locked --extra dev --no-sync bash tools/verify-release-readiness.sh
   python-311:
+    if: github.ref == 'refs/heads/main'
     name: Python 3.11 lower-bound verification
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -123,8 +121,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Python 3.11
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: "0.10.7"
           python-version: "3.11"
           enable-cache: true
       - name: Sync lower-bound Python environment

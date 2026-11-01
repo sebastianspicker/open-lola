@@ -14,15 +14,13 @@ import tempfile
 from bisect import bisect_right
 from collections import defaultdict, deque
 from collections.abc import Iterable, Sequence
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from lizard import FileAnalyzer  # type: ignore[import-untyped]
-from lizard_ext.lizardduplicate import (  # type: ignore[import-untyped]
-    LizardExtension,
-    NestingStackWithUnifiedTokens,
-)
+from lizard_ext.lizardduplicate import LizardExtension, NestingStackWithUnifiedTokens  # type: ignore[import-untyped]
 
 MAX_PHYSICAL_LINES = 600
 MAX_CCN = 19
@@ -33,7 +31,7 @@ DUPLICATION_BASELINE = Path("tools/code-duplication-baseline.json")
 DUPLICATION_SCHEMA = "open-lola.normalized-token-duplication/v1"
 DUPLICATION_TOOL = {
     "name": "lizard_ext.lizardduplicate",
-    "lizardVersion": "1.24.0",
+    "lizardVersion": version("lizard"),
     "extensionVersion": 1,
     "minimumTokens": MIN_DUPLICATE_TOKENS,
     "normalization": "LizardExtension unified identifiers and constants;sample-hash sequences;pairwise maximal runs",

@@ -185,7 +185,8 @@ impl ReceiveState {
     }
 }
 
-fn bounded_udp_socket(addr: impl ToSocketAddrs) -> io::Result<UdpSocket> {
+/// Bind a UDP socket with the media transport's bounded kernel buffering.
+pub(crate) fn bounded_udp_socket(addr: impl ToSocketAddrs) -> io::Result<UdpSocket> {
     let mut last_error = None;
     for addr in addr.to_socket_addrs()? {
         match bind_bounded_udp_socket(addr) {

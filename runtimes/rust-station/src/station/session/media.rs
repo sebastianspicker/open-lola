@@ -320,6 +320,18 @@ pub(super) fn send_audio_media(
     transport.send(MediaKind::Audio, datagram, addr)
 }
 
+/// Poll optional session control without changing disconnect or error propagation.
+fn pump_media_control(
+    control_pump: &mut Option<&mut dyn FnMut() -> Result<bool, SessionError>>,
+) -> Result<(), SessionError> {
+    if let Some(pump) = control_pump.as_mut() {
+        if (**pump)()? {
+            return Err(SessionError::PeerDisconnect("peer disconnected".into()));
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn recv_media(
     transport: &mut SessionMediaTransport,
@@ -344,11 +356,7 @@ pub(super) fn recv_media(
                 "diagnostic media receive exceeded five seconds".into(),
             ));
         }
-        if let Some(pump) = control_pump.as_mut() {
-            if (**pump)()? {
-                return Err(SessionError::PeerDisconnect("peer disconnected".into()));
-            }
-        }
+        pump_media_control(&mut control_pump)?;
         let expected_kind = if require_audio_size {
             MediaKind::Audio
         } else {
@@ -363,11 +371,7 @@ pub(super) fn recv_media(
                     return Ok((frame, peer));
                 }
             }
-            if let Some(pump) = control_pump.as_mut() {
-                if (**pump)()? {
-                    return Err(SessionError::PeerDisconnect("peer disconnected".into()));
-                }
-            }
+            pump_media_control(&mut control_pump)?;
             if runtime_control.is_some_and(SessionRuntimeControl::is_cancelled) {
                 return Err(SessionError::PeerDisconnect("session cancelled".into()));
             }

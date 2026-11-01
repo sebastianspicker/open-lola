@@ -18,17 +18,20 @@ validate_release_relative_path() {
   esac
 }
 
-# Copy one approved repository-relative path while preserving its directory shape.
+# Copy tracked files under one approved path, never ignored checkout-local state.
 copy_path() {
   local relative_path="$1"
 
   validate_release_relative_path "$relative_path"
   [[ -e "$relative_path" ]] || fail "missing release source path: $relative_path"
 
-  local parent
-  parent="$(dirname "$relative_path")"
-  mkdir -p "$candidate/$parent"
-  cp -R "$relative_path" "$candidate/$parent/"
+  local tracked_path parent
+  while IFS= read -r -d '' tracked_path; do
+    validate_release_relative_path "$tracked_path"
+    parent="$(dirname "$tracked_path")"
+    mkdir -p "$candidate/$parent"
+    cp -P "$tracked_path" "$candidate/$parent/"
+  done < <(git ls-files -z -- "$relative_path")
 }
 
 # Remove caches, build metadata, editor state, logs, and local database residue.
@@ -249,8 +252,8 @@ release_paths=(
 # Deliberately excluded by the top-level allowlist: .build, archived win-compiled corpus,
 # re_out, private evidence, restored reverse-engineering, archive payloads, generated outputs, local LoLa state,
 # package artifacts, Python bytecode caches, restored docs/review,
-# private/reports, and research/deprecated-research. Test fixtures are staged with runtimes so the
-# source candidate remains testable; release approval is still blocked until
+# private/reports, and research/deprecated-research. Only tracked runtime fixtures are staged;
+# ignored local test suites are excluded. Release approval is still blocked until
 # fixture provenance is signed off. Vendored codec/reference roots are staged
 # only as the Package.swift-selected C source subset plus required headers,
 # license/origin metadata, and documented open-lola bridge files. The release

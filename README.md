@@ -21,6 +21,33 @@ Open LoLa has two runtimes: a native **macOS app and CLI**, and a **Rust station
 for Windows and Linux. They share protocol test fixtures but no runtime code.
 Python is used only for repository tooling.
 
+<details>
+<summary>Status and limitations</summary>
+
+> [!NOTE]
+> Open LoLa is an independent experimental project for low-latency audio and video sessions.
+> Developed independently alongside my main professional work. The runtimes are source-alpha
+> software, and the overall verdict remains PARTIAL. They provide a research and development
+> foundation for session setup, measurement and validation, rather than a ready-to-use
+> conferencing product.
+>
+> **Disclaimer.** Local builds, loopback checks and synthetic reports do not establish physical
+> latency, device compatibility or reference-peer interoperability. Validate the actual devices,
+> network, media path and session requirements before relying on it. You are responsible for
+> deployment and for interpreting the resulting measurements.
+
+</details>
+
+A typical evaluation follows this sequence; hardware and peer compatibility
+still need validation for the selected route.
+
+```mermaid
+flowchart LR
+    Runtime["Choose macOS or Rust runtime"] --> Setup["Configure devices and route"]
+    Setup --> Session["Run a matched peer session"]
+    Session --> Evidence["Review measurements and reports"]
+```
+
 > Open LoLa is not affiliated with or endorsed by the LoLa project,
 > Conservatorio di Musica Giuseppe Tartini, or GARR.
 
@@ -77,7 +104,7 @@ or safety on hostile networks. Nothing is signed, notarized, or distributed.
 |---|---|---|---|---|
 | `runtimes/macos/` | Operator app, CLI, direct-peer sessions, media adapters, integrations, and reports | SwiftPM, SwiftUI, AppKit, Core Audio, AVFoundation | Built and run on macOS 14 or later | [Architecture](docs/architecture.md) |
 | `runtimes/rust-station/` | Windows and Linux LoLa 2.0 station with native and diagnostic backends | Rust, egui, ALSA, V4L2, PortAudio, XIMEA, Npcap | Cargo package and `rusty-lola` executable | [Rust station](runtimes/rust-station/README.md) |
-| `interop/lola2/` | Versioned synthetic wire corpus shared by both runtimes | JSON | Read by the Rust and macOS corpus tests (test sources are not published) | [Corpus](interop/lola2/README.md) |
+| `interop/lola2/` | Versioned synthetic wire corpus shared by both runtimes | JSON | Read by Rust checks and optional local macOS corpus tests | [Corpus](interop/lola2/README.md) |
 | `web/demo/` | Fixture-backed Signal Desk walkthrough | Static HTML, CSS, JavaScript | Served by any static file server | This README |
 | `tools/` | Checks, local packaging, release export, and interoperability helpers | Shell, Python, Swift, PowerShell | Run from the repository root | [Tool index](tools/README.md) |
 | `third_party/` | Vendored Opus and JPEG XS source | C/C++ and upstream support files | Opus is always built; JPEG XS only in an opt-in build | [Third-party notices](THIRD_PARTY_NOTICES.md) |

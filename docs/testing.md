@@ -110,13 +110,18 @@ git diff --check
 
 ## CI coverage
 
-The main workflow runs repository quality checks, Python 3.11 to 3.13 tooling,
+The main workflow runs automatically for Dependabot-authored pull requests
+and is available through manual dispatch. It checks repository quality,
+Python 3.11 to 3.13 tooling,
 macOS Swift, Ubuntu 24.04 Rust, and Windows Rust release builds and tests. The
-Python matrix runs the repository verifier tests. Release readiness includes
-the pinned macOS gate and the Python 3.11 tooling job. CodeQL analyzes the
+Python matrix runs the repository verifier tests. Release readiness is manual
+and restricted to `main`; it includes the pinned macOS gate and the Python 3.11 tooling job. CodeQL analyzes the
 Python tooling and Swift separately. Rust jobs test the native adapter
-substitutes, the shared corpus, and CLI-only and all-feature builds. Native
-virtual-device and physical tests are opt-in; see [ALSA](linux-alsa.md) and
+substitutes, the shared corpus, and CLI-only and all-feature builds.
+Rust cases run serially in CI because several loopback and substitute-backend
+cases use real, short deadlines; their internal worker threads and assertions
+remain active. Reproduce that mode locally with `RUST_TEST_THREADS=1 make test-rust`.
+Native virtual-device and physical tests are opt-in; see [ALSA](linux-alsa.md) and
 [V4L2](linux-v4l2.md). A green CI run covers only that run and revision.
 
 ## Evidence vocabulary

@@ -27,7 +27,9 @@ struct ScriptedPeer {
 impl ScriptedPeer {
     fn bind() -> Self {
         let socket = || {
-            let socket = UdpSocket::bind((LOOPBACK, 0)).unwrap();
+            // Match production buffering so fragmented frames are not dropped by
+            // a platform's small default receive queue during scheduler delays.
+            let socket = crate::net::udp::bounded_udp_socket((LOOPBACK, 0)).unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_millis(200)))
                 .unwrap();
