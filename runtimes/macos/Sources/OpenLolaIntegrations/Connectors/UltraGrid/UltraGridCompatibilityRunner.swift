@@ -138,12 +138,13 @@ public enum UltraGridCompatibilityRunner {
         audioPlayout: (any UltraGridReceiveAudioPlayout)?
     ) throws -> UltraGridCompatibilityMediaReport {
         let analysis = exchange.incrementalAnalysis ?? analyze(exchange.reportDatagrams)
-        let sink = try exchange.incrementalSink ?? UltraGridCompatibilityMediaSinkDecoder.consumeReceivedMedia(
+        var sink = try exchange.incrementalSink ?? UltraGridCompatibilityMediaSinkDecoder.consumeReceivedMedia(
             configuration.role.receives ? exchange.receivedDatagrams : [],
             encryptionConfiguration: try UltraGridCompatibilityRuntimeConfiguration.encryptionConfiguration(configuration),
             previewAdapter: previewAdapter,
             audioPlayout: audioPlayout
         )
+        sink.rejectedMediaCount += exchange.rejectedDatagramCount
         let evidence = runtimeEvidenceSummary(provider: mediaProvider.providerReport)
         return mediaReport(RuntimeMediaReportContext(
             configuration: configuration,

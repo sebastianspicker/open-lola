@@ -130,20 +130,22 @@ extension UltraGridCompatibilityRunner {
         guard let first = sequenceNumbers.first else {
             return []
         }
+        var highestExtendedSequence = Int64(first)
+        return sequenceNumbers.map { extendSequenceNumber($0, highest: &highestExtendedSequence) }
+    }
+
+    static func extendSequenceNumber(_ sequenceNumber: UInt16, highest highestExtendedSequence: inout Int64) -> Int64 {
         let sequenceSpace: Int64 = 1 << 16
         let halfSequenceSpace = sequenceSpace / 2
-        var highestExtendedSequence = Int64(first)
-        return sequenceNumbers.map { sequenceNumber in
-            var extendedSequence = (highestExtendedSequence / sequenceSpace) * sequenceSpace
-                + Int64(sequenceNumber)
-            if extendedSequence - highestExtendedSequence > halfSequenceSpace {
-                extendedSequence -= sequenceSpace
-            } else if highestExtendedSequence - extendedSequence > halfSequenceSpace {
-                extendedSequence += sequenceSpace
-            }
-            highestExtendedSequence = max(highestExtendedSequence, extendedSequence)
-            return extendedSequence
+        var extendedSequence = (highestExtendedSequence / sequenceSpace) * sequenceSpace
+            + Int64(sequenceNumber)
+        if extendedSequence - highestExtendedSequence > halfSequenceSpace {
+            extendedSequence -= sequenceSpace
+        } else if highestExtendedSequence - extendedSequence > halfSequenceSpace {
+            extendedSequence += sequenceSpace
         }
+        highestExtendedSequence = max(highestExtendedSequence, extendedSequence)
+        return extendedSequence
     }
 
     static func extendTimestamps(_ timestamps: [UInt32]) -> [Int64] {

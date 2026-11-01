@@ -6,8 +6,10 @@
 //! Diagnostic backends need no hardware, and loopback sessions stay as they were.
 
 use super::backends::{SessionAudioBackend, SessionCameraBackend};
+use super::types::stream_dims;
 use super::SessionOptions;
 use crate::config::{AudioBackend, StationSettings, VideoBackend};
+use crate::protocol::{clamp_packet_size, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAGMENT_COUNT};
 use crate::station::SessionError;
 
 fn needs_audio(options: &SessionOptions) -> bool {
@@ -21,13 +23,37 @@ fn needs_camera(options: &SessionOptions) -> bool {
         && options.camera_backend != VideoBackend::Diagnostic
 }
 
+/// Rejects an uncompressed video configuration whose frame needs more fragments than
+/// the receiver accepts; such frames would be dropped on every send.
+pub(super) fn check_video_fragment_limit(
+    settings: &StationSettings,
+    options: &SessionOptions,
+) -> Result<(), SessionError> {
+    if !options.stream_tx_video || options.audio_only || settings.video.compression {
+        return Ok(());
+    }
+    let (width, height) = stream_dims(settings.video.width, settings.video.height, options);
+    let bytes_per_pixel = if settings.video.bpp >= 24 { 3 } else { 1 };
+    // The serialized frame adds an 8-byte sequence/length header.
+    let frame_bytes = u64::from(width) * u64::from(height) * bytes_per_pixel + 8;
+    let packet_size = clamp_packet_size(settings.network.video_packet_size as usize);
+    let capacity = (packet_size - FRAGMENT_HEADER_SIZE) as u64;
+    let fragments = frame_bytes.div_ceil(capacity);
+    if fragments > u64::from(MAX_MEDIA_FRAGMENT_COUNT) {
+        return Err(SessionError::Configuration(format!(
+            "a {width}x{height} uncompressed frame ({frame_bytes} bytes) needs {fragments} fragments at video packet size {packet_size}, above the receiver limit of {MAX_MEDIA_FRAGMENT_COUNT}; raise the video packet size, lower the resolution or enable compression"
+        )));
+    }
+    Ok(())
+}
+
 /// Run the openers the session will need; the first failure is returned unchanged.
 pub(super) fn preflight_with(
     options: &SessionOptions,
     open_audio: impl FnOnce() -> Result<(), SessionError>,
     open_camera: impl FnOnce() -> Result<(), SessionError>,
 ) -> Result<(), SessionError> {
-    if options.peer_mode.eq_ignore_ascii_case("loopback") {
+    if options.is_loopback() {
         return Ok(());
     }
     if needs_audio(options) {

@@ -139,45 +139,17 @@ pub(super) fn send_queued_controls(
         return Ok(());
     };
     for command in control.drain() {
-        let encoded = if let Some(text) = command.strip_prefix("chat:") {
-            build_session_control(
-                settings,
-                MESG_CHAT,
-                &settings.network.local_ip,
-                &settings.network.remote_ip,
-                text,
-                None,
-            )
-            .map_err(|error| SessionError::ControlHandshake(error.to_string()))?
-        } else if command.starts_with("/MESG_") {
-            if settings.network.control_dialect != ControlDialect::Ascii {
-                return Err(SessionError::Protocol(
-                    "serialized /MESG_* controls require the ASCII control dialect".into(),
-                ));
+        let encoded = match encode_queued_control(settings, &command) {
+            Ok(encoded) => encoded,
+            // A command that cannot be encoded is dropped; later commands and the session go on.
+            Err(SessionError::Protocol(reason) | SessionError::ControlHandshake(reason)) => {
+                push_bounded(
+                    &mut result.skipped_controls,
+                    format!("queued control skipped: {reason}"),
+                );
+                continue;
             }
-            let mut bytes = command.as_bytes().to_vec();
-            if bytes.len() > crate::protocol::CONTROL_DATAGRAM_SIZE {
-                return Err(SessionError::Protocol(
-                    "queued control message exceeds 1024 bytes".into(),
-                ));
-            }
-            let decoded = crate::protocol::decode_mesg(&bytes)
-                .map_err(|error| SessionError::Protocol(error.to_string()))?;
-            let expected_sid = settings.network.session_id.to_string();
-            if decoded.fields.get("SRCIP") != Some(&settings.network.local_ip)
-                || decoded.fields.get("DSTIP") != Some(&settings.network.remote_ip)
-                || decoded.fields.get("SID") != Some(&expected_sid)
-            {
-                return Err(SessionError::Protocol(
-                    "queued control source, destination, or SID does not match this session".into(),
-                ));
-            }
-            bytes.resize(crate::protocol::CONTROL_DATAGRAM_SIZE, 0);
-            bytes
-        } else {
-            return Err(SessionError::Protocol(
-                "queued control must be `chat:text` or a /MESG_* datagram".into(),
-            ));
+            Err(error) => return Err(error),
         };
         send_control_datagram(socket, &encoded, peer)?;
         push_bounded(
@@ -192,6 +164,61 @@ pub(super) fn send_queued_controls(
         );
     }
     Ok(())
+}
+
+/// Rejects a queued control that the session could not encode (for example a
+/// chat whose escaped text overflows the datagram), using the real encoder.
+pub(crate) fn check_queued_control(
+    settings: &StationSettings,
+    command: &str,
+) -> Result<(), SessionError> {
+    encode_queued_control(settings, command).map(|_| ())
+}
+
+fn encode_queued_control(
+    settings: &StationSettings,
+    command: &str,
+) -> Result<Vec<u8>, SessionError> {
+    Ok(if let Some(text) = command.strip_prefix("chat:") {
+        build_session_control(
+            settings,
+            MESG_CHAT,
+            &settings.network.local_ip,
+            &settings.network.remote_ip,
+            text,
+            None,
+        )
+        .map_err(|error| SessionError::ControlHandshake(error.to_string()))?
+    } else if command.starts_with("/MESG_") {
+        if settings.network.control_dialect != ControlDialect::Ascii {
+            return Err(SessionError::Protocol(
+                "serialized /MESG_* controls require the ASCII control dialect".into(),
+            ));
+        }
+        let mut bytes = command.as_bytes().to_vec();
+        if bytes.len() > crate::protocol::CONTROL_DATAGRAM_SIZE {
+            return Err(SessionError::Protocol(
+                "queued control message exceeds 1024 bytes".into(),
+            ));
+        }
+        let decoded = crate::protocol::decode_mesg(&bytes)
+            .map_err(|error| SessionError::Protocol(error.to_string()))?;
+        let expected_sid = settings.network.session_id.to_string();
+        if decoded.fields.get("SRCIP") != Some(&settings.network.local_ip)
+            || decoded.fields.get("DSTIP") != Some(&settings.network.remote_ip)
+            || decoded.fields.get("SID") != Some(&expected_sid)
+        {
+            return Err(SessionError::Protocol(
+                "queued control source, destination, or SID does not match this session".into(),
+            ));
+        }
+        bytes.resize(crate::protocol::CONTROL_DATAGRAM_SIZE, 0);
+        bytes
+    } else {
+        return Err(SessionError::Protocol(
+            "queued control must be `chat:text` or a /MESG_* datagram".into(),
+        ));
+    })
 }
 
 pub(super) fn send_control_datagram(
@@ -339,38 +366,6 @@ pub(super) fn resolve_local_session_mac(
     Ok(resolved)
 }
 
-pub(super) fn validate_control_source(
-    message: &crate::protocol::Mesg,
-    sender: SocketAddr,
-    expected_sender: SocketAddr,
-    settings: &StationSettings,
-) -> Result<(), SessionError> {
-    if sender != expected_sender {
-        return Err(SessionError::Protocol(format!(
-            "control source mismatch: expected {expected_sender}, got {sender}"
-        )));
-    }
-    if settings.network.control_dialect != ControlDialect::Ascii {
-        return (message.fields.get("SRCIP") == Some(&settings.network.remote_ip))
-            .then_some(())
-            .ok_or_else(|| {
-                SessionError::Protocol(
-                    "OSC15 control source does not match the negotiated peer".into(),
-                )
-            });
-    }
-    let expected_sid = settings.network.session_id.to_string();
-    if message.fields.get("SRCIP") != Some(&settings.network.remote_ip)
-        || message.fields.get("DSTIP") != Some(&settings.network.local_ip)
-        || message.fields.get("SID") != Some(&expected_sid)
-    {
-        return Err(SessionError::Protocol(
-            "control SRCIP/DSTIP/SID does not match negotiated peer".into(),
-        ));
-    }
-    Ok(())
-}
-
 /// Wait for a validated control reply in short, cancellable polls bounded by
 /// one caller-owned deadline. This deliberately preserves the existing
 /// SR/BPS/CH-only QUICKCONN matching performed after the reply is decoded.
@@ -406,7 +401,14 @@ pub(super) fn recv_valid_control_until(
                     discarded += 1;
                     continue;
                 };
-                if validate_control_source(&message, sender, expected_sender, settings).is_err()
+                if validate_incoming_control(
+                    &message,
+                    sender,
+                    settings,
+                    Some(expected_sender),
+                    false,
+                )
+                .is_err()
                     || !accepted_kinds.contains(&message.name.as_str())
                 {
                     discarded += 1;
@@ -442,11 +444,15 @@ pub(super) fn is_stream_control(message: &crate::protocol::Mesg) -> bool {
     )
 }
 
+/// Checks a decoded control datagram against the session peer. `pin_sender_ip`
+/// additionally requires the sender and `SRCIP` to equal the configured remote
+/// IP (listener side); the initiator already matches the exact resolved peer.
 pub(super) fn validate_incoming_control(
     message: &crate::protocol::Mesg,
     sender: SocketAddr,
     settings: &StationSettings,
     expected_sender: Option<SocketAddr>,
+    pin_sender_ip: bool,
 ) -> Result<(), SessionError> {
     if let Some(expected) = expected_sender {
         if sender != expected {
@@ -455,7 +461,7 @@ pub(super) fn validate_incoming_control(
             )));
         }
     }
-    if sender.ip().to_string() != settings.network.remote_ip {
+    if pin_sender_ip && sender.ip().to_string() != settings.network.remote_ip {
         return Err(SessionError::Protocol(
             "incoming control sender IP is not pinned to the configured peer".into(),
         ));
@@ -464,20 +470,17 @@ pub(super) fn validate_incoming_control(
         return (message.fields.get("SRCIP") == Some(&settings.network.remote_ip))
             .then_some(())
             .ok_or_else(|| {
-                SessionError::Protocol(
-                    "OSC15 control source does not match the configured peer".into(),
-                )
+                SessionError::Protocol("OSC15 control source does not match the peer".into())
             });
     }
     let expected_sid = settings.network.session_id.to_string();
-    if message.fields.get("SRCIP") != Some(&sender.ip().to_string())
+    if (pin_sender_ip && message.fields.get("SRCIP") != Some(&sender.ip().to_string()))
         || message.fields.get("SRCIP") != Some(&settings.network.remote_ip)
         || message.fields.get("DSTIP") != Some(&settings.network.local_ip)
         || message.fields.get("SID") != Some(&expected_sid)
     {
         return Err(SessionError::Protocol(
-            "incoming control source, destination, or SID is not pinned to the configured peer"
-                .into(),
+            "control source, destination, or SID does not match the peer".into(),
         ));
     }
     Ok(())
@@ -489,6 +492,7 @@ pub(super) fn apply_stream_control(
     runtime_control: Option<&SessionRuntimeControl>,
 ) -> bool {
     push_bounded(&mut result.messages_received, message.name.clone());
+    result.control_messages_received += 1;
     match message.name.as_str() {
         "/MESG_SWITCH_ON_BB" => result.bounce_back = Some(true),
         "/MESG_SWITCH_OFF_BB" => result.bounce_back = Some(false),
@@ -530,7 +534,15 @@ pub(super) fn pump_control(
                 let Ok(message) = crate::protocol::decode_mesg(&data) else {
                     continue;
                 };
-                if validate_control_source(&message, sender, expected_sender, settings).is_err() {
+                if validate_incoming_control(
+                    &message,
+                    sender,
+                    settings,
+                    Some(expected_sender),
+                    false,
+                )
+                .is_err()
+                {
                     continue;
                 }
                 if message.name == "/MESG_QUICKCONN" {

@@ -372,7 +372,6 @@ public enum LoLaUdpMediaBidirectionalRunner {
                         txDone.leave()
                     }
                 },
-                coalesceReadableAudioToNewest: false,
                 audioFreshnessCounters: exchange.audioFreshnessCounters,
                 cancellation: cancellation,
                 onDatagram: { datagram in

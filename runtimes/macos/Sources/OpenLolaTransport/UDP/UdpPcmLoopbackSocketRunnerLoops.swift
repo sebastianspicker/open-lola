@@ -265,7 +265,7 @@ private func recordDecodedEcho(
     if let expectedSequence = accounting.expectedSequence, echoedSequence < expectedSequence {
         accounting.outOfOrderPackets += 1
     }
-    accounting.expectedSequence = echoedSequence + 1
+    accounting.expectedSequence = echoedSequence &+ 1
     accounting.seenEchoes.insert(echoedSequence)
     if accounting.sentBytesBySequence[echoedSequence] != echo {
         accounting.byteExactEcho = false

@@ -49,7 +49,6 @@ pub(super) fn run_peer_relay(
         relay_interleaved(
             &relay,
             media_transport,
-            &mut audio_reassembler,
             &mut video_reassembler,
             n_frames,
             started,
@@ -103,13 +102,12 @@ struct PeerRelay<'a> {
 }
 
 fn expected_peer(options: &SessionOptions, peer: SocketAddr, port: u16) -> Option<SocketAddr> {
-    (!options.peer_mode.eq_ignore_ascii_case("loopback")).then(|| SocketAddr::new(peer.ip(), port))
+    (!options.is_loopback()).then(|| SocketAddr::new(peer.ip(), port))
 }
 
 fn relay_interleaved(
     relay: &PeerRelay<'_>,
     media_transport: &mut SessionMediaTransport,
-    _audio_reassembler: &mut FrameReassembler,
     video_reassembler: &mut FrameReassembler,
     n_frames: u32,
     started: Instant,

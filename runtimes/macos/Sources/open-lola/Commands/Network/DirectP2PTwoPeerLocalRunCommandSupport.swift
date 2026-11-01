@@ -53,6 +53,7 @@ private func runDirectP2PTwoPeerLocalProcesses(
     options: DirectP2PTwoPeerLocalRunOptions
 ) throws -> (results: [DirectPeerTwoPeerLocalRunProcessResult], stopSignalName: String?) {
     try validateDirectP2PTwoPeerPreflight(plan: plan, options: options)
+    try validateDirectP2PSSHArtifactPaths(plan: plan, options: options)
     let stopMonitor = ManagedProcessStopMonitor()
     defer { stopMonitor.invalidate() }
     let responderCommands = plan.commands.filter { $0.role == .responder }
@@ -60,6 +61,7 @@ private func runDirectP2PTwoPeerLocalProcesses(
     guard responderCommands.count == 1, initiatorCommands.count == 1 else {
         throw CommandError.invalidArgument("plan must contain one responder and one initiator")
     }
+    try removeStaleDirectP2PReadyFile(command: responderCommands[0], runDirectory: plan.runDirectory, options: options)
     let responder = try startDirectP2PProcess(
         command: responderCommands[0],
         runDirectory: plan.runDirectory,
@@ -92,12 +94,12 @@ private func runDirectP2PTwoPeerLocalProcesses(
         terminateExpiredDirectP2PProcesses([initiator, responder])
     }
     let results = [
-        try responder.result(
+        responder.result(
             exitCode: directP2PExitCode(for: responder.process),
             options: options,
             runDirectory: plan.runDirectory
         ),
-        try initiator.result(
+        initiator.result(
             exitCode: directP2PExitCode(for: initiator.process),
             options: options,
             runDirectory: plan.runDirectory
@@ -125,6 +127,24 @@ private func validateDirectP2PTwoPeerPreflight(
     let failures = checks.filter { !$0.passed && $0.severity == .fail }
     if !failures.isEmpty {
         throw CommandError.invalidArgument("preflight failed: \(failures.map(\.id).joined(separator: ","))")
+    }
+}
+
+/// SSH mode uses the plan's paths on both Macs, so check them all before any peer starts.
+private func validateDirectP2PSSHArtifactPaths(
+    plan: DirectPeerTwoPeerRunPlanReport,
+    options: DirectP2PTwoPeerLocalRunOptions
+) throws {
+    guard options.executionMode == .ssh else { return }
+    for command in plan.commands {
+        let paths = [
+            command.outputReportPath,
+            directP2PArgumentValue("--rx-proof-output", in: command.arguments),
+            directP2PReadyFilePath(runDirectory: plan.runDirectory, peerID: command.peerID)
+        ]
+        for path in paths.compactMap({ $0 }) {
+            try DirectPeerTwoPeerRunPathPolicy.validateSSHRunArtifactPath(path)
+        }
     }
 }
 

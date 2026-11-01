@@ -148,11 +148,7 @@ impl CaptureWorker {
             Ok(name) => name,
             Err(primary) => {
                 stopped.store(true, Ordering::Release);
-                let cleanup = handle
-                    .join()
-                    .map_err(|_| SessionError::Cleanup("capture worker panicked".into()))
-                    .and_then(|result| result);
-                let _ = cleanup;
+                let _ = join_bounded(handle);
                 return Err(primary);
             }
         };
@@ -181,10 +177,27 @@ impl CaptureWorker {
         let Some(handle) = self.handle.take() else {
             return Ok(());
         };
-        handle
-            .join()
-            .map_err(|_| SessionError::Cleanup("capture worker panicked".into()))?
+        join_bounded(handle)
     }
+}
+
+/// A native grab (Media Foundation `ReadSample`) can block forever, so shutdown waits a
+/// bounded time and then detaches the thread instead of hanging the session teardown.
+fn join_bounded(handle: JoinHandle<Result<(), SessionError>>) -> Result<(), SessionError> {
+    const STOP_TIMEOUT: Duration = Duration::from_secs(2);
+    let deadline = Instant::now() + STOP_TIMEOUT;
+    while !handle.is_finished() {
+        if Instant::now() >= deadline {
+            return Err(SessionError::Cleanup(format!(
+                "capture worker did not stop within {} s and was detached",
+                STOP_TIMEOUT.as_secs()
+            )));
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    handle
+        .join()
+        .map_err(|_| SessionError::Cleanup("capture worker panicked".into()))?
 }
 
 fn run_capture_worker(

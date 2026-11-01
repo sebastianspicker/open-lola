@@ -109,7 +109,7 @@ function fillSection() {
 
 function renderSection(id, focus = false, historyMode = 'replace') {
   const aliases = { devices: 'setup', routing: 'setup', streams: 'monitor', packets: 'monitor', validation: 'evidence', diagnostics: 'evidence' };
-  state.section = sections[id] ? id : aliases[id] || 'session';
+  state.section = Object.hasOwn(sections, id) ? id : (Object.hasOwn(aliases, id) ? aliases[id] : 'session');
   const [title, intro] = sections[state.section];
   $('#workspace-title').textContent = title;
   $('#titlebar-section').textContent = title;

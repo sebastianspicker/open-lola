@@ -154,28 +154,6 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
 }
 
 extension DirectPeerAudioPayloadRing {
-public func copyNextPayload(to destination: UnsafeMutableRawPointer, byteCount: Int) -> Bool {
-        guard state.validateConsumer() else {
-            return false
-        }
-        guard byteCount >= payloadByteCount else {
-            return false
-        }
-        skipReleasedHeadSlots()
-        guard let reservation = state.reservePopSlot() else {
-            return false
-        }
-        let slot = reservation.slot
-        guard isOccupied(slot) else {
-            return false
-        }
-        memcpy(destination, storage.advanced(by: slot * payloadByteCount), payloadByteCount)
-        // Release this slot only after the destination copy has completed.
-        clearOccupied(slot)
-        skipReleasedHeadSlots(startingAt: reservation.readIndex)
-        return true
-    }
-
     public func copyPayload(
         startFrame: UInt64,
         to destination: UnsafeMutableRawPointer,
@@ -207,35 +185,6 @@ public func copyNextPayload(to destination: UnsafeMutableRawPointer, byteCount: 
         }
         skipReleasedHeadSlots(startingAt: read)
         return false
-    }
-
-    public func peekStartFrame() -> UInt64? {
-        guard state.validateConsumer() else {
-            return nil
-        }
-        skipReleasedHeadSlots()
-        guard let reservation = state.reservePopSlot() else {
-            return nil
-        }
-        let slot = reservation.slot
-        guard isOccupied(slot) else {
-            return nil
-        }
-        return startFrames[slot]
-    }
-
-    public func dropNextPayload() -> Bool {
-        guard state.validateConsumer() else {
-            return false
-        }
-        skipReleasedHeadSlots()
-        guard let reservation = state.reservePopSlot() else {
-            return false
-        }
-        // Dropping is a consumer-side release; readIndex is advanced after occupancy clears.
-        clearOccupied(reservation.slot)
-        skipReleasedHeadSlots(startingAt: reservation.readIndex)
-        return true
     }
 
     public func dropAllButNewest() -> Int {

@@ -124,9 +124,9 @@ fn validate_audio(a: &AudioSettings) -> Result<u64, SettingsError> {
     let audio_bytes =
         u64::from(a.buffer_samples) * u64::from(a.channels) * u64::from(a.bits_per_sample / 8);
     if audio_bytes > MAX_AUDIO_PCM_BYTES {
-        return Err(SettingsError::Validation(
-            "audio callback payload exceeds the 1066-byte LoLa datagram capacity".into(),
-        ));
+        return Err(SettingsError::Validation(format!(
+            "audio callback payload exceeds the {MAX_AUDIO_PCM_BYTES}-byte LoLa audio payload capacity"
+        )));
     }
     Ok(audio_bytes)
 }

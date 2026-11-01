@@ -16,13 +16,9 @@ struct PeerSessionVideoSendAttempt: Equatable, Sendable {
 }
 
 func peerSessionMediaReceiveByteBudget(acceptedConfiguration: SessionConfiguration?) -> Int {
-    guard let mtuBytes = acceptedConfiguration?.mtuBytes else {
-        return peerSessionDefaultMediaReceiveByteBudget
-    }
-    return min(
-        max(peerSessionDefaultMediaReceiveByteBudget, mtuBytes),
-        peerSessionMaximumMediaReceiveByteBudget
-    )
+    // The sender limits the nested packet to the MTU; the datagram adds the media header.
+    let mtuBytes = max(peerSessionDefaultMediaReceiveByteBudget, acceptedConfiguration?.mtuBytes ?? 0)
+    return min(mtuBytes + UdpMediaPacketHeader.byteCount, peerSessionMaximumMediaReceiveByteBudget)
 }
 
 extension PeerSessionRunner {

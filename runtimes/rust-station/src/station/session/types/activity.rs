@@ -6,20 +6,8 @@ impl RuntimeActivity {
         let synthetic_audio = result.audio_backend.contains("synthetic");
         let synthetic_video = result.camera_backend.contains("synthetic");
         Self {
-            audio_backend: (!result.audio_backend.is_empty()).then_some(if synthetic_audio {
-                AudioBackend::Diagnostic
-            } else if result.audio_backend == "ALSA" {
-                AudioBackend::Alsa
-            } else {
-                AudioBackend::PortAudioAsio
-            }),
-            video_backend: (!result.camera_backend.is_empty()).then_some(if synthetic_video {
-                VideoBackend::Diagnostic
-            } else if result.camera_backend == "V4L2" {
-                VideoBackend::V4l2
-            } else {
-                VideoBackend::Ximea
-            }),
+            audio_backend: crate::station::runtime::reported_audio_backend(&result.audio_backend),
+            video_backend: crate::station::runtime::reported_video_backend(&result.camera_backend),
             transport: Some(if result.media_transport == "npcap" {
                 MediaTransportKind::Npcap
             } else {

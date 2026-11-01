@@ -60,7 +60,7 @@ pub(super) fn open_npcap_media_transport(
 }
 
 fn reject_loopback(options: &SessionOptions) -> Result<(), SessionError> {
-    if options.peer_mode.eq_ignore_ascii_case("loopback") {
+    if options.is_loopback() {
         return Err(SessionError::Configuration(
             "Npcap cannot be used for loopback sessions".into(),
         ));

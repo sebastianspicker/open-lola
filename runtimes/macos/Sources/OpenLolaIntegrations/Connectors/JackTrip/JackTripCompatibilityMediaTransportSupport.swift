@@ -87,6 +87,7 @@ private struct JackTripSocketReceiveLoopState {
     var buffer: [UInt8] = []
     var stopControlDatagramCount = 0
     var receivedDatagramCount = 0
+    var rejectedDatagramCount = 0
 
     mutating func retain(_ datagram: JackTripCompatibilityDatagram) {
         guard received.count < JackTripMediaReceiveRequest.maximumRetainedReceiveEvidenceDatagrams else {
@@ -99,7 +100,8 @@ private struct JackTripSocketReceiveLoopState {
         JackTripCompatibilityReceiveResult(
             datagrams: received,
             stopControlDatagramCount: stopControlDatagramCount,
-            receivedDatagramCount: receivedDatagramCount
+            receivedDatagramCount: receivedDatagramCount,
+            rejectedDatagramCount: rejectedDatagramCount
         )
     }
 }
@@ -173,7 +175,7 @@ enum JackTripSocketReceiveLoop {
             buffer: &state.buffer
         ) {
             processed += 1
-            try process(
+            process(
                 JackTripIncomingDatagram(data: datagram.data, host: datagram.host, port: datagram.port),
                 request: request,
                 state: &state
@@ -185,7 +187,7 @@ enum JackTripSocketReceiveLoop {
         _ datagram: JackTripIncomingDatagram,
         request: JackTripMediaReceiveRequest,
         state: inout JackTripSocketReceiveLoopState
-    ) throws {
+    ) {
         guard request.peer == "0.0.0.0" || datagram.host == request.peer else {
             return
         }
@@ -193,16 +195,23 @@ enum JackTripSocketReceiveLoop {
             state.stopControlDatagramCount += 1
             return
         }
+        let packets: [JackTripAudioPacket]
+        do {
+            packets = try JackTripAudioPayloadCodec.decodeDatagram(
+                datagram.data,
+                headerMode: request.headerMode,
+                emptyHeaderTemplate: request.emptyHeaderTemplate
+            )
+        } catch {
+            state.rejectedDatagramCount += 1
+            return
+        }
         let decoded = JackTripCompatibilityDatagram(
             sourceHost: datagram.host,
             sourcePort: datagram.port,
             destinationPort: request.audioPort,
             headerMode: request.headerMode,
-            packets: try JackTripAudioPayloadCodec.decodeDatagram(
-                datagram.data,
-                headerMode: request.headerMode,
-                emptyHeaderTemplate: request.emptyHeaderTemplate
-            )
+            packets: packets
         )
         state.receivedDatagramCount += 1
         request.audioSink?.consume(decoded)

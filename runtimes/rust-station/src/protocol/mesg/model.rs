@@ -40,23 +40,6 @@ pub const CONTROL_MESSAGE_KINDS: &[&str] = &[
     MESG_SEND_AUDIO_SIGNAL,
     MESG_STOP_AUDIO_SIGNAL,
 ];
-/// Historical public list. `ACCEPT` and `BOUNCEBACKCONN` remain names only;
-/// strict LoLa 2.0 parsing does not accept them as production wire messages.
-pub const KNOWN_MESSAGES: &[&str] = &[
-    "/MESG_QUICKCONN",
-    "/MESG_DISCONNECT",
-    "/MESG_REJECT",
-    "/MESG_QUICKCONN_ACK",
-    "/MESG_CHECKLOLASTATUS",
-    "/MESG_CHECKLOLASTATUS_ACK",
-    "/MESG_SWITCH_ON_BB",
-    "/MESG_SWITCH_OFF_BB",
-    "/MESG_CHAT",
-    "/MESG_SEND_AUDIO_SIGNAL",
-    "/MESG_STOP_AUDIO_SIGNAL",
-    "/MESG_ACCEPT",
-    "/MESG_BOUNCEBACKCONN",
-];
 pub const QUICKCONN_FIELDS: &[&str] = &[
     "SRCIP", "DSTIP", "SID", "SR", "BPS", "CHNLS", "FPS", "BPP", "X", "Y", "COMP", "BAYER",
 ];
@@ -98,15 +81,6 @@ pub enum ProtocolError {
 pub struct Mesg {
     pub name: String,
     pub fields: BTreeMap<String, String>,
-}
-impl Mesg {
-    pub fn get_int(&self, key: &str) -> Result<i64, ProtocolError> {
-        self.fields
-            .get(key)
-            .ok_or_else(|| ProtocolError::MissingField(key.into()))?
-            .parse()
-            .map_err(|_| ProtocolError::BadInt(key.into()))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

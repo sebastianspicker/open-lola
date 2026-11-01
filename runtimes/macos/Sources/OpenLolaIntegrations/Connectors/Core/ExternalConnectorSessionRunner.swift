@@ -289,6 +289,10 @@ private func runUltraGridMvtpSession(
 }()
     }
 
+private final class ExternalAuxiliaryProcessResultBox: @unchecked Sendable {
+    var results: [ExternalConnectorProcessResult] = [] // written before group.leave, read after group.wait
+}
+
 private func runJackTripAudioSession(
         configuration: ExternalConnectorSessionConfiguration,
         capturedAt: String,
@@ -296,13 +300,23 @@ private func runJackTripAudioSession(
         processRunner: any ExternalConnectorProcessRunning
     ) -> ExternalConnectorSessionReport {
         let jackTripMedia: JackTripCompatibilityMediaReport
-        let auxiliaryProcesses = runExternalAuxiliaryProcessGroup(
-            plan: plan,
-            durationSeconds: configuration.durationSeconds,
-            processRunner: processRunner
-        )
+        // Auxiliary (video) processes and native audio overlap in time; both are joined before reporting.
+        let auxiliaryBox = ExternalAuxiliaryProcessResultBox()
+        let auxiliaryGroup = DispatchGroup()
+        auxiliaryGroup.enter()
+        DispatchQueue.global().async {
+            auxiliaryBox.results = runExternalAuxiliaryProcessGroup(
+                plan: plan,
+                durationSeconds: configuration.durationSeconds,
+                processRunner: processRunner
+            )
+            auxiliaryGroup.leave()
+        }
+        let nativeResult = Result { try JackTripCompatibilityRunner.run(configuration: configuration) }
+        auxiliaryGroup.wait()
+        let auxiliaryProcesses = auxiliaryBox.results
         do {
-            jackTripMedia = try JackTripCompatibilityRunner.run(configuration: configuration)
+            jackTripMedia = try nativeResult.get()
         } catch {
             let auxiliaryRuntimeError = externalAuxiliaryProcessRuntimeError(auxiliaryProcesses)
             let errors = [

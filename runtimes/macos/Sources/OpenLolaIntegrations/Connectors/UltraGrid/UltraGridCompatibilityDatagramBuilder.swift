@@ -78,8 +78,8 @@ enum UltraGridCompatibilityDatagramBuilder {
             deadlineNanoseconds: deadlineNanoseconds
         )
         let rtp = try UltraGridCompatibility.audioPacket(UltraGridAudioPacketRequest(
-            sequenceNumber: UInt16(packetIndex),
-            timestamp: UInt32(packetIndex * configuration.framesPerPacket),
+            sequenceNumber: UInt16(truncatingIfNeeded: packetIndex),
+            timestamp: UInt32(truncatingIfNeeded: packetIndex &* configuration.framesPerPacket),
             ssrc: 0x4F4C_5541,
             channels: configuration.channels,
             sampleRateHertz: configuration.sampleRateHertz,
@@ -161,6 +161,6 @@ enum UltraGridCompatibilityDatagramBuilder {
         packetIndex: Int,
         configuration: ExternalConnectorSessionConfiguration
     ) -> UInt32 {
-        UInt32(packetIndex * UltraGridCompatibility.videoClockRateHertz / max(1, configuration.videoFrameRate))
+        UInt32(truncatingIfNeeded: packetIndex &* UltraGridCompatibility.videoClockRateHertz / max(1, configuration.videoFrameRate))
     }
 }

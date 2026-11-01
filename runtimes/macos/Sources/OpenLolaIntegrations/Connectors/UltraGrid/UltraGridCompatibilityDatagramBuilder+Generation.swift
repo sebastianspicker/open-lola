@@ -271,7 +271,7 @@ private struct UltraGridVideoDatagramGenerator {
 
     private func videoHeader(packetIndex: Int, offset: Int, frameByteCount: Int) throws -> UltraGridVideoPayloadHeader {
         UltraGridVideoPayloadHeader(
-            bufferNumber: UInt32(packetIndex), payloadOffset: UInt32(offset), payloadByteCount: UInt32(frameByteCount),
+            bufferNumber: UInt32(truncatingIfNeeded: packetIndex), payloadOffset: UInt32(offset), payloadByteCount: UInt32(frameByteCount),
             geometry: UltraGridVideoPayloadGeometry(
                 width: try uint16(context.configuration.videoWidth, "video.width"),
                 height: try uint16(context.configuration.videoHeight, "video.height"),

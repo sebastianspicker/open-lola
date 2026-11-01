@@ -122,7 +122,6 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
 
         for (index, invocation) in invocations.enumerated() {
             do {
-                try validateExternalConnectorInvocationPreflight(invocation)
                 slots[index].running = try startExternalConnectorProcess(
                     ExternalConnectorProcessRunConfiguration(
                         executable: invocation.executable,
@@ -168,45 +167,6 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
         let missingResult = ExternalConnectorProcessResult(launched: false, error: "process result missing")
         return slots.map { $0.result ?? missingResult }
     }
-}
-
-private func validateExternalConnectorInvocationPreflight(
-    _ invocation: ExternalConnectorProcessInvocation
-) throws {
-    guard invocation.connector == .mvtpUltraGrid,
-          let portMapIndex = invocation.arguments.firstIndex(of: "-P"),
-          invocation.arguments.indices.contains(portMapIndex + 1) else {
-        return
-    }
-    let ports = Set(invocation.arguments[portMapIndex + 1].split(separator: ":").compactMap { UInt16(String($0)) })
-    for port in ports {
-        try validateExternalConnectorPortAvailable(port)
-    }
-}
-
-private func validateExternalConnectorPortAvailable(_ port: UInt16) throws {
-#if canImport(Darwin)
-    let descriptor = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-    guard descriptor >= 0 else {
-        throw ExternalConnectorSessionError.socketFailed("socket")
-    }
-    defer { close(descriptor) }
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = port.bigEndian
-    address.sin_addr = in_addr(s_addr: INADDR_ANY.bigEndian)
-    let status = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-            bind(descriptor, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard status == 0 else {
-        throw ExternalConnectorSessionError.invalidPort("ultragrid.port", String(port))
-    }
-#else
-    _ = port
-#endif
 }
 
 private func externalConnectorWaitForProcessesOrTimeout(

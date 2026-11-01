@@ -14,16 +14,12 @@ const CAPTURE_WAIT_SLEEP: Duration = Duration::from_micros(100);
 pub struct StrictPortAudio {
     stream: PaStreamHandle,
     config: PortAudioConfig,
-    blocking_capture: Vec<u8>,
 }
 
 impl StrictPortAudio {
     pub fn open(config: PortAudioConfig) -> PortAudioResult<Self> {
         config.validate()?;
-        let callback = match &config.transfer_mode {
-            PortAudioTransferMode::Blocking => None,
-            PortAudioTransferMode::Callback { .. } => Some(CallbackState::new(&config)?),
-        };
+        let callback = CallbackState::new(&config)?;
         let _guard = pa_lock();
         ensure_pa_ready_locked().map_err(|detail| PortAudioError::Native {
             operation: "Pa_Initialize",
@@ -34,19 +30,15 @@ impl StrictPortAudio {
             operation: "Pa_OpenStream",
             detail,
         })??;
-        Ok(Self {
-            stream,
-            config,
-            blocking_capture: Vec::new(),
-        })
+        Ok(Self { stream, config })
     }
 
     pub fn config(&self) -> &PortAudioConfig {
         &self.config
     }
 
-    pub fn callback_stats(&self) -> Option<PortAudioCallbackStats> {
-        self.stream.callback.as_ref().map(|state| state.stats())
+    pub fn callback_stats(&self) -> PortAudioCallbackStats {
+        self.stream.callback.stats()
     }
 
     pub fn start(&mut self) -> PortAudioResult<()> {
@@ -55,6 +47,7 @@ impl StrictPortAudio {
         }
         let _guard = pa_lock();
         let stream = self.stream.stream;
+        self.stream.callback.resume();
         let result = with_pa_fns_locked(|fns| {
             // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
             let code = unsafe { (fns.start_stream)(stream) };
@@ -97,63 +90,13 @@ impl StrictPortAudio {
             return Err(PortAudioError::NotStarted);
         }
         pcm.resize(self.expected_pcm_bytes(), 0);
-        if let Some(callback) = self.stream.callback.as_ref() {
-            if !callback.capture.pop_into(pcm)? {
-                return Err(PortAudioError::CaptureUnavailable);
-            }
-            return Ok(());
-        }
-        let input_bytes_per_frame = usize::try_from(self.config.input_channels()?)
-            .expect("PortAudio channel count is positive")
-            * (self.config.bits_per_sample as usize / 8);
-        let read_frames = self.config.native_frames_per_buffer();
-        let captured_bytes = usize::try_from(read_frames)
-            .ok()
-            .and_then(|frames| frames.checked_mul(input_bytes_per_frame))
-            .ok_or_else(|| {
-                PortAudioError::InvalidConfig(
-                    "capture buffer size exceeds addressable memory".into(),
-                )
-            })?;
-        self.blocking_capture.resize(captured_bytes, 0);
-        let _guard = pa_lock();
-        let stream = self.stream.stream;
-        let result = with_pa_fns_locked(|fns| {
-            let code =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                unsafe {
-                    (fns.read_stream)(
-                        stream,
-                        self.blocking_capture.as_mut_ptr().cast(),
-                        read_frames,
-                    )
-                };
-            if code < PA_NO_ERROR {
-                Err(PortAudioError::Native {
-                    operation: "Pa_ReadStream",
-                    detail: error_text_fns(fns, code),
-                })
-            } else {
-                Ok(())
-            }
-        })
-        .map_err(|detail| PortAudioError::Native {
-            operation: "Pa_ReadStream",
-            detail,
-        })?;
-        result?;
-        let offset =
-            self.config.input_channel_offset as usize * (self.config.bits_per_sample as usize / 8);
-        copy_selected_channels(pcm, &self.blocking_capture, input_bytes_per_frame, offset);
-        drop(_guard);
-        if self.config.local_audio_loop {
-            self.write_pcm(pcm)?;
+        if !self.stream.callback.capture.pop_into(pcm)? {
+            return Err(PortAudioError::CaptureUnavailable);
         }
         Ok(())
     }
 
     /// Waits for one complete callback capture block until `timeout` expires.
-    /// Blocking-mode streams keep PortAudio's native blocking semantics.
     pub fn read_pcm_timeout(&mut self, timeout: Duration) -> PortAudioResult<Vec<u8>> {
         let mut pcm = Vec::with_capacity(self.expected_pcm_bytes());
         self.read_pcm_timeout_into(timeout, &mut pcm)?;
@@ -167,9 +110,6 @@ impl StrictPortAudio {
         timeout: Duration,
         pcm: &mut Vec<u8>,
     ) -> PortAudioResult<()> {
-        if self.stream.callback.is_none() {
-            return self.read_pcm_into(pcm);
-        }
         let deadline = Instant::now() + timeout;
         let mut attempts = 0u32;
         loop {
@@ -190,11 +130,9 @@ impl StrictPortAudio {
     }
 
     /// Drops the oldest queued capture blocks until at most `keep` remain and
-    /// returns how many were dropped. Blocking-mode streams have no backlog.
+    /// returns how many were dropped.
     pub fn discard_capture_backlog(&self, keep: usize) -> usize {
-        let Some(callback) = self.stream.callback.as_ref() else {
-            return 0;
-        };
+        let callback = &self.stream.callback;
         let mut dropped = 0;
         while callback.capture.queued_blocks() > keep && callback.capture.discard_oldest() {
             dropped += 1;
@@ -213,31 +151,10 @@ impl StrictPortAudio {
                 actual: pcm.len(),
             });
         }
-        if let Some(callback) = self.stream.callback.as_ref() {
-            if callback.playback.push_from_ptr(pcm.as_ptr()) {
-                return Err(PortAudioError::PlaybackQueueFull);
-            }
-            return Ok(());
+        if self.stream.callback.playback.push_from_ptr(pcm.as_ptr()) {
+            return Err(PortAudioError::PlaybackQueueFull);
         }
-        let _guard = pa_lock();
-        let stream = self.stream.stream;
-        let frames = self.config.native_frames_per_buffer();
-        with_pa_fns_locked(|fns| {
-            // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            let code = unsafe { (fns.write_stream)(stream, pcm.as_ptr().cast(), frames) };
-            if code < PA_NO_ERROR {
-                Err(PortAudioError::Native {
-                    operation: "Pa_WriteStream",
-                    detail: error_text_fns(fns, code),
-                })
-            } else {
-                Ok(())
-            }
-        })
-        .map_err(|detail| PortAudioError::Native {
-            operation: "Pa_WriteStream",
-            detail,
-        })?
+        Ok(())
     }
 
     pub fn stop(&mut self) -> PortAudioResult<()> {
@@ -267,7 +184,7 @@ pub fn open_portaudio_strict(config: PortAudioConfig) -> PortAudioResult<StrictP
 pub(super) fn open_duplex_stream_locked(
     fns: &PaFns,
     config: &PortAudioConfig,
-    callback: Option<Arc<CallbackState>>,
+    callback: Arc<CallbackState>,
 ) -> PortAudioResult<PaStreamHandle> {
     let input_device = select_device_locked(fns, &config.input_device, true)?;
     let output_device = select_device_locked(fns, &config.output_device, false)?;
@@ -289,15 +206,11 @@ pub(super) fn open_duplex_stream_locked(
         suggested_latency: 0.01,
         host_api_specific_stream_info: std::ptr::null_mut(),
     };
-    let callback_function = if callback.is_some() {
+    let callback_function = {
         let callback: PaStreamCallback = portaudio_callback;
         callback as *const () as *mut std::ffi::c_void
-    } else {
-        std::ptr::null_mut()
     };
-    let user_data = callback.as_ref().map_or(std::ptr::null_mut(), |state| {
-        Arc::as_ptr(state) as *mut std::ffi::c_void
-    });
+    let user_data = Arc::as_ptr(&callback) as *mut std::ffi::c_void;
     let frames_per_buffer = config.native_frames_per_buffer();
     let mut stream = std::ptr::null_mut();
     // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.

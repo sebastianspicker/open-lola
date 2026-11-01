@@ -175,9 +175,9 @@ guard let sourcePeerID = state.endpointsByPeerID.first(where: { $0.value == sour
 return nil
 }
 return state.endpointsByPeerID
+.lazy
 .filter { $0.key != sourcePeerID }
-.sorted { $0.key < $1.key }
-.first?
+.min { $0.key < $1.key }?
 .value
 }
 
@@ -224,10 +224,10 @@ func natRelayShouldAttemptRegistrationDecode(
     return data.first == UInt8(ascii: "{")
 }
 
-func natRelayRegistrationCapacityAllows(
+func natRelayRegistrationCapacityAllows<Registration>(
     peerID: String,
     expectedPeerCount: Int,
-    registrations: [String: NatRelayRegistration]
+    registrations: [String: Registration]
 ) -> Bool {
     registrations[peerID] != nil || registrations.count < max(1, expectedPeerCount)
 }

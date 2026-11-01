@@ -18,6 +18,7 @@ mod media;
 mod npcap;
 mod peer;
 mod preflight;
+mod presets;
 mod realtime;
 mod report;
 mod runner;
@@ -31,7 +32,9 @@ mod video;
 mod video_decode;
 mod watchdog;
 
-pub use runner::{run_check_only, run_default_session, run_reject_session, run_session};
+pub(crate) use control::check_queued_control;
+pub use presets::{run_default_session, run_reject_session};
+pub use runner::{run_check_only, run_session};
 #[cfg(any(feature = "gui", test))]
 pub(crate) use types::VideoPreviewUpdate;
 pub use types::{

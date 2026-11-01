@@ -96,19 +96,22 @@ public struct DirectPeerTwoPeerLocalRunProcessResult: Codable, Equatable, Sendab
         public var receiveProofPath: String?
         public var startedAt: String?
         public var finishedAt: String?
+        public var error: String?
 
         public init(
             remoteTarget: String? = nil,
             reportPath: String? = nil,
             receiveProofPath: String? = nil,
             startedAt: String? = nil,
-            finishedAt: String? = nil
+            finishedAt: String? = nil,
+            error: String? = nil
         ) {
             self.remoteTarget = remoteTarget
             self.reportPath = reportPath
             self.receiveProofPath = receiveProofPath
             self.startedAt = startedAt
             self.finishedAt = finishedAt
+            self.error = error
         }
     }
     public var peerID: String
@@ -124,6 +127,8 @@ public struct DirectPeerTwoPeerLocalRunProcessResult: Codable, Equatable, Sendab
     public var collectedReceiveProofPath: String?
     public var startedAt: String?
     public var finishedAt: String?
+    /// Why the peer's artifacts could not be collected; nil when collection worked or was not needed.
+    public var collectionError: String?
 
     public init(identity: Identity, execution: Execution, collection: Collection = .init()) {
         self.peerID = identity.peerID
@@ -139,6 +144,7 @@ public struct DirectPeerTwoPeerLocalRunProcessResult: Codable, Equatable, Sendab
         self.collectedReceiveProofPath = collection.receiveProofPath
         self.startedAt = collection.startedAt
         self.finishedAt = collection.finishedAt
+        self.collectionError = collection.error
     }
 }
 

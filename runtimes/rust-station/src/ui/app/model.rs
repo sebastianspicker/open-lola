@@ -72,6 +72,7 @@ impl StationApp {
             process_priority,
             record_path,
             section: DeskSection::Session,
+            is_interrupted: || false,
         }
     }
 

@@ -46,7 +46,7 @@ package enum CoreAudioScalarPropertyAccess {
     }
 }
 
-func doubleProperty(
+package func doubleProperty(
     _ objectID: AudioObjectID,
     _ selector: AudioObjectPropertySelector,
     _ scope: AudioObjectPropertyScope
@@ -54,7 +54,7 @@ func doubleProperty(
     CoreAudioScalarPropertyAccess.double(objectID, selector, scope)
 }
 
-func uint32Property(
+package func uint32Property(
     _ objectID: AudioObjectID,
     _ selector: AudioObjectPropertySelector,
     _ scope: AudioObjectPropertyScope

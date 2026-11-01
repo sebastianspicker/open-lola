@@ -6,23 +6,23 @@ import OpenLolaMediaPlatform
 // Defines connector-specific fallback values used when optional session arguments are omitted.
 import Foundation
 
-func requiredExecutable(
-    _ configuration: ExternalConnectorSessionConfiguration,
-    connector: ExternalConnectorKind,
-    defaultName: String
-) throws -> String {
-    if let executable = configuration.executable, !executable.isEmpty {
-        return executable
+/// The value is passed to `/usr/bin/env`, which would read a leading `-` as an option and `=` as an assignment.
+func validatedExternalExecutable(_ value: String, field: String) throws -> String {
+    guard !value.isEmpty else {
+        throw ExternalConnectorSessionError.emptyField(field)
     }
-    return defaultName
+    guard !value.hasPrefix("-"), !value.contains("=") else {
+        throw ExternalConnectorSessionError.invalidExecutable(value)
+    }
+    return value
 }
 
 func requiredVideoExecutable(
     _ configuration: ExternalConnectorSessionConfiguration,
     defaultName: String
 ) throws -> String {
-    if let executable = configuration.videoExecutable, !executable.isEmpty {
-        return executable
+    if let executable = configuration.videoExecutable {
+        return try validatedExternalExecutable(executable, field: "video-executable")
     }
     return defaultName
 }

@@ -12,6 +12,8 @@ public struct MadiFullDuplexMetrics: Codable, Equatable, Sendable {
     public var socketBackpressureDroppedBlocks: Int?
     /// Synthetic/model blocks skipped instead of being burst after a missed real-time slot.
     public var socketDeadlineDroppedBlocks: Int?
+    /// Received datagrams that failed to decode and were skipped.
+    public var malformedDatagrams: Int?
     public var receivedFragments: Int
     public var completedReceiveBlocks: Int
     public var renderedReceiveBlocks: Int
@@ -37,6 +39,7 @@ public struct MadiFullDuplexMetrics: Codable, Equatable, Sendable {
         self.socketTransmittedFragments = 0
         self.socketBackpressureDroppedBlocks = 0
         self.socketDeadlineDroppedBlocks = 0
+        self.malformedDatagrams = 0
         self.receivedFragments = 0
         self.completedReceiveBlocks = 0
         self.renderedReceiveBlocks = 0
@@ -78,6 +81,9 @@ public struct MadiFullDuplexMetrics: Codable, Equatable, Sendable {
                 socketDeadlineDroppedBlocks,
                 "metrics.socketDeadlineDroppedBlocks"
             )
+        }
+        if let malformedDatagrams {
+            try MadiFullDuplexValidator.requireNonNegative(malformedDatagrams, "metrics.malformedDatagrams")
         }
         try MadiFullDuplexValidator.requireNonNegative(receivedFragments, "metrics.receivedFragments")
         try MadiFullDuplexValidator.requireNonNegative(completedReceiveBlocks, "metrics.completedReceiveBlocks")
@@ -191,6 +197,10 @@ public struct MadiFullDuplexSession: Sendable {
         metrics.socketDeadlineDroppedBlocks = (metrics.socketDeadlineDroppedBlocks ?? 0) + 1
     }
 
+    mutating func recordMalformedDatagram() {
+        metrics.malformedDatagrams = (metrics.malformedDatagrams ?? 0) + 1
+    }
+
     public mutating func receiveRemotePackets(
         _ packets: [UdpPcmV2Packet],
         receivedAtHostTimeNanoseconds: UInt64
@@ -221,8 +231,8 @@ public struct MadiFullDuplexSession: Sendable {
     }
 
     private mutating func refreshTransmitMetrics() {
-        metrics.transmittedBlocks = transmitter.metrics.networkSendBlocks
-        metrics.transmittedFragments = transmitter.metrics.packetFragmentCount
+        metrics.transmittedBlocks = transmitter.counters.networkSendBlocks
+        metrics.transmittedFragments = transmitter.counters.packetFragmentCount
     }
 
     private mutating func refreshReceiveMetrics() {

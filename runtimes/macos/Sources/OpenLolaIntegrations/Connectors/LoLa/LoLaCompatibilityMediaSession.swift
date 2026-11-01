@@ -339,8 +339,14 @@ public enum LoLaCompatibilityMediaSession {
 
     public static func receiveReport(
         configuration: ExternalConnectorSessionConfiguration,
-        encodedFrames: [Data]
+        encodedFrames allFrames: [Data],
+        peer: String = "0.0.0.0",
+        alreadySkippedCount: Int = 0
     ) throws -> LoLaCompatibilityMediaSessionReport {
+        // Frames that are not IPv4/UDP to or from the peer (ARP, IPv6, mDNS, ...) are ordinary LAN traffic:
+        // skipped and counted, never decoded.
+        let encodedFrames = allFrames.filter { LoLaCompatibilityWireFrame.isIPv4UDP($0, peer: peer) }
+        let skippedCount = allFrames.count - encodedFrames.count + alreadySkippedCount
         let frames = try encodedFrames.enumerated().map { index, data in
             try decodeFrame(data, sequenceNumber: index, configuration: configuration)
         }
@@ -357,6 +363,9 @@ public enum LoLaCompatibilityMediaSession {
                 configuration: configuration
             )
             completenessNote = " " + summary.note
+        }
+        if skippedCount > 0 {
+            completenessNote += " Skipped \(skippedCount) non-IPv4/UDP frame(s)."
         }
         return report(
             role: .rx,

@@ -66,6 +66,14 @@ public extension LoLaRawLinkTransmitter {
 /// Requires conformers to receive, transmit, transmitGenerated operations for LoLa raw link receiver.
 public protocol LoLaRawLinkReceiver {
     func receive(maxFrames: Int) throws -> [Data]
+    /// Frames kept plus how many captured frames the receiver dropped as not from or to the peer.
+    func receiveCountingSkipped(maxFrames: Int) throws -> (frames: [Data], skipped: Int)
+}
+
+public extension LoLaRawLinkReceiver {
+    func receiveCountingSkipped(maxFrames: Int) throws -> (frames: [Data], skipped: Int) {
+        (try receive(maxFrames: maxFrames), 0)
+    }
 }
 
 /// Retains emitted datagrams in memory so callers can inspect LoLa memory raw link transmitter.
@@ -382,7 +390,8 @@ public enum LoLaRawLinkReceiveRunner {
         } else {
             receiver = LoLaBpfRawLinkReceiver(
                 interfaceName: configuration.interfaceName,
-                timeoutSeconds: configuration.timeoutSeconds
+                timeoutSeconds: configuration.timeoutSeconds,
+                peerIP: configuration.peerIP
             )
         }
         return try run(configuration: configuration, receiver: receiver)
@@ -403,18 +412,22 @@ public enum LoLaRawLinkReceiveRunner {
   input.mediaMode = configuration.mediaMode
 })
         let frames: [Data]
+        let receiverSkipped: Int
         do {
-            frames = try receiver.receive(maxFrames: configuration.maxFrames)
+            (frames, receiverSkipped) = try receiver.receiveCountingSkipped(maxFrames: configuration.maxFrames)
         } catch ExternalConnectorSessionError.receiveTimedOut {
             return timeoutReport(configuration)
         }
         var report = try LoLaCompatibilityMediaSession.receiveReport(
             configuration: session,
-            encodedFrames: frames
+            encodedFrames: frames,
+            peer: configuration.peerIP,
+            alreadySkippedCount: receiverSkipped
         )
         report.id = "lola-raw-link-rx-\(configuration.interfaceName)"
         report.realLinkTransmitted = !configuration.dryRun && !frames.isEmpty
-        report.notes = "Raw-link RX decoded \(frames.count) Ethernet frames from "
+        report.notes = "Raw-link RX decoded \(report.frames.count) Ethernet frames "
+            + "(skipped \(receiverSkipped + frames.count - report.frames.count) other frame(s)) from "
             + "\(configuration.dryRun ? "memory source" : "macOS BPF") on \(configuration.interfaceName) "
             + "with timeout \(configuration.timeoutSeconds)s. "
             + "PASS still requires a measured peer capture and decoded LoLa media payload grammar."

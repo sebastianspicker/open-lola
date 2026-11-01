@@ -112,56 +112,6 @@ final class SPSCAtomicRingState: @unchecked Sendable {
     }
 }
 
-/// Captures structured result required to validate, interpret, and reproduce a single-producer single-consumer ring result.
-public final class SPSCUInt64Ring: @unchecked Sendable {
-    public let capacity: Int
-
-    private let storage: UnsafeMutableBufferPointer<UInt64>
-    private let state: SPSCAtomicRingState
-
-    public init(capacity: Int) {
-        precondition(capacity > 0, "capacity must be positive")
-        precondition(UInt64(capacity) <= UInt64.max / 2, "capacity must preserve SPSC wrap-distance ordering")
-        self.capacity = capacity
-        self.storage = UnsafeMutableBufferPointer<UInt64>.allocate(capacity: capacity)
-        self.storage.initialize(repeating: 0)
-        self.state = SPSCAtomicRingState(capacity: capacity)
-    }
-
-    public var ownerViolationCount: Int {
-        state.ownerViolationCount
-    }
-
-    deinit {
-        storage.deinitialize()
-        storage.deallocate()
-    }
-
-    public func push(_ value: UInt64) -> SPSCAtomicRingResult {
-        guard state.validateProducer() else {
-            return .invalid
-        }
-        guard let reservation = state.reservePushSlot() else {
-            return .full
-        }
-        storage[reservation.slot] = value
-        state.publishWriteIndex(reservation.nextWriteIndex)
-        return .stored
-    }
-
-    public func pop() -> UInt64? {
-        guard state.validateConsumer() else {
-            return nil
-        }
-        guard let reservation = state.reservePopSlot() else {
-            return nil
-        }
-        let value = storage[reservation.slot]
-        state.publishReadIndex(reservation.readIndex &+ 1)
-        return value
-    }
-}
-
 private func currentSPSCThreadID() -> UInt64 {
     var threadID: UInt64 = 0
     pthread_threadid_np(nil, &threadID)

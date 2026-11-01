@@ -16,8 +16,9 @@ mod settings;
 mod status;
 mod workflow;
 
-/// Launch interactive station window. Blocks until closed.
-pub fn run_interactive_ui() -> Result<(), String> {
+/// Launch interactive station window. Blocks until closed. The window closes (and the
+/// live session stops cleanly) once `is_interrupted` reports a Ctrl-C.
+pub fn run_interactive_ui(is_interrupted: fn() -> bool) -> Result<(), String> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
@@ -27,7 +28,11 @@ pub fn run_interactive_ui() -> Result<(), String> {
     eframe::run_native(
         "rusty-lola",
         options,
-        Box::new(|_cc| Ok(Box::new(StationApp::new()))),
+        Box::new(move |_cc| {
+            let mut app = StationApp::new();
+            app.is_interrupted = is_interrupted;
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| format!("GUI error: {e}"))
 }
@@ -74,10 +79,22 @@ struct StationApp {
     process_priority: String,
     record_path: String,
     section: DeskSection,
+    is_interrupted: fn() -> bool,
 }
 
+/// Longest the window close waits for the session to disconnect and finish recordings;
+/// it must exceed the capture join (2 s) plus the recorder finalize (0.5 s) bounds.
+const EXIT_STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl eframe::App for StationApp {
+    fn on_exit(&mut self) {
+        self.controller.stop_and_wait(EXIT_STOP_TIMEOUT);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if (self.is_interrupted)() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         self.prepare_frame(ui.ctx());
         self.render_header(ui);
         self.render_action_bar(ui);
@@ -93,6 +110,8 @@ impl StationApp {
         self.refresh_live_status();
         self.controller.poll_device_inventory();
         self.update_preview(ctx);
+        // Poll for Ctrl-C while idle.
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
         if self.controller.live_running()
             || self.controller.check_pending()
             || self.controller.device_inventory_pending()

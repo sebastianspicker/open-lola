@@ -133,7 +133,7 @@ impl StrictXimeaCamera {
     pub fn open(config: XimeaConfig) -> XimeaResult<Self> {
         config.validate()?;
         let _guard = xi_lock().lock().unwrap_or_else(|e| e.into_inner());
-        let lib = load_xiapi(None).map_err(|detail| XimeaError::Native {
+        let lib = load_xiapi().map_err(|detail| XimeaError::Native {
             operation: "xiAPI load",
             detail,
         })?;

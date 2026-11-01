@@ -34,18 +34,25 @@ struct RunningDirectP2PProcess {
     var remoteTarget: String?
     var startedAt: String
 
+    /// A collection failure is recorded on the result so the supervisor report is still written.
     func result(
         exitCode: Int,
         options: DirectP2PTwoPeerLocalRunOptions,
         runDirectory: String
-    ) throws -> DirectPeerTwoPeerLocalRunProcessResult {
-        let collected = try collectArtifactsIfNeeded(
-            command: command,
-            exitCode: exitCode,
-            options: options,
-            runDirectory: runDirectory,
-            remoteTarget: remoteTarget
-        )
+    ) -> DirectPeerTwoPeerLocalRunProcessResult {
+        var collected: (reportPath: String?, receiveProofPath: String?) = (nil, nil)
+        var collectionError: String?
+        do {
+            collected = try collectArtifactsIfNeeded(
+                command: command,
+                exitCode: exitCode,
+                options: options,
+                runDirectory: runDirectory,
+                remoteTarget: remoteTarget
+            )
+        } catch {
+            collectionError = String(describing: error)
+        }
         return DirectPeerTwoPeerLocalRunProcessResult(
             identity: processIdentity,
             execution: processExecution(exitCode: exitCode),
@@ -54,7 +61,8 @@ struct RunningDirectP2PProcess {
                 reportPath: collected.reportPath,
                 receiveProofPath: collected.receiveProofPath,
                 startedAt: startedAt,
-                finishedAt: ISO8601DateFormatter().string(from: Date())
+                finishedAt: ISO8601DateFormatter().string(from: Date()),
+                error: collectionError
             )
         )
     }
@@ -157,6 +165,42 @@ func directP2PReadyFilePath(runDirectory: String, peerID: String) -> String {
     "\(runDirectory)/\(peerID)-ready"
 }
 
+/// Removes exactly `<runDirectory>/<peer>-ready` so a leftover from an earlier run cannot satisfy the wait.
+func removeStaleDirectP2PReadyFile(
+    command: DirectPeerTwoPeerRunCommand,
+    runDirectory: String,
+    options: DirectP2PTwoPeerLocalRunOptions
+) throws {
+    let path = directP2PReadyFilePath(runDirectory: runDirectory, peerID: command.peerID)
+    guard options.executionMode == .ssh else {
+        var metadata = stat()
+        guard lstat(path, &metadata) == 0 else { return }
+        guard metadata.st_mode & S_IFMT == S_IFREG else {
+            throw CommandError.invalidArgument("readiness marker path is not a regular file: \(path)")
+        }
+        try FileManager.default.removeItem(atPath: path)
+        return
+    }
+    guard let remoteTarget = options.sshTarget(for: command) else {
+        throw CommandError.invalidArgument("missing SSH target for \(command.peerID)")
+    }
+    try RemoteProcessTarget.validate(remoteTarget)
+    try DirectPeerTwoPeerRunPathPolicy.validateRemoteArtifactPath(path)
+    let exitCode = try ManagedProcessRunner.runToExit(
+        executable: options.sshExecutable,
+        arguments: [
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+            "-o", "ConnectionAttempts=1",
+            "--", remoteTarget, "rm -f -- \(shellQuoted(path))"
+        ],
+        timeoutSeconds: 30
+    )
+    guard exitCode == 0 else {
+        throw CommandError.invalidArgument("could not clear stale readiness marker on \(remoteTarget)")
+    }
+}
+
 func waitForDirectP2PReadyFile(_ process: RunningDirectP2PProcess, timeoutMilliseconds: Int) throws {
     let deadline = DispatchTime.now() + .milliseconds(timeoutMilliseconds)
     while DispatchTime.now() < deadline {
@@ -254,5 +298,5 @@ private func remoteShellArguments(_ arguments: [String], workingDirectory: Strin
 }
 
 private func shellQuoted(_ value: String) -> String {
-    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    posixSingleQuoted(value)
 }

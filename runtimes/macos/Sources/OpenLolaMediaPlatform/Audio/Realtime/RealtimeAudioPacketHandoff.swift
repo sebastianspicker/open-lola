@@ -1,5 +1,6 @@
 // Moves incoming PCM payloads through bounded realtime storage and returns explicit pressure outcomes so network code never owns callback buffers.
 import CoreAudio
+import OpenLolaEvidenceModels
 import Darwin
 import Foundation
 
@@ -32,7 +33,20 @@ public struct RealtimeAudioPacketHandoff: Sendable {
     private let playoutTargetFrames: Int
     private let clock: RealtimeAudioPacketHandoffClock
 
-    public private(set) var metrics: RealtimeAudioHandoffMetrics
+    private var metricsState: RealtimeAudioHandoffMetrics
+    private var packetizationWindow = PerformanceCounterWindow()
+    private var depacketizationWindow = PerformanceCounterWindow()
+
+    /// Counters only; cheap enough for per-block callers. Use `metrics` for final reports.
+    public var counters: RealtimeAudioHandoffMetrics { metricsState }
+
+    /// Counters plus duration summaries (sorts both windows), for final reports.
+    public var metrics: RealtimeAudioHandoffMetrics {
+        var snapshot = metricsState
+        snapshot.packetizationDuration = packetizationWindow.summary
+        snapshot.depacketizationDuration = depacketizationWindow.summary
+        return snapshot
+    }
 
     public init(configuration: RealtimeAudioEngineConfiguration) throws {
         try configuration.validateRealtimeBufferInputs()
@@ -44,7 +58,7 @@ public struct RealtimeAudioPacketHandoff: Sendable {
         self.captureRing = initialState.captureRing
         self.packetPayloadScratch = initialState.packetPayloadScratch
         self.playout = initialState.playout
-        self.metrics = initialState.metrics
+        self.metricsState = initialState.metrics
     }
 }
 
@@ -97,7 +111,7 @@ extension RealtimeAudioPacketHandoff {
         hostTimeNanoseconds: UInt64,
         input: UnsafePointer<AudioBufferList>
     ) -> RealtimeAudioRingPushResult {
-        let inputBuffers = RealtimeAudioBufferListReader(input)
+        let inputBuffers = ReadOnlyAudioBufferListPointer(input)
         return recordCaptureResult(
             captureRing.pushAudioBuffers(
                 startFrame: startFrame,
@@ -168,7 +182,7 @@ extension RealtimeAudioPacketHandoff {
         }
 
         let start = clock.nowNanoseconds()
-        metrics.networkReceiveBlocks += 1
+        metricsState.networkReceiveBlocks += 1
         recordReceiveSequence(packet)
         let playoutFrame = packet.header.senderFrameIndex.addingReportingOverflow(UInt64(playoutTargetFrames))
         guard !playoutFrame.overflow else { return recordInvalidReceiveDrop(start: start) }
@@ -193,22 +207,22 @@ extension RealtimeAudioPacketHandoff {
     }
 
     private mutating func recordInvalidReceiveDrop(start: UInt64) -> RealtimeAudioPacketReceiveResult {
-        metrics.droppedNetworkBlocks += 1
+        metricsState.droppedNetworkBlocks += 1
         updateRxBuffer { snapshot in
             snapshot.lostPackets += 1
         }
-        metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
+        depacketizationWindow.record(clock.elapsedMicroseconds(since: start))
         return .droppedInvalid
     }
 
     private mutating func recordLateReceiveDrop(start: UInt64) -> RealtimeAudioPacketReceiveResult {
-        metrics.latePackets += 1
-        metrics.droppedNetworkBlocks += 1
+        metricsState.latePackets += 1
+        metricsState.droppedNetworkBlocks += 1
         updateRxBuffer { snapshot in
             snapshot.latePackets += 1
             snapshot.lostPackets += 1
         }
-        metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
+        depacketizationWindow.record(clock.elapsedMicroseconds(since: start))
         return .droppedLate
     }
 
@@ -219,39 +233,39 @@ extension RealtimeAudioPacketHandoff {
         switch result {
         case .stored:
             updateMaximumBufferedBlocks()
-            metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
+            depacketizationWindow.record(clock.elapsedMicroseconds(since: start))
             return .queued
         case .droppedLate:
-            metrics.latePackets += 1
-            metrics.droppedNetworkBlocks += 1
+            metricsState.latePackets += 1
+            metricsState.droppedNetworkBlocks += 1
             updateRxBuffer { snapshot in
                 snapshot.latePackets += 1
                 snapshot.lostPackets += 1
             }
             updateMaximumBufferedBlocks()
-            metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
+            depacketizationWindow.record(clock.elapsedMicroseconds(since: start))
             return .droppedLate
         case .droppedFull, .droppedAhead:
-            metrics.droppedNetworkBlocks += 1
+            metricsState.droppedNetworkBlocks += 1
             updateRxBuffer { snapshot in
                 snapshot.overruns += 1
             }
             updateMaximumBufferedBlocks()
-            metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
+            depacketizationWindow.record(clock.elapsedMicroseconds(since: start))
             return .droppedFull
         case .droppedInvalid:
-            metrics.droppedNetworkBlocks += 1
+            metricsState.droppedNetworkBlocks += 1
             updateMaximumBufferedBlocks()
-            metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
+            depacketizationWindow.record(clock.elapsedMicroseconds(since: start))
             return .droppedInvalid
         }
     }
 
     public mutating func renderCallback() -> RealtimeAudioPlayoutResult {
         let result = playout.renderNextBlock()
-        metrics.outputBlocks += 1
+        metricsState.outputBlocks += 1
         if case .silence = result {
-            metrics.outputUnderrunBlocks += 1
+            metricsState.outputUnderrunBlocks += 1
             updateRxBuffer { snapshot in
                 snapshot.underruns += 1
             }
@@ -261,30 +275,30 @@ extension RealtimeAudioPacketHandoff {
     }
 
     public mutating func markShutdownCompleted() {
-        metrics.shutdownCompleted = true
+        metricsState.shutdownCompleted = true
     }
 
     private mutating func recordCaptureResult(
         _ captureResult: RealtimeAudioCapturePushResult
     ) -> RealtimeAudioRingPushResult {
-        metrics.inputBlocks += 1
+        metricsState.inputBlocks += 1
         switch captureResult.copyKind {
         case .silent:
             break
         case .direct:
-            metrics.directInputBlocks += 1
+            metricsState.directInputBlocks += 1
         case .remapped:
-            metrics.remappedInputBlocks += 1
+            metricsState.remappedInputBlocks += 1
         case .invalid:
-            metrics.invalidInputBlocks += 1
-            metrics.allocationWarnings += 1
+            metricsState.invalidInputBlocks += 1
+            metricsState.allocationWarnings += 1
         }
         if captureResult.result == .droppedInvalid {
-            metrics.droppedInputBlocks += 1
+            metricsState.droppedInputBlocks += 1
         } else if captureResult.result == .droppedFull {
-            metrics.droppedInputBlocks += 1
-            metrics.callbackOverrunBlocks += 1
-            metrics.fullCaptureRingBlocks += 1
+            metricsState.droppedInputBlocks += 1
+            metricsState.callbackOverrunBlocks += 1
+            metricsState.fullCaptureRingBlocks += 1
         }
         updateMaximumBufferedBlocks()
         return captureResult.result
@@ -355,30 +369,30 @@ extension RealtimeAudioPacketHandoff {
         fragmentCount: Int,
         nextSequenceNumber: UInt64
     ) {
-        metrics.packetizationDuration.record(clock.elapsedMicroseconds(since: start))
+        packetizationWindow.record(clock.elapsedMicroseconds(since: start))
         self.nextSequenceNumber = nextSequenceNumber
-        metrics.networkSendBlocks += 1
-        metrics.packetFragmentCount += fragmentCount
+        metricsState.networkSendBlocks += 1
+        metricsState.packetFragmentCount += fragmentCount
         updateMaximumBufferedBlocks()
     }
 
     private mutating func updateMaximumBufferedBlocks() {
         let playoutBufferedBlockCount = playout.bufferedBlockCount
-        metrics.maximumCaptureRingOccupancyBlocks = max(
-            metrics.maximumCaptureRingOccupancyBlocks,
+        metricsState.maximumCaptureRingOccupancyBlocks = max(
+            metricsState.maximumCaptureRingOccupancyBlocks,
             captureRing.count
         )
-        metrics.maximumPlayoutQueueDepthBlocks = max(
-            metrics.maximumPlayoutQueueDepthBlocks,
+        metricsState.maximumPlayoutQueueDepthBlocks = max(
+            metricsState.maximumPlayoutQueueDepthBlocks,
             playoutBufferedBlockCount
         )
-        metrics.maximumBufferedBlocks = max(
-            metrics.maximumBufferedBlocks,
+        metricsState.maximumBufferedBlocks = max(
+            metricsState.maximumBufferedBlocks,
             captureRing.count,
             playoutBufferedBlockCount
         )
-        if metrics.maximumBufferedBlocks > metrics.ringCapacityBlocks {
-            metrics.hiddenPlayoutGrowthDetected = true
+        if metricsState.maximumBufferedBlocks > metricsState.ringCapacityBlocks {
+            metricsState.hiddenPlayoutGrowthDetected = true
         }
         updateRxBuffer { snapshot in
             snapshot.recordBufferedPacketCount(playoutBufferedBlockCount)
@@ -386,10 +400,10 @@ extension RealtimeAudioPacketHandoff {
     }
 
     private mutating func updateRxBuffer(_ update: (inout RxBufferRuntimeSnapshot) -> Void) {
-        guard var rxBuffer = metrics.rxBuffer else {
+        guard var rxBuffer = metricsState.rxBuffer else {
             return
         }
         update(&rxBuffer)
-        metrics.rxBuffer = rxBuffer
+        metricsState.rxBuffer = rxBuffer
     }
 }

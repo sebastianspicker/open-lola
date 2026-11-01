@@ -123,7 +123,8 @@ struct UltraGridRuntimeMediaExchangeContext {
             reportDatagrams: configuration.role.receives ? receiveResult.datagrams : generated.evidence,
             incrementalAnalysis: receiveResult.incrementalSummary?.analysis
                 ?? (configuration.role.receives ? nil : generatedSummary.analysis),
-            incrementalSink: receiveResult.incrementalSummary?.sink
+            incrementalSink: receiveResult.incrementalSummary?.sink,
+            rejectedDatagramCount: receiveResult.rejectedDatagramCount
         )
     }
 

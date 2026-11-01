@@ -46,7 +46,6 @@ pub(super) fn run_interleaved_stream(
     dual: &mut Option<DualStreamRecorder>,
     previews: &mut Vec<String>,
     monitor: &mut NetworkMonitor,
-    audio_reassembler: &mut FrameReassembler,
     audio_queue: &mut AudioReceiveQueue,
     video_reassembler: &mut FrameReassembler,
     video_queue: &mut VideoReceiveQueue,
@@ -77,8 +76,7 @@ pub(super) fn run_interleaved_stream(
             || phase.scheduler.audio_due(now);
         let service_due = phase.control_service_due(now, audio_due);
         if service_due && watchdog.is_armed() {
-            let activity =
-                transport.stats().received_datagrams + result.messages_received.len() as u64;
+            let activity = transport.stats().received_datagrams + result.control_messages_received;
             watchdog.check(activity, now)?;
         }
         if service_due
@@ -108,7 +106,6 @@ pub(super) fn run_interleaved_stream(
                 t0,
                 dual,
                 monitor,
-                audio_reassembler,
                 audio_queue,
                 &mut audio_writer,
                 &mut phase,
@@ -398,7 +395,6 @@ fn process_audio_deadline(
     t0: u64,
     dual: &mut Option<DualStreamRecorder>,
     monitor: &mut NetworkMonitor,
-    reassembler: &mut FrameReassembler,
     queue: &mut AudioReceiveQueue,
     audio_writer: &mut AudioDatagramWriter,
     phase: &mut StreamPhase<'_>,
@@ -417,7 +413,6 @@ fn process_audio_deadline(
             })?,
             transport,
             peer,
-            reassembler,
             packet_size,
             settings.audio.channels,
             settings.audio.sample_rate,

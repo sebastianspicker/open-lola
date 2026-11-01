@@ -418,12 +418,6 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
     }
 }
 
-/// Pairs `block` and `payload` so captured audio bytes retain their block timing.
-public struct DirectPeerCapturedAudioPayload: Equatable, Sendable {
-    public var block: RealtimeAudioFrameBlock
-    public var payload: Data
-}
-
 // swiftlint:disable:next type_name
 /// Counts `capturedInputBlocks`, `droppedInputBlocks`, `inputOverrunBlocks`, and `outputBlocks` to expose real-time graph activity and loss.
 public struct DirectPeerRealtimeAudioGraphRuntimeCounters: Codable, Equatable, Sendable {

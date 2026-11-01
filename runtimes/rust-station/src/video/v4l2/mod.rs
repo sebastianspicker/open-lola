@@ -4,6 +4,7 @@
 mod color;
 #[cfg(any(target_os = "linux", test))]
 mod convert;
+mod info;
 #[cfg(target_os = "linux")]
 mod inventory;
 #[cfg(any(target_os = "linux", test))]
@@ -15,6 +16,7 @@ mod nonlinux;
 #[cfg(target_os = "linux")]
 mod uapi;
 
+pub use info::{V4l2Capabilities, V4l2DeviceInfo};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -127,18 +129,17 @@ pub enum V4l2Error {
     InventoryLimit(String),
 }
 
-pub type V4l2Result<T> = Result<T, V4l2Error>;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct V4l2Capabilities {
-    pub raw: u32,
-    pub device_raw: u32,
-    pub video_capture: bool,
-    pub video_capture_mplane: bool,
-    pub streaming: bool,
-    pub read_write: bool,
-    pub metadata_capture: bool,
+impl V4l2Error {
+    /// A bad or late frame; the next grab can still succeed.
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Self::Timeout(_) | Self::InvalidFrame(_) | Self::Conversion(_)
+        )
+    }
 }
+
+pub type V4l2Result<T> = Result<T, V4l2Error>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum V4l2FrameSize {
@@ -189,17 +190,6 @@ pub struct V4l2FormatInfo {
     pub modes: Vec<V4l2Mode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct V4l2DeviceInfo {
-    pub device: String,
-    pub driver: String,
-    pub card: String,
-    pub bus_info: String,
-    pub version: u32,
-    pub capabilities: V4l2Capabilities,
-    pub formats: Vec<V4l2FormatInfo>,
-}
-
 #[derive(Debug, Clone)]
 pub struct V4l2Cancellation {
     cancelled: Arc<AtomicBool>,
@@ -219,6 +209,8 @@ pub struct V4l2Camera {
     config: V4l2Config,
     cancellation: Arc<AtomicBool>,
     inner: platform::Camera,
+    /// Set after the first delivered frame; until then the longer timeout applies.
+    delivered_frame: bool,
 }
 
 impl std::fmt::Debug for V4l2Camera {
@@ -240,6 +232,7 @@ impl V4l2Camera {
             config,
             cancellation,
             inner,
+            delivered_frame: false,
         })
     }
 
@@ -255,6 +248,7 @@ impl V4l2Camera {
 
     pub fn start(&mut self) -> V4l2Result<()> {
         self.cancellation.store(false, Ordering::Release);
+        self.delivered_frame = false;
         self.inner.start()
     }
 
@@ -262,7 +256,14 @@ impl V4l2Camera {
         if self.cancellation.load(Ordering::Acquire) {
             return Err(V4l2Error::Cancelled);
         }
-        self.inner.grab(self.config.frame_timeout())
+        let mut timeout = self.config.frame_timeout();
+        if !self.delivered_frame {
+            // Cameras often need longer than one frame period for the first frame.
+            timeout = timeout.max(Duration::from_secs(1));
+        }
+        let frame = self.inner.grab(timeout)?;
+        self.delivered_frame = true;
+        Ok(frame)
     }
 
     pub fn stop(&mut self) -> V4l2Result<()> {

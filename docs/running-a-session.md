@@ -244,7 +244,9 @@ In the default `--execution-mode local`, the supervisor starts both peers as
 child processes on its own machine, so the plan's hosts must be addresses that
 machine can bind. To run a peer on another Mac, use `--execution-mode ssh` with
 `--mac-a-ssh`, `--mac-b-ssh`, `--ssh-fallback-explicit true`, and
-`--ssh-fallback-reason`. The report records SSH as a fallback.
+`--ssh-fallback-reason`. The report records SSH as a fallback. SSH mode needs a run folder without
+spaces that exists on both Macs, for example `/Users/Shared/OpenLoLa/MacToMac`;
+the supervisor checks this before any peer starts.
 
 Two more flags:
 

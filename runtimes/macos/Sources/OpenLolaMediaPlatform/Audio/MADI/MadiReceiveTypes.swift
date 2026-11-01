@@ -23,6 +23,16 @@ public enum MadiReceiveError: Error, Equatable, Sendable,
     public static func nonFiniteField(_ field: String) -> MadiReceiveError {
         .negativeField(field)
     }
+
+    /// True for errors a remote packet can cause (wrong mode, bad fragments, impossible timing); the rest are local faults.
+    var isRemoteInputError: Bool {
+        switch self {
+        case .transportModeMismatch, .reassembly, .pendingDeadlineLimitExceeded, .playoutFrameOverflow:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// Chooses whether a full MADI receive buffer drops the newest or oldest packet.

@@ -152,7 +152,7 @@ fn portaudio_inventory() -> Value {
     let probe = crate::audio::probe_portaudio();
     let mut report = probe.to_json();
     if probe.available {
-        match crate::audio::load_portaudio(None).and_then(|library| library.devices()) {
+        match crate::audio::load_portaudio().and_then(|library| library.devices()) {
             Ok(devices) => {
                 report["devices"] = devices.iter().map(|d| d.to_json()).collect();
             }

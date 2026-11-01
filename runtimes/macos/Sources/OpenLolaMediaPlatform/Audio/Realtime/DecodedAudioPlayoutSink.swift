@@ -178,7 +178,7 @@ package final class DecodedAudioPlayoutSink: @unchecked Sendable {
     }
 
     private func validatedFloats(_ block: DecodedInterleavedPCM) throws -> [Float] {
-        guard block.sampleRateHertz > 0 else { throw DecodedAudioPlayoutSinkError.invalidSampleRate(block.sampleRateHertz) }
+        guard (8_000...384_000).contains(block.sampleRateHertz) else { throw DecodedAudioPlayoutSinkError.invalidSampleRate(block.sampleRateHertz) }
         guard block.channels > 0 else { throw DecodedAudioPlayoutSinkError.invalidChannelCount(block.channels) }
         guard block.channels == channels else { throw DecodedAudioPlayoutSinkError.incompatibleChannels(expected: channels, actual: block.channels) }
         guard block.payload.count.isMultiple(of: block.representation.bytesPerSample * block.channels) else { throw DecodedAudioPlayoutSinkError.malformedPayload }

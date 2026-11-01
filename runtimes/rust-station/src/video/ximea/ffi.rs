@@ -34,14 +34,9 @@ pub struct XiApiLibrary {
 }
 
 /// Load xiAPI via LoadLibrary and bind required symbols. Returns Err if unloadable.
-pub fn load_xiapi(dll_path: Option<&Path>) -> Result<XiApiLibrary, String> {
-    let mut paths = Vec::new();
-    if let Some(p) = dll_path {
-        paths.push(p.to_path_buf());
-    }
-    paths.extend(candidate_paths());
+pub fn load_xiapi() -> Result<XiApiLibrary, String> {
     let mut last_err = "xiAPI DLL not found".to_string();
-    for path in paths {
+    for path in candidate_paths() {
         // SAFETY: `path` is a caller-controlled candidate; loading does not expose symbols yet.
         let lib = match unsafe { crate::native_loader::load(&path) } {
             Ok(l) => l,

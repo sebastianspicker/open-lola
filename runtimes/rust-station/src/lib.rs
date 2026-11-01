@@ -1,7 +1,7 @@
 //! rusty-lola Rust rewrite — LoLa-compatible low-latency A/V station.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
 pub mod audio;
 pub mod cli;
@@ -71,9 +71,13 @@ fn resource_root_for_executable(executable: &Path) -> Option<PathBuf> {
         .then_some(root)
 }
 
+static BUNDLED_ROOT: Mutex<Option<tempfile::TempDir>> = Mutex::new(None);
+
 fn bundled_resource_root() -> PathBuf {
-    static ROOT: OnceLock<tempfile::TempDir> = OnceLock::new();
-    ROOT.get_or_init(|| {
+    let mut slot = BUNDLED_ROOT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    slot.get_or_insert_with(|| {
         let root = tempfile::Builder::new()
             .prefix(&format!("rusty-lola-{VERSION}-resources-"))
             .tempdir()
@@ -92,4 +96,15 @@ fn bundled_resource_root() -> PathBuf {
     })
     .path()
     .to_path_buf()
+}
+
+/// Remove the temporary bundled camera catalogs, if this run created them. Call before
+/// `process::exit`, which skips destructors.
+pub fn remove_bundled_resources() {
+    drop(
+        BUNDLED_ROOT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take(),
+    );
 }

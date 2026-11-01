@@ -44,10 +44,10 @@ struct UdpPcmReceiverMetricsAccumulator {
             if sequenceNumber < nextExpectedSequence {
                 reorderedPackets += 1
             } else {
-                expectedSequence = sequenceNumber + 1
+                expectedSequence = sequenceNumber &+ 1
             }
         } else {
-            expectedSequence = sequenceNumber + 1
+            expectedSequence = sequenceNumber &+ 1
         }
         seenSequences.insert(sequenceNumber)
 
@@ -246,20 +246,33 @@ func collectReceiverMetrics(
     let deadline = try routeDeadlineNanoseconds(durationSeconds: configuration.durationSeconds)
     let playoutTarget = playoutTargetMicroseconds(configuration.packetMode)
     var accumulator = UdpPcmReceiverMetricsAccumulator(expectedPacketCount: configuration.packetCount)
+    var receiveBuffer = [UInt8]()
 
     while DispatchTime.now().uptimeNanoseconds < deadline
         && accumulator.seenSequences.count < configuration.packetCount {
         do {
-            guard let data = try receiveDatagramIfAvailable(
+            let received = try receiveDatagramReportingOversize(
                 socket: socket,
-                byteCount: expectedByteCount
-            ) else {
+                byteCount: expectedByteCount,
+                buffer: &receiveBuffer
+            )
+            if received.isOversize {
+                accumulator.receiveErrors += 1
+                continue
+            }
+            guard let data = received.data else {
                 try waitForReadableSocket(socket: socket, timeoutMicroseconds: 1_000)
                 continue
             }
 
             let receivedAt = DispatchTime.now().uptimeNanoseconds
-            let packet = try UdpPcmPacket.decode(data)
+            let packet: UdpPcmPacket
+            do {
+                packet = try UdpPcmPacket.decode(data)
+            } catch {
+                accumulator.receiveErrors += 1
+                continue
+            }
             guard packet.header.sampleRateHertz == UInt32(configuration.packetMode.sampleRateHertz),
                   packet.header.framesPerPacket == UInt32(configuration.packetMode.framesPerPacket),
                   packet.header.channelCount == UInt16(configuration.packetMode.channelCount),

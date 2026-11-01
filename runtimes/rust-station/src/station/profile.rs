@@ -169,6 +169,7 @@ impl SessionProfile {
                 .parse::<Ipv4Addr>()
                 .map_err(|_| ProfileError::Invalid(format!("{name} must be an IPv4 address")))?;
         }
+        bounded_session_id("session_id", self.session_id)?;
         Ok(())
     }
 }
@@ -324,6 +325,7 @@ fn assign_receive_buffers(
     Ok(())
 }
 
+/// A top-level key wins over its nested `network.*` alias; presence is decided by the key.
 fn apply_network_aliases(profile: &mut SessionProfile, value: &Value) -> Result<(), ProfileError> {
     let Some(network) = value.get("network") else {
         return Ok(());
@@ -331,16 +333,20 @@ fn apply_network_aliases(profile: &mut SessionProfile, value: &Value) -> Result<
     if !network.is_object() {
         return Err(ProfileError::Invalid("network must be an object".into()));
     }
-    if profile.remote_ip == default_remote() {
+    let top_level = |key: &str| value.get(key).is_some();
+    if !top_level("remote_ip") {
         assign_optional_string(&mut profile.remote_ip, network, "remote_ip")?;
     }
-    assign_optional_session_id(
-        &mut profile.session_id,
-        network,
-        "session_id",
-        "network.session_id",
-    )?;
-    assign_optional_string(&mut profile.bind_ip, network, "bind_ip")
+    // Validate the nested SID even when the top-level one wins.
+    let mut nested_sid = profile.session_id;
+    assign_optional_session_id(&mut nested_sid, network, "session_id", "network.session_id")?;
+    if !top_level("session_id") {
+        profile.session_id = nested_sid;
+    }
+    if !top_level("bind_ip") {
+        assign_optional_string(&mut profile.bind_ip, network, "bind_ip")?;
+    }
+    Ok(())
 }
 
 fn apply_video_aliases(profile: &mut SessionProfile, value: &Value) -> Result<(), ProfileError> {
@@ -458,6 +464,7 @@ pub fn save_session_profile(
     path: impl AsRef<Path>,
     profile: &SessionProfile,
 ) -> Result<PathBuf, ProfileError> {
+    profile.validate()?;
     let p = path.as_ref();
     if p.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("ssn"))
@@ -564,8 +571,8 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(profile.remote_ip, "10.0.0.2");
-        assert_eq!(profile.session_id, 7);
+        assert_eq!(profile.remote_ip, "127.0.0.1");
+        assert_eq!(profile.session_id, 4);
         assert_eq!(profile.bind_ip, "10.0.0.1");
         assert_eq!(profile.camera_mode_id, "013");
         assert_eq!(profile.audio_receive_queue_depth, 3);

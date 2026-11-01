@@ -23,7 +23,11 @@ package final class BoundedPipeCapture: @unchecked Sendable {
         self.limit = limit
         self.mode = mode
         readHandle.readabilityHandler = { [weak self] handle in
-            self?.capture(handle.availableData)
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil  // EOF: stop the handler spinning on empty reads
+            }
+            self?.capture(data)
         }
     }
 
@@ -49,7 +53,7 @@ package final class BoundedPipeCapture: @unchecked Sendable {
         let data = prefixData
         let readFailure = failure
         lock.unlock()
-        let text = String(data: data, encoding: .utf8) ?? "<non-UTF8 output: \(data.count) bytes>"
+        let text = String(decoding: data, as: UTF8.self)
         let bounded = mode == .characters ? String(text.prefix(limit)) : text
         guard let readFailure else {
             return bounded

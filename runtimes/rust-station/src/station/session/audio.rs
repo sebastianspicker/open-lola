@@ -4,9 +4,7 @@ use super::media::{send_audio_media, ReceiveOutcome, SessionMediaTransport};
 use super::{SessionOptions, SessionResult};
 use crate::audio::{generate_pcm_tone, test_tone_frequency, TEST_TONE_AMPLITUDE};
 use crate::net::MediaKind;
-use crate::protocol::{
-    parse_audio_datagram, AudioDatagramWriter, FrameReassembler, AUDIO_UDP_PAYLOAD_SIZE,
-};
+use crate::protocol::{parse_audio_datagram, AudioDatagramWriter, AUDIO_UDP_PAYLOAD_SIZE};
 use crate::station::av_productivity::apply_tx_audio_level;
 use crate::station::monitor::NetworkMonitor;
 use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
@@ -18,7 +16,6 @@ pub(super) fn send_recv_audio_frame(
     audio: &mut SessionAudioBackend,
     media_transport: &mut SessionMediaTransport,
     peer_audio_addr: SocketAddr,
-    a_re: &mut FrameReassembler,
     packet_size: usize,
     channels: u16,
     sample_rate: u32,
@@ -97,7 +94,6 @@ pub(super) fn send_recv_audio_frame(
             audio,
             media_transport,
             peer_audio_addr,
-            a_re,
             result,
             dual,
             monitor,
@@ -129,13 +125,11 @@ pub(super) fn receive_audio_datagram_step(
     audio: &mut SessionAudioBackend,
     media_transport: &mut SessionMediaTransport,
     peer_audio_addr: SocketAddr,
-    a_re: &mut FrameReassembler,
     result: &mut SessionResult,
     dual: &mut Option<DualStreamRecorder>,
     monitor: &mut NetworkMonitor,
     receive_queue: &mut AudioReceiveQueue,
 ) -> Result<(), SessionError> {
-    let _ = a_re;
     for _ in 0..AUDIO_RECEIVE_DRAIN_LIMIT {
         match media_transport.receive_kind(MediaKind::Audio)? {
             ReceiveOutcome::Datagram(datagram) => {

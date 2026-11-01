@@ -237,22 +237,7 @@ func percentile(_ sortedValues: [Double], _ percentile: Double) -> Double {
 // this package targets macOS 14, while AudioHardwareObject property helpers are
 // macOS 15+. Keep the public AudioObjectGet/SetPropertyData C HAL calls behind
 // typed local helpers until the deployment target can move to macOS 15+.
-func doubleProperty(
-    _ objectID: AudioObjectID,
-    _ selector: AudioObjectPropertySelector,
-    _ scope: AudioObjectPropertyScope
-) -> Double? {
-    CoreAudioScalarPropertyAccess.double(objectID, selector, scope)
-}
-
-func uint32Property(
-    _ objectID: AudioObjectID,
-    _ selector: AudioObjectPropertySelector,
-    _ scope: AudioObjectPropertyScope
-) -> UInt32? {
-    CoreAudioScalarPropertyAccess.uint32(objectID, selector, scope)
-}
-
+// Scalar reads use the shared `doubleProperty` / `uint32Property` from OpenLolaMediaPlatform.
 func setDoubleProperty(
     _ objectID: AudioObjectID,
     _ selector: AudioObjectPropertySelector,

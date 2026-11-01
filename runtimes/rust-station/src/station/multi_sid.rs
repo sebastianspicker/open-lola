@@ -1,18 +1,13 @@
 //! Multi-SID session profiles and sequential/concurrent software session runners.
 
-use crate::config::{
-    StationSettings, DEFAULT_AUDIO_PORT, DEFAULT_CONTROL_PORT, DEFAULT_VIDEO_PORT,
-};
-use crate::station::profile::{
-    load_session_profile, profile_to_settings, save_session_profile, SessionProfile,
-};
+use crate::config::{DEFAULT_AUDIO_PORT, DEFAULT_CONTROL_PORT, DEFAULT_VIDEO_PORT};
+use crate::station::profile::{profile_to_settings, SessionProfile};
 use crate::station::runtime::{SessionConfig, SessionHandle, SessionRuntime, SessionSnapshot};
 use crate::station::session::{run_session, SessionOptions, SessionResult};
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -63,7 +58,7 @@ impl MultiSidRuntime {
             // Loopback allocates per-session ephemeral peer and client ports.
             // A global serialisation lock would turn this owner into a queue,
             // rather than independent persistent runtimes.
-            if config.options.peer_mode.eq_ignore_ascii_case("loopback") {
+            if config.options.is_loopback() {
                 config.options.serialize_loopback = false;
             }
             let runtime = SessionRuntime::new();
@@ -224,39 +219,6 @@ pub fn create_sid_profiles(
     Ok(profiles)
 }
 
-pub fn save_sid_profiles(
-    directory: impl AsRef<Path>,
-    profiles: &[SessionProfile],
-) -> Result<Vec<PathBuf>, String> {
-    let root = directory.as_ref();
-    std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
-    let mut paths = Vec::new();
-    for profile in profiles {
-        let name = format!("sid_{}.session.json", profile.session_id);
-        let path = save_session_profile(root.join(name), profile).map_err(|e| e.to_string())?;
-        paths.push(path);
-    }
-    Ok(paths)
-}
-
-pub fn load_sid_profiles(directory: impl AsRef<Path>) -> Result<Vec<SessionProfile>, String> {
-    let root = directory.as_ref();
-    if !root.is_dir() {
-        return Err(format!("not a directory: {}", root.display()));
-    }
-    let mut profiles = Vec::new();
-    let rd = std::fs::read_dir(root).map_err(|e| e.to_string())?;
-    for ent in rd.flatten() {
-        let path = ent.path();
-        let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        if name.starts_with("sid_") && name.ends_with(".session.json") {
-            profiles.push(load_session_profile(&path).map_err(|e| e.to_string())?);
-        }
-    }
-    profiles.sort_by_key(|p| p.session_id);
-    Ok(profiles)
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct MultiSidRunResult {
     pub session_ids: Vec<i64>,
@@ -355,13 +317,19 @@ pub fn run_concurrent_sessions(
         // Allow true concurrency: each session uses ephemeral peer ports
         opts.serialize_loopback = false;
         let results = results.clone();
-        handles.push(thread::spawn(move || {
-            let result = run_session(settings, timeout, opts);
-            lock_unpoison(&results).push((idx, sid, result));
-        }));
+        handles.push((
+            sid,
+            thread::spawn(move || {
+                let result = run_session(settings, timeout, opts);
+                lock_unpoison(&results).push((idx, sid, result));
+            }),
+        ));
     }
-    for h in handles {
-        let _ = h.join();
+    let mut panicked_sid = None;
+    for (sid, h) in handles {
+        if h.join().is_err() {
+            panicked_sid.get_or_insert(sid);
+        }
     }
 
     let mut pairs = lock_unpoison(&results).clone();
@@ -386,6 +354,13 @@ pub fn run_concurrent_sessions(
         }
         aggregate.results.push(result);
     }
+    if let Some(sid) = panicked_sid {
+        all_ok = false;
+        aggregate.error = format!("SID {sid} session thread panicked");
+    } else if aggregate.results.len() != profiles.len() {
+        all_ok = false;
+        aggregate.error = "fewer session results than profiles".into();
+    }
     aggregate.ok = all_ok;
     Ok(aggregate)
 }
@@ -394,7 +369,7 @@ fn validate_concurrent_bindings(
     profiles: &[SessionProfile],
     options: &SessionOptions,
 ) -> Result<(), String> {
-    if options.peer_mode.eq_ignore_ascii_case("loopback") {
+    if options.is_loopback() {
         return Ok(());
     }
     let mut bindings = BTreeSet::new();
@@ -433,9 +408,4 @@ pub fn run_multi_sid(
     } else {
         run_sequential_sessions(&profiles, timeout, Some(opts))
     }
-}
-
-/// Map profile onto settings (re-export convenience).
-pub fn settings_from_profile(profile: &SessionProfile) -> StationSettings {
-    profile_to_settings(profile)
 }

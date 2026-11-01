@@ -47,7 +47,6 @@ fn run_against_silent_peer(timeout_secs: f64) -> (Result<(), SessionError>, Dura
         &mut None,
         &mut Vec::new(),
         &mut monitor,
-        &mut FrameReassembler::new(),
         &mut AudioReceiveQueue::new(&settings),
         &mut FrameReassembler::strict_video(),
         &mut VideoReceiveQueue::new(1, 0),

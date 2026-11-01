@@ -174,27 +174,6 @@ pub struct DualStreamRecorder {
 }
 
 impl DualStreamRecorder {
-    pub fn new(
-        out_dir: impl AsRef<Path>,
-        sample_rate: u32,
-        channels: u16,
-        bits_per_sample: u16,
-    ) -> Self {
-        Self::with_options(
-            out_dir,
-            sample_rate,
-            channels,
-            bits_per_sample,
-            "session",
-            "av",
-            true,
-            true,
-            true,
-            true,
-            "jpg",
-        )
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn with_options(
         out_dir: impl AsRef<Path>,
@@ -255,6 +234,15 @@ impl DualStreamRecorder {
             remote_i: 0,
             closed: false,
             warnings,
+        }
+    }
+
+    /// The WAV paths this recorder writes, known before finalization.
+    pub fn audio_paths(&self) -> DualRecordResult {
+        DualRecordResult {
+            local_audio_path: self.local_audio.as_ref().map(|output| output.path.clone()),
+            remote_audio_path: self.remote_audio.as_ref().map(|output| output.path.clone()),
+            ..Default::default()
         }
     }
 

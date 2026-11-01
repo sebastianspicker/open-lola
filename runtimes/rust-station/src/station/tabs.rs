@@ -186,10 +186,6 @@ impl SessionTabBoard {
         Ok(())
     }
 
-    pub fn sid_for_tab(&self, tab_id: i32) -> Result<i64, String> {
-        Ok(self.get(tab_id)?.session_id)
-    }
-
     pub fn to_dict(&self) -> Value {
         json!({
             "active_tab_id": self.active_tab,

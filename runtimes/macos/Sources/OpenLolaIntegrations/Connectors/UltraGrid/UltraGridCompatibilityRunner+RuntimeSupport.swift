@@ -78,6 +78,7 @@ extension UltraGridCompatibilityRunner {
         var reportDatagrams: [UltraGridCompatibilityDatagram]
         var incrementalAnalysis: RuntimeMediaAnalysis?
         var incrementalSink: ExternalConnectorMediaSinkReport?
+        var rejectedDatagramCount = 0
     }
 
     struct RuntimeEvidenceSummary {

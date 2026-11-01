@@ -316,11 +316,23 @@ configuration: MadiFullDuplexSessionConfiguration
                 if isReadinessDatagram(data) {
                     continue
                 }
-                let packet = try UdpPcmV2Packet.decode(data)
-                let results = try session.receiveRemotePackets(
-                    [packet],
-                    receivedAtHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
-                )
+                let packet: UdpPcmV2Packet
+                do {
+                    packet = try UdpPcmV2Packet.decode(data)
+                } catch {
+                    session.recordMalformedDatagram()
+                    continue
+                }
+                let results: [MadiReceivePacketResult]
+                do {
+                    results = try session.receiveRemotePackets(
+                        [packet],
+                        receivedAtHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                    )
+                } catch let error as MadiReceiveError where error.isRemoteInputError {
+                    session.recordMalformedDatagram()
+                    continue
+                }
                 if results.contains(.queued) {
                     _ = try session.renderRemoteAudioCallback()
                     renderAttempted = true

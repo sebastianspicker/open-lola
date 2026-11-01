@@ -44,22 +44,6 @@ extension CoreAudioInventoryReader {
         }
     }
 
-    func uint32Property(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope
-    ) -> UInt32? {
-        CoreAudioScalarPropertyAccess.uint32(objectID, selector, scope)
-    }
-
-    func doubleProperty(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope
-    ) -> Double? {
-        CoreAudioScalarPropertyAccess.double(objectID, selector, scope)
-    }
-
     func audioValueRange(
         _ objectID: AudioObjectID,
         _ selector: AudioObjectPropertySelector,

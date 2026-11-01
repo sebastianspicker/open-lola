@@ -171,7 +171,15 @@ BUILD_CLI="$BUILD_DIR/$CLI_PRODUCT_NAME"
 APP_NAME_XML="$(xml_escape "$APP_NAME")"
 BUNDLE_ID_XML="$(xml_escape "$BUNDLE_ID")"
 
-rm -rf "$APP_BUNDLE"
+# Only replace a bundle this script built: its Info.plist carries our bundle ID.
+if [[ -e "$APP_BUNDLE" || -L "$APP_BUNDLE" ]]; then
+  if [[ -d "$APP_BUNDLE" && ! -L "$APP_BUNDLE" ]] && grep -qF "<string>$BUNDLE_ID_XML</string>" "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null; then
+    rm -rf "$APP_BUNDLE"
+  else
+    echo "refusing to replace $APP_BUNDLE: it is not an Open LoLa bundle built by this script" >&2
+    exit 2
+  fi
+fi
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 cp "$BUILD_CLI" "$CLI_BINARY"
@@ -278,6 +286,31 @@ verify_evidence_dir() {
   else
     printf -v "$output_variable" '%s' "$DIST_DIR/app-launch-evidence"
   fi
+}
+
+# Create or reset the evidence folder; only a folder this script marked (or the default under dist/) may be cleared.
+prepare_evidence_dir() {
+  local dir="$1"
+  local marker=".open-lola-launch-evidence"
+  if [[ -e "$dir" || -L "$dir" ]]; then
+    [[ -d "$dir" && ! -L "$dir" ]] || {
+      echo "launch evidence path must be a real directory: $dir" >&2
+      exit 2
+    }
+    # The default folder inside the repo's own dist/ build output may be reset without a marker.
+    local default_dir=0
+    if [[ "$DIST_DIR" == "$ROOT_DIR/dist" && ! -L "$DIST_DIR" && "$dir" == "$DIST_DIR/app-launch-evidence" ]]; then
+      default_dir=1
+    fi
+    if [[ ( -f "$dir/$marker" && ! -L "$dir/$marker" ) || "$default_dir" == 1 ]]; then
+      rm -rf "$dir"
+    elif [[ -n "$(ls -A "$dir")" ]]; then
+      echo "refusing to clear non-empty launch evidence folder without $marker: $dir" >&2
+      exit 2
+    fi
+  fi
+  mkdir -p "$dir"
+  : >"$dir/$marker"
 }
 
 # Poll for the staged executable for at most ten seconds after launch.
@@ -475,8 +508,7 @@ capture_app_screenshot() {
 verify_launched_app_surface() {
   local evidence_dir
   verify_evidence_dir evidence_dir
-  rm -rf "$evidence_dir"
-  mkdir -p "$evidence_dir"
+  prepare_evidence_dir "$evidence_dir"
   {
     printf 'app_bundle=%s\n' "$APP_BUNDLE"
     printf 'app_binary=%s\n' "$APP_BINARY"

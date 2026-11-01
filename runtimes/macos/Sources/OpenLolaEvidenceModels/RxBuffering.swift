@@ -177,7 +177,26 @@ public struct RxBufferRuntimeSnapshot: Codable, Equatable, Sendable {
     public var overruns: Int
     public var plcEvents: Int
     public var hiddenGrowthDetected: Bool
+    /// The most recent `maximumRetainedTargetChangeEvents` events; older ones are dropped.
     public var targetChangeEvents: [RxBufferTargetChangeEvent]
+    /// Total events recorded, including the ones no longer retained; nil in older JSON means "all retained".
+    public var targetChangeEventCount: Int?
+    /// Target changes that happened inside the audio callback, including dropped events; nil in older JSON.
+    public var targetChangesInsideAudioCallback: Int?
+
+    public static let maximumRetainedTargetChangeEvents = 256
+
+    public mutating func recordTargetChange(_ event: RxBufferTargetChangeEvent) {
+        targetChangeEventCount = (targetChangeEventCount ?? targetChangeEvents.count) + 1
+        if event.changedInsideAudioCallback {
+            targetChangesInsideAudioCallback = (targetChangesInsideAudioCallback
+                ?? targetChangeEvents.filter(\.changedInsideAudioCallback).count) + 1
+        }
+        targetChangeEvents.append(event)
+        if targetChangeEvents.count > Self.maximumRetainedTargetChangeEvents {
+            targetChangeEvents.removeFirst(targetChangeEvents.count - Self.maximumRetainedTargetChangeEvents)
+        }
+    }
 
     public var latencyCostMicroseconds: Double {
         RxBufferPolicy.microseconds(
@@ -266,6 +285,9 @@ public struct RxBufferRuntimeSnapshot: Codable, Equatable, Sendable {
         self.plcEvents = playoutCounters.plcEvents
         self.hiddenGrowthDetected = targetObservation.hiddenGrowthDetected
         self.targetChangeEvents = targetObservation.targetChangeEvents
+        self.targetChangeEventCount = targetObservation.targetChangeEvents.count
+        self.targetChangesInsideAudioCallback = targetObservation.targetChangeEvents
+            .filter(\.changedInsideAudioCallback).count
     }
 
 }
@@ -313,7 +335,8 @@ public struct RxBufferAdaptiveDecision: Equatable, Sendable {
 /// Adjusts the receive target from bounded adaptation samples without changing callback-owned state.
 public struct RxBufferAdaptiveController: Sendable {
     public private(set) var snapshot: RxBufferRuntimeSnapshot
-    public private(set) var targetChangeEvents: [RxBufferTargetChangeEvent] = []
+    /// Retained events only (the snapshot caps them); see `snapshot.targetChangeEventCount` for the total.
+    public var targetChangeEvents: [RxBufferTargetChangeEvent] { snapshot.targetChangeEvents }
 
     private let increaseAfterSamples: Int
     private let decreaseAfterSamples: Int
@@ -439,8 +462,7 @@ public struct RxBufferAdaptiveController: Sendable {
                 sampleRateHertz: snapshot.policy.sampleRateHertz
             )
         )
-        targetChangeEvents.append(event)
-        snapshot.targetChangeEvents.append(event)
+        snapshot.recordTargetChange(event)
         snapshot.recordTargetFrames(after)
         return RxBufferAdaptiveDecision(targetFrames: after, changed: true)
     }

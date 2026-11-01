@@ -223,12 +223,45 @@ struct RecordingSessionArtifactWriteResult: Sendable {
     var writerPressure: RecordingWriterPressureMetrics
 }
 
+/// Top-level names the recording writer creates; a folder holding anything else is not ours to replace.
+let recordingOutputTopLevelNames: Set<String> = ["manifest.json", "audio", "logs", "reports", "video", ".DS_Store"]
+
+private struct RecordingOutputManifestSchema: Decodable {
+    let schema: String
+}
+
+/// An existing output folder may be replaced only when it is empty, or holds this writer's manifest and
+/// nothing but the files and folders the writer creates.
+func requireReplaceableRecordingOutput(at outputURL: URL) throws {
+    let fileManager = FileManager.default
+    var isDirectory: ObjCBool = false
+    guard fileManager.fileExists(atPath: outputURL.path, isDirectory: &isDirectory) else {
+        return
+    }
+    let attributes = try fileManager.attributesOfItem(atPath: outputURL.path)
+    guard isDirectory.boolValue, attributes[.type] as? FileAttributeType == .typeDirectory else {
+        throw RecordingSessionRunConfigurationError.unsafeOutputDirectory(outputURL.path)
+    }
+    let contents = try fileManager.contentsOfDirectory(atPath: outputURL.path)
+    if contents.isEmpty {
+        return
+    }
+    let manifestPath = outputURL.appendingPathComponent("manifest.json").path
+    guard Set(contents).isSubset(of: recordingOutputTopLevelNames),
+          let manifest = try? BoundedFileReader.data(atPath: manifestPath, maxBytes: 64 * 1024),
+          (try? JSONDecoder().decode(RecordingOutputManifestSchema.self, from: manifest))?.schema
+            == "open-lola-recording-session-artifacts" else {
+        throw RecordingSessionRunConfigurationError.unsafeOutputDirectory(outputURL.path)
+    }
+}
+
 func writeRecordingSessionArtifacts(
     outputDirectory: String,
     artifacts: [RecordingSessionArtifactPayload]
 ) throws -> RecordingSessionArtifactWriteResult {
     let outputURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
     let parentURL = outputURL.deletingLastPathComponent()
+    try requireReplaceableRecordingOutput(at: outputURL)
     let stagingURL = parentURL.appendingPathComponent(
         ".\(outputURL.lastPathComponent).staging-\(UUID().uuidString)",
         isDirectory: true
@@ -257,9 +290,11 @@ func writeRecordingSessionArtifacts(
         )
     }
     if FileManager.default.fileExists(atPath: outputURL.path) {
-        try FileManager.default.removeItem(at: outputURL)
+        // The old folder goes away only after the new one is in place.
+        _ = try FileManager.default.replaceItemAt(outputURL, withItemAt: stagingURL)
+    } else {
+        try FileManager.default.moveItem(at: stagingURL, to: outputURL)
     }
-    try FileManager.default.moveItem(at: stagingURL, to: outputURL)
     committed = true
 
     return RecordingSessionArtifactWriteResult(

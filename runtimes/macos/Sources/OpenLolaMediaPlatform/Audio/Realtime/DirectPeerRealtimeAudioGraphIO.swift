@@ -92,11 +92,12 @@ extension DirectPeerRealtimeAudioCallbackState {
             return
         }
         let copyResult = copyMappedInput(from: buffers)
+        // Reserve the frames even when the copy fails so the sender timeline keeps a gap.
+        let startFrame = reserveInputStartFrame()
         guard copyResult == .copied else {
             increment(&droppedInputBlocks)
             return
         }
-        let startFrame = reserveInputStartFrame()
         let result = captureRing.push(
             startFrame: startFrame,
             hostTimeNanoseconds: hostTimeNanoseconds,

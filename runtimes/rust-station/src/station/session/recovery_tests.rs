@@ -5,7 +5,7 @@ use super::media::{ReceivePrefillQueue, SessionMediaTransport};
 use super::*;
 use crate::config::default_settings;
 use crate::net::Udp;
-use crate::protocol::{build_audio_payload, FrameReassembler};
+use crate::protocol::build_audio_payload;
 use crate::station::monitor::NetworkMonitor;
 use std::net::UdpSocket;
 use std::time::{Duration, Instant};
@@ -22,7 +22,6 @@ fn malformed_audio_then_valid_and_reordered_packets_preserve_session() {
         SessionAudioBackend::open(&default_settings(), &SessionOptions::demo()).unwrap();
     let mut result = SessionResult::default();
     let mut monitor = NetworkMonitor::new();
-    let mut reassembler = FrameReassembler::new();
     let mut queue = AudioReceiveQueue::new(&default_settings());
     let mut record = None;
     let mut malformed = build_audio_payload(1, &[1; 256], None).unwrap();
@@ -42,7 +41,6 @@ fn malformed_audio_then_valid_and_reordered_packets_preserve_session() {
                 &mut audio,
                 &mut transport,
                 peer,
-                &mut reassembler,
                 &mut result,
                 &mut record,
                 &mut monitor,
@@ -70,7 +68,6 @@ fn audio_arrival_burst_is_absorbed_by_the_bounded_queue() {
         SessionAudioBackend::open(&default_settings(), &SessionOptions::demo()).unwrap();
     let mut result = SessionResult::default();
     let mut monitor = NetworkMonitor::new();
-    let mut reassembler = FrameReassembler::new();
     let mut queue = AudioReceiveQueue::new(&default_settings());
     let mut record = None;
     // Three blocks clustered into one scheduler quantum, as network jitter
@@ -90,7 +87,6 @@ fn audio_arrival_burst_is_absorbed_by_the_bounded_queue() {
             &mut audio,
             &mut transport,
             peer,
-            &mut reassembler,
             &mut result,
             &mut record,
             &mut monitor,

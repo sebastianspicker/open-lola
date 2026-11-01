@@ -94,6 +94,8 @@ extension DirectPeerRealtimeAudioGraph {
         self.outputDeviceID = outputDeviceID
         captureOriginalDeviceState(inputDeviceID: inputDeviceID, outputDeviceID: outputDeviceID)
         do {
+            // Without the original values the stop path could not restore the device, so refuse before any set call.
+            try requireOriginalDeviceState(inputDeviceID: inputDeviceID, outputDeviceID: outputDeviceID)
             if let inputDeviceID { try configureDevice(inputDeviceID) }
             if let outputDeviceID, outputDeviceID != inputDeviceID {
                 try configureDevice(outputDeviceID)
@@ -161,6 +163,19 @@ extension DirectPeerRealtimeAudioGraph {
             ) }
     }
 
+    func requireOriginalDeviceState(inputDeviceID: AudioObjectID?, outputDeviceID: AudioObjectID?) throws {
+        if inputDeviceID != nil, originalInputSampleRate == nil || originalInputBufferFrameSize == nil {
+            throw DirectPeerAudioGraphError.coreAudioStatus(
+                kAudioHardwareUnspecifiedError, "read original input device sample rate and buffer size"
+            )
+        }
+        if outputDeviceID != nil, originalOutputSampleRate == nil || originalOutputBufferFrameSize == nil {
+            throw DirectPeerAudioGraphError.coreAudioStatus(
+                kAudioHardwareUnspecifiedError, "read original output device sample rate and buffer size"
+            )
+        }
+    }
+
     public func runtimeCounters() -> DirectPeerRealtimeAudioGraphRuntimeCounters {
         DirectPeerRealtimeAudioGraphRuntimeCounters(
             capturedInputBlocks: Int(open_lola_atomic_u64_load(&callbackState.capturedInputBlocks)),
@@ -190,6 +205,35 @@ extension DirectPeerRealtimeAudioGraph {
             kAudioObjectPropertyScopeGlobal,
             UInt32(configuration.framesPerBuffer)
         )
+        // The HAL may clamp or ignore a request; a larger buffer would silently truncate to the first block.
+        let actualFrames = Self.pollReadBack(accept: { $0 == UInt32(configuration.framesPerBuffer) }) {
+            uint32Property(deviceID, kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal)
+        }
+        guard actualFrames == UInt32(configuration.framesPerBuffer) else {
+            throw DirectPeerAudioGraphError.unsupportedFrameSize(
+                uid: "device \(deviceID): requested \(configuration.framesPerBuffer) frames, device reports \(actualFrames.map(String.init) ?? "unknown")",
+                framesPerBuffer: configuration.framesPerBuffer
+            )
+        }
+        let actualRate = Self.pollReadBack(accept: { $0.map { abs($0 - Double(configuration.sampleRateHertz)) <= 0.5 } ?? false }) {
+            doubleProperty(deviceID, kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal)
+        }
+        guard let actualRate, abs(actualRate - Double(configuration.sampleRateHertz)) <= 0.5 else {
+            throw DirectPeerAudioGraphError.unsupportedSampleRate(
+                uid: "device \(deviceID): requested \(configuration.sampleRateHertz) Hz, device reports \(actualRate.map { "\($0)" } ?? "unknown") Hz",
+                sampleRateHertz: configuration.sampleRateHertz
+            )
+        }
+    }
+
+    /// Core Audio applies rate and buffer changes asynchronously, so re-read for up to a second before judging. Not for RT threads.
+    private static func pollReadBack<Value>(accept: (Value?) -> Bool, read: () -> Value?) -> Value? {
+        var value = read()
+        for _ in 0..<100 where !accept(value) {
+            usleep(10_000)
+            value = read()
+        }
+        return value
     }
 
     func makeAndStartIOProc(

@@ -25,7 +25,9 @@ extension JackTripCompatibilityRunner {
         guard !datagrams.isEmpty else {
             return .empty
         }
-        let primarySequences = datagrams.compactMap { $0.packets.first?.header.sequenceNumber }
+        let primarySequences = UltraGridCompatibilityRunner.extendSequenceNumbers(
+            datagrams.compactMap { $0.packets.first?.header.sequenceNumber }
+        )
         let packets = datagrams.flatMap(\.packets)
         guard !packets.isEmpty else {
             return .empty
@@ -38,14 +40,13 @@ extension JackTripCompatibilityRunner {
             }
             previous = sequence
         }
-        let allSequences = packets.map(\.header.sequenceNumber)
+        let allSequences = UltraGridCompatibilityRunner.extendSequenceNumbers(packets.map(\.header.sequenceNumber))
         let uniqueSequences = Set(allSequences)
         let primarySet = Set(primarySequences)
         let minSequence = uniqueSequences.min() ?? 0
         let maxSequence = uniqueSequences.max() ?? minSequence
-        let expectedSequences = Set(minSequence...maxSequence)
-        let missingAfterRedundancy = expectedSequences.subtracting(uniqueSequences).count
-        let recoveredByRedundancy = expectedSequences.subtracting(primarySet).intersection(uniqueSequences).count
+        let missingAfterRedundancy = max(0, Int(maxSequence - minSequence) + 1 - uniqueSequences.count)
+        let recoveredByRedundancy = uniqueSequences.subtracting(primarySet).count
         return JackTripReceiveAnalysis(
             missing: missingAfterRedundancy,
             duplicates: max(0, allSequences.count - uniqueSequences.count),

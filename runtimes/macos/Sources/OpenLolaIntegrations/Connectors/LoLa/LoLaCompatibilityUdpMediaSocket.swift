@@ -50,66 +50,19 @@ final class LoLaAudioReceiveFreshnessCounters: @unchecked Sendable {
         playoutRejectedDatagrams += 1
         lock.unlock()
     }
-
-    func addCoalescedStaleAudioDatagrams(_ count: Int) {
-        lock.lock()
-        coalescedStaleAudioDatagrams += count
-        lock.unlock()
-    }
-
-    func addRejectedAudioSourceDatagrams(_ count: Int = 1) {
-        lock.lock()
-        rejectedAudioSourceDatagrams += count
-        lock.unlock()
-    }
-}
-
-struct LoLaAudioReceiveDrainAccumulator {
-    private(set) var newestValidDatagram: LoLaUdpMediaDatagram?
-    private(set) var coalescedStaleAudioDatagrams = 0
-    private(set) var rejectedAudioSourceDatagrams = 0
-
-    mutating func recordValid(_ datagram: LoLaUdpMediaDatagram) {
-        guard let newestValidDatagram else {
-            self.newestValidDatagram = datagram
-            return
-        }
-        if loLaAudioDatagramIsNewer(datagram, than: newestValidDatagram) {
-            coalescedStaleAudioDatagrams += 1
-            self.newestValidDatagram = datagram
-        } else {
-            coalescedStaleAudioDatagrams += 1
-        }
-    }
-
-    mutating func recordRejectedSource() {
-        rejectedAudioSourceDatagrams += 1
-    }
-
-    mutating func deliverNewest(
-        _ deliver: (LoLaUdpMediaDatagram) throws -> Void
-    ) rethrows {
-        guard let newestValidDatagram else {
-            return
-        }
-        try deliver(newestValidDatagram)
-    }
 }
 
 private struct LoLaUdpMediaReceiveContext {
     var datagrams: [LoLaUdpMediaDatagram] = []
     var audioBuffer = [UInt8](repeating: 0, count: 65_536)
     var videoBuffer = [UInt8](repeating: 0, count: 65_536)
-    let coalesceReadableAudioToNewest: Bool
     let audioFreshnessCounters: LoLaAudioReceiveFreshnessCounters?
     let onDatagram: (LoLaUdpMediaDatagram) throws -> Void
 
     init(
-        coalesceReadableAudioToNewest: Bool,
         audioFreshnessCounters: LoLaAudioReceiveFreshnessCounters?,
         onDatagram: @escaping (LoLaUdpMediaDatagram) throws -> Void
     ) {
-        self.coalesceReadableAudioToNewest = coalesceReadableAudioToNewest
         self.audioFreshnessCounters = audioFreshnessCounters
         self.onDatagram = onDatagram
     }
@@ -130,36 +83,6 @@ private struct LoLaUdpMediaReceiveContext {
         audioFreshnessCounters?.noteReceived(retainedAsEvidence: retain)
     }
 }
-
-/// LoLa serializes a UInt32 media sequence. Keep the newest value across its
-/// wrap while treating duplicates and reordered arrivals as stale. Unsequenced
-/// evidence-only datagrams retain the historical arrival-order fallback.
-private func loLaAudioDatagramIsNewer(
-    _ candidate: LoLaUdpMediaDatagram,
-    than current: LoLaUdpMediaDatagram
-) -> Bool {
-    let candidateSequence = loLaValidAudioSequence(candidate.sequenceNumber)
-    let currentSequence = loLaValidAudioSequence(current.sequenceNumber)
-    switch (candidateSequence, currentSequence) {
-    case let (.some(candidateSequence), .some(currentSequence)):
-        let distance = candidateSequence &- currentSequence
-        return distance != 0 && distance < (UInt32.max / 2) + 1
-    case (.some, .none):
-        return true
-    case (.none, .some):
-        return false
-    case (.none, .none):
-        return true
-    }
-}
-
-private func loLaValidAudioSequence(_ value: Int?) -> UInt32? {
-    guard let value, value >= 0, value <= Int(UInt32.max) else {
-        return nil
-    }
-    return UInt32(value)
-}
-
 /// Receives LoLa socket UDP media receiver from bound sockets until its request completes.
 public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
     public var timeoutSeconds: Int
@@ -189,7 +112,6 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
     func receive(
         request: LoLaUdpMediaReceiveRequest,
         afterBind: (LoLaUdpMediaReceiveSockets) throws -> Void,
-        coalesceReadableAudioToNewest: Bool = false,
         audioFreshnessCounters: LoLaAudioReceiveFreshnessCounters? = nil,
         cancellation: LoLaSessionCancellation? = nil,
         onDatagram: @escaping (LoLaUdpMediaDatagram) throws -> Void = { _ in }
@@ -198,7 +120,6 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
         try afterBind(sockets)
 
         var context = LoLaUdpMediaReceiveContext(
-            coalesceReadableAudioToNewest: coalesceReadableAudioToNewest,
             audioFreshnessCounters: audioFreshnessCounters,
             onDatagram: onDatagram
         )
@@ -238,55 +159,18 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
     ) throws {
         for target in readableStreams
         where request.runUntilDeadline || context.datagrams.count < request.maxDatagrams {
-            if target.stream == .audio, context.coalesceReadableAudioToNewest {
-                try drainReadableAudioDatagrams(
-                    target: target,
-                    request: request,
-                    context: &context
+            let attempt: LoLaUdpMediaReceiveAttempt
+            if target.stream == .audio {
+                attempt = try receiveLoLaUdpMediaPayload(
+                    socket: target.socket, stream: target.stream, port: target.port, peer: request.peer, buffer: &context.audioBuffer
                 )
             } else {
-                let attempt: LoLaUdpMediaReceiveAttempt
-                if target.stream == .audio {
-                    attempt = try receiveLoLaUdpMediaPayload(
-                        socket: target.socket, stream: target.stream, port: target.port, peer: request.peer, buffer: &context.audioBuffer
-                    )
-                } else {
-                    attempt = try receiveLoLaUdpMediaPayload(
-                        socket: target.socket, stream: target.stream, port: target.port, peer: request.peer, buffer: &context.videoBuffer
-                    )
-                }
-                if case let .accepted(datagram) = attempt {
-                    context.admit(datagram, evidenceLimit: request.maxDatagrams)
-                }
+                attempt = try receiveLoLaUdpMediaPayload(
+                    socket: target.socket, stream: target.stream, port: target.port, peer: request.peer, buffer: &context.videoBuffer
+                )
             }
-        }
-    }
-
-    private func drainReadableAudioDatagrams(
-        target: LoLaUdpMediaSocketReadTarget,
-        request: LoLaUdpMediaReceiveRequest,
-        context: inout LoLaUdpMediaReceiveContext
-    ) throws {
-        var accumulator = LoLaAudioReceiveDrainAccumulator()
-        while true {
-            switch try receiveLoLaUdpMediaPayload(
-                socket: target.socket,
-                stream: target.stream,
-                port: target.port,
-                peer: request.peer,
-                buffer: &context.audioBuffer
-            ) {
-            case let .accepted(datagram):
-                accumulator.recordValid(datagram)
-            case .rejectedPeer:
-                accumulator.recordRejectedSource()
-            case .empty:
-                context.audioFreshnessCounters?.addCoalescedStaleAudioDatagrams(accumulator.coalescedStaleAudioDatagrams)
-                context.audioFreshnessCounters?.addRejectedAudioSourceDatagrams(accumulator.rejectedAudioSourceDatagrams)
-                accumulator.deliverNewest { datagram in
-                    context.admit(datagram, evidenceLimit: request.maxDatagrams)
-                }
-                return
+            if case let .accepted(datagram) = attempt {
+                context.admit(datagram, evidenceLimit: request.maxDatagrams)
             }
         }
     }

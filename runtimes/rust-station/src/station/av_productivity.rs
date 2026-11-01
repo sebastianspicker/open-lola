@@ -58,26 +58,13 @@ pub fn apply_tx_audio_level(pcm: &[u8], level: f64, bits: u16) -> Vec<u8> {
     }
     if bits == 8 {
         let mut out = vec![0u8; pcm.len()];
+        // Signed, like the PortAudio/ALSA 8-bit device formats.
         for (i, &b) in pcm.iter().enumerate() {
-            let s = i16::from(b) - 128;
-            let v = ((f64::from(s) * gain).round() as i32 + 128).clamp(0, 255) as u8;
-            out[i] = v;
+            out[i] = (f64::from(b as i8) * gain).round().clamp(-128.0, 127.0) as i8 as u8;
         }
         return out;
     }
     pcm.to_vec()
-}
-
-/// Manual §4.4: audio stream parameters must match exactly.
-pub fn audio_params_match(
-    a_rate: u32,
-    a_ch: u16,
-    a_bits: u16,
-    b_rate: u32,
-    b_ch: u16,
-    b_bits: u16,
-) -> bool {
-    a_rate == b_rate && a_ch == b_ch && a_bits == b_bits
 }
 
 /// Scale frame so camera content stays centered (FEAT-110-centered-scale).
@@ -133,23 +120,6 @@ pub fn centered_crop_or_scale(
         cropped[dst_off..dst_off + row_bytes].copy_from_slice(&data[src_off..src_off + row_bytes]);
     }
     Ok(resize_nn(&cropped, crop_w, crop_h, dst_w, dst_h, bpp))
-}
-
-/// Whether an incomplete uncompressed frame may be rendered.
-///
-/// threshold 0% → require all packets; 1–10% allow missing fraction.
-pub fn incomplete_frame_ok(received_packets: u32, total_packets: u32, threshold_pct: f64) -> bool {
-    let total = total_packets;
-    let got = received_packets;
-    if total == 0 {
-        return true;
-    }
-    let thr = threshold_pct.clamp(0.0, 100.0);
-    if thr <= 0.0 {
-        return got >= total;
-    }
-    let need = f64::from(total) * (1.0 - thr / 100.0);
-    f64::from(got) + 1e-9 >= need
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

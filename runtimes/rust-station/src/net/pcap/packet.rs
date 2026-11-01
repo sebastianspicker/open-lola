@@ -87,12 +87,13 @@ pub fn resolve_mac_via_ip_helper(
         unsafe { library.get(b"SendARP\0") }.map_err(|error| format!("bind SendARP: {error}"))?;
     let mut mac = [0u8; 8];
     let mut length = mac.len() as u32;
-    let source = source.map_or(0, |ip| u32::from_be_bytes(ip.octets()));
+    let source = source.map_or(0, |ip| u32::from_ne_bytes(ip.octets()));
     // SAFETY: `mac` and `length` provide live, writable storage for the call,
-    // and both IPv4 addresses are passed in the byte order expected by SendARP.
+    // and both IPv4 addresses are IPAddr values, whose in-memory bytes are the
+    // network-order octets, hence `from_ne_bytes` on every endianness.
     let status = unsafe {
         send_arp(
-            u32::from_be_bytes(target.octets()),
+            u32::from_ne_bytes(target.octets()),
             source,
             mac.as_mut_ptr().cast(),
             &mut length,

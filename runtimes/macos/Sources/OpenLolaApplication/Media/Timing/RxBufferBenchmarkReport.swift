@@ -235,7 +235,9 @@ public struct RxBufferBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodab
             guard row.physicalEvidence else {
                 throw RxBufferBenchmarkValidationError.passWithNonPhysicalRow(row.profile)
             }
-            if row.benchmark.targetChangeEvents.contains(where: \.changedInsideAudioCallback) {
+            let changesInsideCallback = row.benchmark.targetChangesInsideAudioCallback
+                ?? row.benchmark.targetChangeEvents.filter(\.changedInsideAudioCallback).count
+            if changesInsideCallback > 0 {
                 throw RxBufferBenchmarkValidationError.passWithAdaptiveTargetChangeInsideCallback(
                     row.profile
                 )

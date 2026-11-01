@@ -495,44 +495,17 @@ private func checkedV2PacketizerSum(_ lhs: Int, _ rhs: Int, field: String) throw
   return value
 }
 
-func readCheckedUdpPcmUInt16LE(_ bytes: [UInt8], offset: Int) throws -> UInt16 {
-  guard udpPcmHasBytes(bytes, offset: offset, count: 2) else {
-    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
-  }
-  return NetworkByteReader.readUInt16LE(bytes, offset: offset)
-}
-
-func readCheckedUdpPcmUInt32LE(_ bytes: [UInt8], offset: Int) throws -> UInt32 {
-  guard udpPcmHasBytes(bytes, offset: offset, count: 4) else {
-    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
-  }
-  return NetworkByteReader.readUInt32LE(bytes, offset: offset)
-}
-
-func readCheckedUdpPcmUInt64LE(_ bytes: [UInt8], offset: Int) throws -> UInt64 {
-  guard udpPcmHasBytes(bytes, offset: offset, count: 8) else {
-    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
-  }
-  return NetworkByteReader.readUInt64LE(bytes, offset: offset)
-}
-
 func readCheckedUdpPcmUInt16LE(_ bytes: Data, offset: Int) throws -> UInt16 {
-  guard udpPcmHasBytes(bytes, offset: offset, count: 2) else {
-    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
-  }
+  try requireUdpPcmBytes(bytes, offset: offset, count: 2) { UdpPcmV2PacketError.truncatedPacket(byteCount: $0) }
   return readPrevalidatedUInt16LE(bytes, offset: offset)
 }
 
 func readCheckedUdpPcmUInt32LE(_ bytes: Data, offset: Int) throws -> UInt32 {
-  guard udpPcmHasBytes(bytes, offset: offset, count: 4) else {
-    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
-  }
+  try requireUdpPcmBytes(bytes, offset: offset, count: 4) { UdpPcmV2PacketError.truncatedPacket(byteCount: $0) }
   return readPrevalidatedUInt32LE(bytes, offset: offset)
 }
 
 func readCheckedUdpPcmUInt64LE(_ bytes: Data, offset: Int) throws -> UInt64 {
-  guard udpPcmHasBytes(bytes, offset: offset, count: 8) else {
-    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
-  }
+  try requireUdpPcmBytes(bytes, offset: offset, count: 8) { UdpPcmV2PacketError.truncatedPacket(byteCount: $0) }
   return NetworkByteReader.readUInt64LE(bytes, offset: offset)
 }

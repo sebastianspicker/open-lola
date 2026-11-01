@@ -37,7 +37,6 @@ func receiveLoLaLiveSocketMedia(
         // Every clustered block is admitted; the playout ring bounds the
         // latency a burst can add. Reducing a burst to its newest block would
         // turn ordinary arrival clustering into dropped audio.
-        coalesceReadableAudioToNewest: false,
         audioFreshnessCounters: counters,
         cancellation: cancellation,
         onDatagram: {

@@ -45,6 +45,7 @@ fn full_queue_refuses_video_before_materializing_payload() {
         startup_error: None,
         pending: Arc::new(AtomicUsize::new(QUEUE_CAPACITY)),
         cancelled: Arc::new(AtomicBool::new(false)),
+        known_paths: Default::default(),
         admission: RecordAdmission {
             local_audio: false,
             remote_audio: false,
@@ -72,6 +73,7 @@ fn preview_only_admits_only_preview_jobs() {
         startup_error: None,
         pending: Arc::new(AtomicUsize::new(0)),
         cancelled: Arc::new(AtomicBool::new(false)),
+        known_paths: Default::default(),
         admission: RecordAdmission::new("none", true, true, true, true, true),
     };
     recorder.write_audio("local", &[1; 8]);
@@ -102,6 +104,7 @@ fn stalled_worker_does_not_make_finalization_unbounded() {
         startup_error: None,
         pending: Arc::new(AtomicUsize::new(0)),
         cancelled,
+        known_paths: Default::default(),
         admission: RecordAdmission {
             local_audio: false,
             remote_audio: false,

@@ -10,9 +10,10 @@ import Foundation
 let peerSessionMetricsStreamID: UInt32 = 1
 
 public extension PeerSessionRunner {
-    func transportMetrics() -> UdpMediaMetrics {
-        var merged = audioTransport?.metrics ?? UdpMediaMetrics()
-        if let videoMetrics = videoTransportMetrics {
+    /// `includeDurations: false` skips the duration summaries (periodic reads); final reports keep them.
+    func transportMetrics(includeDurations: Bool = true) -> UdpMediaMetrics {
+        var merged = (includeDurations ? audioTransport?.metrics : audioTransport?.counters) ?? UdpMediaMetrics()
+        if let videoMetrics = videoTransportMetrics(includeDurations: includeDurations) {
             let audioPacketsReceived = merged.packetsReceived
             let audioJitterMicroseconds = merged.jitterMicroseconds
             merged.packetsSent = saturatingOpenLolaCounterSum(merged.packetsSent, videoMetrics.packetsSent)
@@ -41,7 +42,7 @@ public extension PeerSessionRunner {
         guard let metricsTransport else {
             throw PeerSessionRunnerError.missingMetricsTransport
         }
-        var published = transportMetrics()
+        var published = transportMetrics(includeDurations: false)
         if let sample = resourceSampler?.latestSample {
             published.cpuPercent = sample.cpuPercent
             published.memoryResidentBytes = sample.residentMemoryBytes
@@ -114,8 +115,8 @@ private func combinedJitterMicroseconds(
 }
 
 extension PeerSessionRunner {
-    var videoTransportMetrics: UdpMediaMetrics? {
-        videoTransport?.metrics
+    func videoTransportMetrics(includeDurations: Bool) -> UdpMediaMetrics? {
+        includeDurations ? videoTransport?.metrics : videoTransport?.counters
     }
 
     mutating func recordRemoteMetrics(_ remoteMetrics: SessionMetricsMessage) {

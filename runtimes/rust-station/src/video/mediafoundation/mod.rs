@@ -63,6 +63,13 @@ pub enum MfError {
     Stopped,
 }
 
+impl MfError {
+    /// A bad or missing sample; the next grab can still succeed.
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::InvalidFrame(_))
+    }
+}
+
 pub type MfResult<T> = Result<T, MfError>;
 
 /// One capture device, with its native modes when the device could be opened.

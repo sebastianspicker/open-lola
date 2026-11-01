@@ -57,11 +57,6 @@ impl Udp {
         })
     }
 
-    pub fn free_port(bind_ip: &str) -> io::Result<u16> {
-        let sock = UdpSocket::bind(format!("{bind_ip}:0"))?;
-        Ok(sock.local_addr()?.port())
-    }
-
     pub fn set_timeout(&self, secs: f64) -> io::Result<()> {
         let _receive_lock = self.lock_receive()?;
         let d = if secs <= 0.0 {
@@ -89,8 +84,15 @@ impl Udp {
 
     pub fn recv_vec(&self) -> io::Result<(Vec<u8>, SocketAddr)> {
         let mut state = self.lock_receive()?;
-        let (length, peer) = self.recv_into_scratch(&mut state)?;
-        Ok((state.scratch[..length].to_vec(), peer))
+        match self.recv_into_scratch(&mut state) {
+            Ok((length, peer)) => Ok((state.scratch[..length].to_vec(), peer)),
+            // A Windows ICMP port-unreachable reset is surfaced like a timeout so
+            // blocking control loops keep waiting until their deadline.
+            Err(error) => match self.absorb_empty_receive::<()>(error) {
+                Ok(_) => Err(io::ErrorKind::WouldBlock.into()),
+                Err(error) => Err(error),
+            },
+        }
     }
 
     /// Pins a media socket in nonblocking mode once. Control sockets continue

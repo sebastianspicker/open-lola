@@ -341,6 +341,8 @@ public struct UdpMediaMetrics: Codable, Equatable, Sendable {
     public var reorderedPackets: Int = 0
     public var duplicatePackets: Int = 0
     public var malformedPackets: Int = 0
+    /// Datagrams longer than the receive limit; dropped, not decoded.
+    public var oversizeDatagrams: Int?
     public var jitterMicroseconds: Double = 0
     /// Retained for report compatibility. Unsynchronized peer uptime offsets
     /// are not clock-skew events; the current transport leaves this at zero.
@@ -369,13 +371,6 @@ public struct UdpMediaMetrics: Codable, Equatable, Sendable {
                            underruns: 0, overruns: 0, videoFramesDropped: 0)
         ))
     }
-}
-
-private func readUdpMediaUInt16LE(_ bytes: Data, offset: Int) throws -> UInt16 {
-    guard udpPcmHasBytes(bytes, offset: offset, count: 2) else {
-        throw UdpMediaPacketError.truncatedPacket(byteCount: bytes.count)
-    }
-    return NetworkByteReader.readUInt16LE(bytes, offset: offset)
 }
 
 private func readUdpMediaUInt32LE(_ bytes: Data, offset: Int) throws -> UInt32 {

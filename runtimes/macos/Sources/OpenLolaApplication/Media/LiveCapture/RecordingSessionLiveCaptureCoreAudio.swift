@@ -20,6 +20,7 @@ enum CoreAudioRawInputRecorder {
         durationSeconds: Int
     ) throws -> RecordingCapturedAudio {
         let plan = try makeRecordingAudioInputPlan(selection: selection, durationSeconds: durationSeconds)
+        try requireFloat32InputFormat(deviceID: plan.deviceID)
         let state = try CoreAudioRawInputState(plan: plan)
         let registration = try createRecordingAudioInputIOProc(deviceID: plan.deviceID, state: state)
         defer {
@@ -35,6 +36,24 @@ enum CoreAudioRawInputRecorder {
             throw RecordingLiveCaptureError.audioCapturedNoBytes
         }
         return audio
+    }
+
+    // The IOProc delivers the stream's virtual format; the copy loops only understand Float32.
+    private static func requireFloat32InputFormat(deviceID: AudioObjectID) throws {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamFormat,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var format = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &format)
+        try throwRecordingAudioStatus(status, "read recording input stream format")
+        guard recordingInputFormatIsFloat32(format) else {
+            throw RecordingLiveCaptureError.audioInputFormatUnsupported(
+                "\(format.mBitsPerChannel)-bit, format flags \(format.mFormatFlags); only 32-bit float linear PCM can be recorded"
+            )
+        }
     }
 
     private static func makeRecordingAudioInputPlan(
@@ -161,10 +180,12 @@ final class CoreAudioRawInputState {
     private let framesPerBuffer: Int
     private let inputChannels: [Int]
     private let bytesPerSample: Int
+    private let outputIsFloat32: Bool
     private var callbacksActive = OpenLolaAtomicUInt64()
     private var writtenBytes = 0
     private var callbackCount = 0
     private var overflowedBuffers = 0
+    private var frameCountMismatches = 0
 
     init(
         framesPerBuffer: Int,
@@ -177,6 +198,7 @@ final class CoreAudioRawInputState {
         self.framesPerBuffer = framesPerBuffer
         self.inputChannels = inputChannels
         self.bytesPerSample = sampleFormat.bytesPerSample
+        self.outputIsFloat32 = sampleFormat == .float32LittleEndian
         guard let bytesPerBuffer = checkedRecordingAudioByteCount(
             frames: framesPerBuffer,
             channels: channelCount,
@@ -227,8 +249,14 @@ final class CoreAudioRawInputState {
         guard !buffers.isEmpty else {
             return
         }
+        let interleaved = buffers.count == 1 && Int(buffers[0].mNumberChannels) > (inputChannels.max() ?? 0)
+        let available = interleaved ? interleavedFrames(buffers[0]) : planarFrames(buffers)
+        let frames = available // a longer callback is kept whole; the capacity check below bounds the total
+        if available != framesPerBuffer {
+            frameCountMismatches += 1
+        }
         guard let needed = checkedRecordingAudioByteCount(
-            frames: framesPerBuffer,
+            frames: frames,
             channels: inputChannels.count,
             bytesPerSample: bytesPerSample
         ) else {
@@ -241,12 +269,22 @@ final class CoreAudioRawInputState {
             return
         }
         let destination = bufferStorage.pointer.advanced(by: writtenBytes)
-        if buffers.count == 1, Int(buffers[0].mNumberChannels) > (inputChannels.max() ?? 0) {
-            copyInterleaved(buffer: buffers[0], destination: destination)
+        if interleaved {
+            copyInterleaved(buffer: buffers[0], frames: frames, destination: destination)
         } else {
-            copyPlanar(buffers: buffers, destination: destination)
+            copyPlanar(buffers: buffers, frames: frames, destination: destination)
         }
         writtenBytes += needed
+    }
+
+    private func interleavedFrames(_ buffer: AudioBuffer) -> Int {
+        Int(buffer.mDataByteSize) / (max(1, Int(buffer.mNumberChannels)) * MemoryLayout<Float>.size)
+    }
+
+    private func planarFrames(_ buffers: UnsafeMutableAudioBufferListPointer) -> Int {
+        let counts = inputChannels.filter { $0 < buffers.count }
+            .map { Int(buffers[$0].mDataByteSize) / MemoryLayout<Float>.size }
+        return counts.min() ?? 0
     }
 
     func capturedAudio() -> RecordingCapturedAudio {
@@ -255,7 +293,8 @@ final class CoreAudioRawInputState {
             data: Data(bytes: bufferStorage.pointer, count: writtenBytes),
             callbackP99Microseconds: metrics.p99Microseconds,
             callbackMaxMicroseconds: metrics.maxMicroseconds,
-            underruns: overflowedBuffers
+            underruns: overflowedBuffers,
+            frameCountMismatches: frameCountMismatches
         )
     }
 
@@ -279,35 +318,58 @@ final class CoreAudioRawInputState {
         )
     }
 
-    private func copyInterleaved(buffer: AudioBuffer, destination: UnsafeMutableRawPointer) {
+    private func copyInterleaved(buffer: AudioBuffer, frames: Int, destination: UnsafeMutableRawPointer) {
         guard let source = buffer.mData else {
             return
         }
         let sourceChannels = Int(buffer.mNumberChannels)
-        for frame in 0..<framesPerBuffer {
+        for frame in 0..<frames {
             for (outputChannel, inputChannel) in inputChannels.enumerated() {
-                let sourceOffset = ((frame * sourceChannels) + inputChannel) * bytesPerSample
+                let sourceOffset = ((frame * sourceChannels) + inputChannel) * MemoryLayout<Float>.size
                 let destinationOffset = ((frame * inputChannels.count) + outputChannel) * bytesPerSample
-                memcpy(destination.advanced(by: destinationOffset), source.advanced(by: sourceOffset), bytesPerSample)
+                writeSample(source.loadUnaligned(fromByteOffset: sourceOffset, as: Float.self), to: destination, at: destinationOffset)
             }
         }
     }
 
     private func copyPlanar(
         buffers: UnsafeMutableAudioBufferListPointer,
+        frames: Int,
         destination: UnsafeMutableRawPointer
     ) {
-        for frame in 0..<framesPerBuffer {
+        for frame in 0..<frames {
             for (outputChannel, inputChannel) in inputChannels.enumerated() where inputChannel < buffers.count {
                 guard let source = buffers[inputChannel].mData else {
                     continue
                 }
-                let sourceOffset = frame * bytesPerSample
+                let sourceOffset = frame * MemoryLayout<Float>.size
                 let destinationOffset = ((frame * inputChannels.count) + outputChannel) * bytesPerSample
-                memcpy(destination.advanced(by: destinationOffset), source.advanced(by: sourceOffset), bytesPerSample)
+                writeSample(source.loadUnaligned(fromByteOffset: sourceOffset, as: Float.self), to: destination, at: destinationOffset)
             }
         }
     }
+
+    private func writeSample(_ sample: Float, to destination: UnsafeMutableRawPointer, at offset: Int) {
+        if outputIsFloat32 {
+            destination.storeBytes(of: sample, toByteOffset: offset, as: Float.self)
+        } else {
+            destination.storeBytes(of: recordingInt16Sample(fromFloat: sample), toByteOffset: offset, as: Int16.self)
+        }
+    }
+}
+
+func recordingInputFormatIsFloat32(_ format: AudioStreamBasicDescription) -> Bool {
+    format.mFormatID == kAudioFormatLinearPCM
+        && (format.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        && format.mBitsPerChannel == 32
+}
+
+/// Clamps to [-1, 1] and scales by 32767; NaN becomes silence.
+func recordingInt16Sample(fromFloat sample: Float) -> Int16 {
+    guard !sample.isNaN else {
+        return 0
+    }
+    return Int16((min(1, max(-1, sample)) * 32_767).rounded())
 }
 
 private final class RecordingRawByteBuffer {

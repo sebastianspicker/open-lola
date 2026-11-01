@@ -10,6 +10,7 @@ use crate::protocol::{
     decode_mesg, MediaSettings as ProtocolMediaSettings, MESG_CHECKLOLASTATUS_ACK,
     MESG_QUICKCONN_ACK, MESG_REJECT,
 };
+use crate::station::bounded::push_bounded;
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
 use serde_json::Value;
@@ -30,7 +31,7 @@ mod relay;
 use handshake::pump_peer_control;
 #[cfg(test)]
 use handshake::pump_peer_control_from;
-use handshake::{quickconn_capabilities, video_negotiated};
+use handshake::{quickconn_capabilities, record_received, record_sent, video_negotiated};
 
 const INITIAL_NEGOTIATION_KINDS: &[&str] = &["/MESG_CHECKLOLASTATUS", "/MESG_QUICKCONN"];
 
@@ -231,9 +232,7 @@ fn negotiate_peer_with(
         INITIAL_NEGOTIATION_KINDS,
     )?;
     let control_peer = addr;
-    lock_unpoison(shared)
-        .messages_received
-        .push(message.name.clone());
+    record_received(shared, &message.name);
     // The initiator re-sends an unanswered status check. Every repeat is
     // acknowledged again so a lost acknowledgement cannot stall the handshake.
     while message.name == "/MESG_CHECKLOLASTATUS" {
@@ -246,9 +245,7 @@ fn negotiate_peer_with(
             deadline,
             INITIAL_NEGOTIATION_KINDS,
         )?;
-        lock_unpoison(shared)
-            .messages_received
-            .push(message.name.clone());
+        record_received(shared, &message.name);
     }
     if message.name != "/MESG_QUICKCONN" {
         return Err(SessionError::ControlHandshake(format!(
@@ -292,9 +289,7 @@ fn negotiate_peer_with(
     )
     .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
     send_control_datagram(control_socket, &ack, addr)?;
-    lock_unpoison(shared)
-        .messages_sent
-        .push("/MESG_QUICKCONN_ACK".into());
+    record_sent(shared, "/MESG_QUICKCONN_ACK");
     Ok(Some(PeerNegotiation {
         addr,
         ack_media,
@@ -318,9 +313,7 @@ fn acknowledge_status(
     )
     .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
     send_control_datagram(control_socket, &ack, peer)?;
-    lock_unpoison(shared)
-        .messages_sent
-        .push("/MESG_CHECKLOLASTATUS_ACK".into());
+    record_sent(shared, "/MESG_CHECKLOLASTATUS_ACK");
     Ok(())
 }
 
@@ -389,7 +382,7 @@ fn reject_peer_with_detail(
     .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
     send_control_datagram(control_socket, &rejection, peer)?;
     let mut result = lock_unpoison(shared);
-    result.messages_sent.push("/MESG_REJECT".into());
+    push_bounded(&mut result.messages_sent, "/MESG_REJECT".into());
     result.rejected = true;
     result.reject_text = detail.into();
     Ok(())
@@ -433,7 +426,7 @@ fn receive_peer_control_extras(
         let Ok(message) = decode_mesg(&data) else {
             continue;
         };
-        if validate_incoming_control(&message, sender, settings, Some(peer)).is_err() {
+        if validate_incoming_control(&message, sender, settings, Some(peer), true).is_err() {
             continue;
         }
         let disconnected = {
@@ -469,7 +462,7 @@ fn open_peer_media_transport(
             ports.video,
         );
     }
-    if options.peer_mode.eq_ignore_ascii_case("loopback") {
+    if options.is_loopback() {
         return Ok(SessionMediaTransport::diagnostic_udp(audio, video));
     }
     SessionMediaTransport::udp_from_bound_sockets(audio, video, peer.ip(), ports.audio, ports.video)
@@ -570,8 +563,7 @@ fn recv_peer_control_until(
                     continue;
                 }
                 if expected_sender.is_some_and(|expected| sender != expected)
-                    || (!options.peer_mode.eq_ignore_ascii_case("loopback")
-                        && sender.port() != settings.network.control_port)
+                    || (!options.is_loopback() && sender.port() != settings.network.control_port)
                 {
                     continue;
                 }
@@ -579,7 +571,8 @@ fn recv_peer_control_until(
                     discarded += 1;
                     continue;
                 };
-                if validate_incoming_control(&message, sender, settings, expected_sender).is_err()
+                if validate_incoming_control(&message, sender, settings, expected_sender, true)
+                    .is_err()
                     || !accepted_kinds.contains(&message.name.as_str())
                 {
                     discarded += 1;

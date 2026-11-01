@@ -34,45 +34,29 @@ package func readPrevalidatedUInt32LE(_ bytes: Data, offset: Int) -> UInt32 {
     NetworkByteReader.readUInt32LE(bytes, offset: offset)
 }
 
-func readCheckedUdpPcmPacketUInt16LE(_ bytes: [UInt8], offset: Int) throws -> UInt16 {
-    guard udpPcmHasBytes(bytes, offset: offset, count: 2) else {
-        throw UdpPcmPacketError.truncatedPacket(byteCount: bytes.count)
+func requireUdpPcmBytes<E: Error>(
+    _ bytes: Data,
+    offset: Int,
+    count: Int,
+    orThrow makeError: (Int) -> E
+) throws {
+    guard udpPcmHasBytes(bytes, offset: offset, count: count) else {
+        throw makeError(bytes.count)
     }
-    return readPrevalidatedUInt16LE(bytes, offset: offset)
-}
-
-func readCheckedUdpPcmPacketUInt32LE(_ bytes: [UInt8], offset: Int) throws -> UInt32 {
-    guard udpPcmHasBytes(bytes, offset: offset, count: 4) else {
-        throw UdpPcmPacketError.truncatedPacket(byteCount: bytes.count)
-    }
-    return readPrevalidatedUInt32LE(bytes, offset: offset)
-}
-
-func readCheckedUdpPcmPacketUInt64LE(_ bytes: [UInt8], offset: Int) throws -> UInt64 {
-    guard udpPcmHasBytes(bytes, offset: offset, count: 8) else {
-        throw UdpPcmPacketError.truncatedPacket(byteCount: bytes.count)
-    }
-    return NetworkByteReader.readUInt64LE(bytes, offset: offset)
 }
 
 func readCheckedUdpPcmPacketUInt16LE(_ bytes: Data, offset: Int) throws -> UInt16 {
-    guard udpPcmHasBytes(bytes, offset: offset, count: 2) else {
-        throw UdpPcmPacketError.truncatedPacket(byteCount: bytes.count)
-    }
+    try requireUdpPcmBytes(bytes, offset: offset, count: 2) { UdpPcmPacketError.truncatedPacket(byteCount: $0) }
     return readPrevalidatedUInt16LE(bytes, offset: offset)
 }
 
 func readCheckedUdpPcmPacketUInt32LE(_ bytes: Data, offset: Int) throws -> UInt32 {
-    guard udpPcmHasBytes(bytes, offset: offset, count: 4) else {
-        throw UdpPcmPacketError.truncatedPacket(byteCount: bytes.count)
-    }
+    try requireUdpPcmBytes(bytes, offset: offset, count: 4) { UdpPcmPacketError.truncatedPacket(byteCount: $0) }
     return readPrevalidatedUInt32LE(bytes, offset: offset)
 }
 
 func readCheckedUdpPcmPacketUInt64LE(_ bytes: Data, offset: Int) throws -> UInt64 {
-    guard udpPcmHasBytes(bytes, offset: offset, count: 8) else {
-        throw UdpPcmPacketError.truncatedPacket(byteCount: bytes.count)
-    }
+    try requireUdpPcmBytes(bytes, offset: offset, count: 8) { UdpPcmPacketError.truncatedPacket(byteCount: $0) }
     return NetworkByteReader.readUInt64LE(bytes, offset: offset)
 }
 

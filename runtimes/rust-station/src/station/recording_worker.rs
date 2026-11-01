@@ -1,5 +1,6 @@
 //! Bounded session recording adapter; disk and codec work runs off the scheduler.
-use super::dual_recorder::{DualRecordFinalize, DualStreamRecorder};
+use super::dual_recorder::{DualRecordFinalize, DualRecordResult, DualStreamRecorder};
+use super::sync::lock_unpoison;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::Write;
@@ -65,6 +66,8 @@ pub(crate) struct SessionRecorder {
     pending: Arc<AtomicUsize>,
     cancelled: Arc<AtomicBool>,
     admission: RecordAdmission,
+    /// Output paths the worker opened, kept for a finalize that times out.
+    known_paths: Arc<std::sync::Mutex<DualRecordResult>>,
 }
 impl SessionRecorder {
     #[allow(clippy::too_many_arguments)]
@@ -84,6 +87,7 @@ impl SessionRecorder {
     ) -> Self {
         let pending = Arc::new(AtomicUsize::new(0));
         let cancelled = Arc::new(AtomicBool::new(false));
+        let known_paths = Arc::new(std::sync::Mutex::new(DualRecordResult::default()));
         let admission = RecordAdmission::new(
             mode,
             local_audio,
@@ -109,11 +113,13 @@ impl SessionRecorder {
                 pending,
                 cancelled,
                 admission,
+                known_paths,
             };
         }
         let lease = WorkerLease;
         let (stem, mode, format) = (stem.to_owned(), mode.to_owned(), format.to_owned());
         let stopping = cancelled.clone();
+        let worker_paths = known_paths.clone();
         let (sender, receiver) = mpsc::sync_channel::<RecordJob>(QUEUE_CAPACITY);
         let worker = std::thread::Builder::new()
             .name("rusty-lola-recorder".into())
@@ -133,6 +139,9 @@ impl SessionRecorder {
                     remote_video,
                     &format,
                 );
+                if let Some(recorder) = recorder.as_ref() {
+                    *lock_unpoison(&worker_paths) = recorder.audio_paths();
+                }
                 let (mut previews, warning) = open_previews(preview_root);
                 if let Some(warning) = warning {
                     finalized.warnings.push(warning);
@@ -152,13 +161,23 @@ impl SessionRecorder {
                             width,
                             height,
                         } => {
-                            if let Some(recorder) = recorder.as_mut() {
-                                recorder.write_video_frame(
-                                    side(job.remote),
-                                    &pixels,
-                                    width,
-                                    height,
-                                );
+                            let written = recorder.as_mut().and_then(|recorder| {
+                                recorder.write_video_frame(side(job.remote), &pixels, width, height)
+                            });
+                            // Kept so a finalize timeout can still report the video outputs.
+                            if let Some(path) = written {
+                                let mut known = lock_unpoison(&worker_paths);
+                                let paths = if job.remote {
+                                    &mut known.remote_video_paths
+                                } else {
+                                    &mut known.local_video_paths
+                                };
+                                if paths.len()
+                                    == crate::station::dual_recorder::RECENT_VIDEO_PATH_WINDOW
+                                {
+                                    paths.remove(0);
+                                }
+                                paths.push(path);
                             }
                         }
                         RecordPayload::Preview { file_name, pixels } => {
@@ -187,6 +206,7 @@ impl SessionRecorder {
                 pending,
                 cancelled,
                 admission,
+                known_paths,
             },
             Err(error) => Self {
                 sender: None,
@@ -196,6 +216,7 @@ impl SessionRecorder {
                 pending,
                 cancelled,
                 admission,
+                known_paths,
             },
         }
     }
@@ -220,22 +241,18 @@ impl SessionRecorder {
             payload: RecordPayload::Audio { length: pcm.len() },
         });
     }
-    pub(crate) fn write_video_frame(
-        &mut self,
-        side: &str,
-        pixels: &[u8],
-        width: u32,
-        height: u32,
-    ) -> Option<PathBuf> {
+    pub(crate) fn write_video_frame(&mut self, side: &str, pixels: &[u8], width: u32, height: u32) {
         let remote = side.eq_ignore_ascii_case("remote");
         if !self.admission.video(remote) {
-            return None;
+            return;
         }
         if pixels.len() > MAX_VIDEO_BYTES {
             self.dropped += 1;
-            return None;
+            return;
         }
-        let slot = self.reserve()?;
+        let Some(slot) = self.reserve() else {
+            return;
+        };
         self.enqueue(RecordJob {
             _slot: slot,
             remote,
@@ -246,8 +263,6 @@ impl SessionRecorder {
                 height,
             },
         });
-        // Paths are published only after the worker has finalized actual files.
-        None
     }
     pub(crate) fn write_preview_frame(&mut self, frame_index: u32, pixels: &[u8]) {
         if !self.admission.previews {
@@ -314,7 +329,11 @@ impl SessionRecorder {
                     self.cancelled.store(true, Ordering::Release);
                     // Detached I/O retains its lease: another stalled worker cannot
                     // create an unbounded number of threads on subsequent sessions.
-                    DualRecordFinalize {warnings:vec!["recording finalization exceeded 500 ms; pending filesystem operation may finish later, evidence incomplete".into()],..Default::default()}
+                    DualRecordFinalize {
+                        result: lock_unpoison(&self.known_paths).clone(),
+                        warnings: vec!["recording finalization exceeded 500 ms; pending filesystem operation may finish later, evidence incomplete".into()],
+                        ..Default::default()
+                    }
                 }
             }
             None => DualRecordFinalize::default(),

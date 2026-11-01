@@ -200,13 +200,6 @@ func receiveRendezvousDatagram(
     return (Data(buffer.prefix(received)), source)
 }
 
-func receiveRendezvousResponse(socket: Int32, byteCount: Int = 2_048) throws -> Data? {
-    guard let datagram = try receiveRendezvousDatagram(socket: socket, byteCount: byteCount) else {
-        return nil
-    }
-    return datagram.data
-}
-
 func sendRendezvousDatagram(
     _ data: Data,
     socket: Int32,

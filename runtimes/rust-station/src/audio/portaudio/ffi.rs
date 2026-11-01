@@ -42,10 +42,6 @@ pub(super) type PaOpenStream = unsafe extern "C" fn(
 pub(super) type PaCloseStream = unsafe extern "C" fn(*mut std::ffi::c_void) -> i32;
 pub(super) type PaStartStream = unsafe extern "C" fn(*mut std::ffi::c_void) -> i32;
 pub(super) type PaStopStream = unsafe extern "C" fn(*mut std::ffi::c_void) -> i32;
-pub(super) type PaReadStream =
-    unsafe extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, PaFramesPerBuffer) -> i32;
-pub(super) type PaWriteStream =
-    unsafe extern "C" fn(*mut std::ffi::c_void, *const std::ffi::c_void, PaFramesPerBuffer) -> i32;
 pub(super) type PaStreamCallback = unsafe extern "C" fn(
     *const std::ffi::c_void,
     *mut std::ffi::c_void,
@@ -124,8 +120,6 @@ pub(super) struct PaFns {
     pub(super) close_stream: PaCloseStream,
     pub(super) start_stream: PaStartStream,
     pub(super) stop_stream: PaStopStream,
-    pub(super) read_stream: PaReadStream,
-    pub(super) write_stream: PaWriteStream,
     pub(super) initialized: bool,
 }
 
@@ -142,8 +136,6 @@ pub(super) struct PaBindings {
     close_stream: PaCloseStream,
     start_stream: PaStartStream,
     stop_stream: PaStopStream,
-    read_stream: PaReadStream,
-    write_stream: PaWriteStream,
 }
 
 impl PaFns {
@@ -162,8 +154,6 @@ impl PaFns {
             close_stream: bindings.close_stream,
             start_stream: bindings.start_stream,
             stop_stream: bindings.stop_stream,
-            read_stream: bindings.read_stream,
-            write_stream: bindings.write_stream,
             initialized: false,
         }
     }
@@ -228,8 +218,6 @@ pub(super) fn bind_pa_symbols(lib: &Library) -> Result<PaBindings, String> {
         close_stream: required_symbol!(PaCloseStream, b"Pa_CloseStream\0"),
         start_stream: required_symbol!(PaStartStream, b"Pa_StartStream\0"),
         stop_stream: required_symbol!(PaStopStream, b"Pa_StopStream\0"),
-        read_stream: required_symbol!(PaReadStream, b"Pa_ReadStream\0"),
-        write_stream: required_symbol!(PaWriteStream, b"Pa_WriteStream\0"),
         get_default_input: optional_symbol!(PaGetDefaultInputDevice, b"Pa_GetDefaultInputDevice\0"),
         get_default_output: optional_symbol!(
             PaGetDefaultOutputDevice,

@@ -407,6 +407,15 @@ public enum DirectPeerTwoPeerRunPathPolicy {
         }
     }
 
+    /// Checks a path that SSH mode uses on both Macs, so an unusable run folder fails before any peer starts.
+    public static func validateSSHRunArtifactPath(_ path: String) throws {
+        do {
+            try validateRemoteArtifactPath(path)
+        } catch {
+            throw DirectPeerTwoPeerSSHRunFolderError(path: path)
+        }
+    }
+
     /// Builds the source argument for legacy scp's remote shell with a safely restricted path.
     public static func scpSourceArgument(remoteTarget: String, remotePath: String) throws -> String {
         try RemoteProcessTarget.validate(remoteTarget)
@@ -426,4 +435,16 @@ public enum DirectPeerTwoPeerRunPathPolicy {
             throw DirectPeerTwoPeerRunPlanError.unsafeArtifactPath(path)
         }
     }
+}
+
+/// Explains that SSH mode needs a plain run folder that exists on both Macs.
+public struct DirectPeerTwoPeerSSHRunFolderError: Error, Equatable, LocalizedError, CustomStringConvertible, Sendable {
+    public let path: String
+
+    public var description: String {
+        "SSH mode needs a run folder without spaces that exists on both Macs, for example "
+            + "/Users/Shared/OpenLoLa/MacToMac. Unusable path: \(path)"
+    }
+
+    public var errorDescription: String? { description }
 }

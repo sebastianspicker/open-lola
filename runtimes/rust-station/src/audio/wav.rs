@@ -30,8 +30,11 @@ pub struct WavData {
 }
 
 /// Incremental PCM WAV writer. Call [`finish`](Self::finish) to finalize sizes.
+/// Device PCM is signed; 8-bit WAV samples are unsigned, so 8-bit data is
+/// converted on write and on read.
 pub struct WavStreamWriter {
     file: File,
+    bits_per_sample: u16,
     data_len: u64,
 }
 
@@ -84,7 +87,11 @@ impl WavStreamWriter {
             byte_rate,
             block_align,
         )?;
-        Ok(Self { file, data_len: 0 })
+        Ok(Self {
+            file,
+            bits_per_sample,
+            data_len: 0,
+        })
     }
 
     pub fn append(&mut self, pcm: &[u8]) -> Result<(), WavError> {
@@ -95,6 +102,10 @@ impl WavStreamWriter {
             .ok_or(WavError::DataTooLarge)?;
         if appended_len > MAX_DATA_LEN {
             return Err(WavError::DataTooLarge);
+        }
+        if self.bits_per_sample == 8 {
+            let unsigned: Vec<u8> = pcm.iter().map(|b| b ^ 0x80).collect();
+            return write_pcm(&mut self.file, &unsigned, &mut self.data_len);
         }
         write_pcm(&mut self.file, pcm, &mut self.data_len)
     }
@@ -168,11 +179,6 @@ impl WavData {
     pub fn sample_width(&self) -> usize {
         (self.bits_per_sample / 8) as usize
     }
-
-    pub fn nframes(&self) -> usize {
-        let frame = self.channels as usize * self.sample_width();
-        self.pcm.len().checked_div(frame).unwrap_or(0)
-    }
 }
 
 pub fn write_wav(path: impl AsRef<Path>, data: &WavData) -> Result<(), WavError> {
@@ -231,6 +237,9 @@ pub fn read_wav(path: impl AsRef<Path>) -> Result<WavData, WavError> {
     }
     if !supported_width(bits) {
         return Err(WavError::BadWidth(bits));
+    }
+    if bits == 8 {
+        pcm.iter_mut().for_each(|b| *b ^= 0x80);
     }
     Ok(WavData {
         channels,

@@ -400,6 +400,8 @@ public struct RxBufferBenchmarkImpact: Codable, Equatable, Sendable {
     public var profile: RxBufferPolicy
     public var targetFramesOverTime: [Int]
     public var targetChangeEvents: [RxBufferTargetChangeEvent]
+    /// Total target changes inside the audio callback, kept because the event list is capped; nil in older JSON.
+    public var targetChangesInsideAudioCallback: Int?
     public var impairmentSummary: RxImpairmentSimulationSummary?
     public var addedLatencyFrames: Int {
         profile.latencyCostFrames
@@ -411,11 +413,13 @@ public struct RxBufferBenchmarkImpact: Codable, Equatable, Sendable {
         profile: RxBufferPolicy,
         targetFramesOverTime: [Int],
         targetChangeEvents: [RxBufferTargetChangeEvent],
+        targetChangesInsideAudioCallback: Int? = nil,
         impairmentSummary: RxImpairmentSimulationSummary?
     ) {
         self.profile = profile
         self.targetFramesOverTime = targetFramesOverTime
         self.targetChangeEvents = targetChangeEvents
+        self.targetChangesInsideAudioCallback = targetChangesInsideAudioCallback
         self.impairmentSummary = impairmentSummary
     }
     public func validate() throws {

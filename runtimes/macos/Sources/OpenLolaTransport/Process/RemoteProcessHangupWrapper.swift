@@ -17,10 +17,11 @@ public enum RemoteProcessHangupWrapper {
             + "cat <&3 >/dev/null 2>&1 & c=$!; wait \"$c\"; kill -TERM \"$p\" 2>/dev/null ) >/dev/null 2>&1"
         let script = "exec 3<&0; \(command) 3<&- & p=$!; \(watcher) & w=$!; exec 3<&-; "
             + "wait \"$p\"; s=$?; kill \"$w\" 2>/dev/null; exit \"$s\""
-        return "exec /bin/sh -c \(singleQuoted(script))"
+        return "exec /bin/sh -c \(posixSingleQuoted(script))"
     }
+}
 
-    private static func singleQuoted(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
-    }
+/// Wraps `value` in single quotes for a POSIX shell, escaping embedded single quotes.
+package func posixSingleQuoted(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
 }

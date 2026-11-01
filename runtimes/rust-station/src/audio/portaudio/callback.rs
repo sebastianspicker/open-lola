@@ -238,9 +238,7 @@ impl CallbackState {
                     "callback buffer size exceeds addressable memory".into(),
                 )
             })?;
-        let PortAudioTransferMode::Callback { ring_blocks } = &config.transfer_mode else {
-            unreachable!("callback state is created only for callback mode");
-        };
+        let PortAudioTransferMode::Callback { ring_blocks } = &config.transfer_mode;
         Ok(Arc::new(Self {
             capture: CallbackRing::new(*ring_blocks, callback_bytes)?,
             playback: CallbackRing::new(*ring_blocks, callback_bytes)?,
@@ -270,6 +268,11 @@ impl CallbackState {
         }
     }
 
+    /// Re-arms the callback after a `quiesce`, before the stream is (re)started.
+    pub(super) fn resume(&self) {
+        self.closing.store(false, Ordering::Release);
+    }
+
     pub(super) fn stats(&self) -> PortAudioCallbackStats {
         PortAudioCallbackStats {
             capture_overflow_blocks: self.capture_overflow_blocks.load(Ordering::Relaxed),
@@ -283,23 +286,6 @@ impl CallbackState {
             capture_queued_blocks: self.capture.queued_blocks(),
             playback_queued_blocks: self.playback.queued_blocks(),
         }
-    }
-}
-
-pub(super) fn copy_selected_channels(
-    destination: &mut [u8],
-    source: &[u8],
-    source_bytes_per_frame: usize,
-    channel_offset_bytes: usize,
-) {
-    let selected_bytes_per_frame = destination.len() / (source.len() / source_bytes_per_frame);
-    for (source, destination) in source
-        .chunks_exact(source_bytes_per_frame)
-        .zip(destination.chunks_exact_mut(selected_bytes_per_frame))
-    {
-        destination.copy_from_slice(
-            &source[channel_offset_bytes..channel_offset_bytes + selected_bytes_per_frame],
-        );
     }
 }
 
@@ -502,7 +488,7 @@ unsafe fn clear_callback_output(output: *mut std::ffi::c_void, bytes: Option<usi
 pub(super) struct PaStreamHandle {
     pub(super) stream: *mut std::ffi::c_void,
     pub(super) started: bool,
-    pub(super) callback: Option<Arc<CallbackState>>,
+    pub(super) callback: Arc<CallbackState>,
 }
 
 impl Drop for PaStreamHandle {
@@ -515,9 +501,7 @@ impl Drop for PaStreamHandle {
                 // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
                 let _ = unsafe { (fns.stop_stream)(stream) };
             }
-            if let Some(callback) = self.callback.as_ref() {
-                callback.quiesce();
-            }
+            self.callback.quiesce();
             if !stream.is_null() {
                 // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
                 let _ = unsafe { (fns.close_stream)(stream) };
@@ -552,9 +536,7 @@ impl PaStreamHandle {
             detail,
         })?;
         result?;
-        if let Some(callback) = self.callback.as_ref() {
-            callback.quiesce();
-        }
+        self.callback.quiesce();
         self.started = false;
         Ok(())
     }

@@ -175,7 +175,7 @@ impl StationUIController {
         options.stream_rx_video = false;
         options.stream_tx_audio = false;
         options.stream_rx_audio = false;
-        options.serialize_loopback = options.peer_mode.eq_ignore_ascii_case("loopback");
+        options.serialize_loopback = options.is_loopback();
         let result = run_session(self.settings.clone(), timeout, options);
         self.apply_result(&result, if result.ok { "ready" } else { "check_failed" })
     }
@@ -229,7 +229,7 @@ impl StationUIController {
             Ok(options) => options,
             Err(error) => return self.option_error(error),
         };
-        options.serialize_loopback = options.peer_mode.eq_ignore_ascii_case("loopback");
+        options.serialize_loopback = options.is_loopback();
         if !self.state.chat_text.trim().is_empty() {
             let text = self.state.chat_text.trim().to_string();
             options.chat_text = text.clone();
@@ -340,6 +340,15 @@ impl StationUIController {
             return report;
         }
         self.disconnect()
+    }
+
+    /// Stop a live session and wait at most `timeout` so the disconnect is sent and
+    /// recordings are finalized. Returns true when the session ended in time.
+    pub fn stop_and_wait(&mut self, timeout: std::time::Duration) -> bool {
+        let ended = self.live.stop_within(timeout);
+        self.state.status = "disconnected".into();
+        self.state.continuous_live = false;
+        ended
     }
 
     /// Signal a stop without joining the worker. Intended for GUI callbacks.

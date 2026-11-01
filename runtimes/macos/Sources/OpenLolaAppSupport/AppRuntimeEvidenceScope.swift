@@ -174,10 +174,6 @@ enum AppRuntimeEvidenceScope {
         try Data(token.utf8).write(to: tokenURL, options: .atomic)
     }
 
-    static func sessionTokenMatches(reportPath: String, currentSessionToken: String?) -> Bool {
-        sessionTokenMatchResult(reportPath: reportPath, currentSessionToken: currentSessionToken) == .match
-    }
-
     static func sessionTokenMatchResult(reportPath: String, currentSessionToken: String?) -> TokenMatchResult {
         guard let currentSessionToken,
               !currentSessionToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

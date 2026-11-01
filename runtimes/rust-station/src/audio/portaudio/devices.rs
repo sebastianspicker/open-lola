@@ -83,11 +83,9 @@ pub struct PortAudioConfig {
     pub transfer_mode: PortAudioTransferMode,
 }
 
-/// I/O model selected for the strict native stream. Callback mode is the
-/// session default; blocking mode remains available for compatibility tools.
+/// I/O model selected for the strict native stream (callback only).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortAudioTransferMode {
-    Blocking,
     Callback { ring_blocks: usize },
 }
 
@@ -442,7 +440,7 @@ pub(super) fn select_device_locked(
         PortAudioDeviceSelector::Name(name) => enumerate_devices_locked(fns)
             .map_err(|detail| PortAudioError::Native { operation, detail })?
             .into_iter()
-            .find(|device| {
+            .filter(|device| {
                 device.name.eq_ignore_ascii_case(name)
                     && if is_input {
                         device.max_input_channels > 0
@@ -450,6 +448,8 @@ pub(super) fn select_device_locked(
                         device.max_output_channels > 0
                     }
             })
+            // The same name often exists under several host APIs; the ASIO one is wanted.
+            .min_by_key(|device| !device.is_asio())
             .map(|device| device.index)
             .ok_or_else(|| PortAudioError::Native {
                 operation,
@@ -460,50 +460,11 @@ pub(super) fn select_device_locked(
 
 /// Load/bind the process-wide PortAudio singleton (never unloads).
 /// Safe under concurrent callers; all work is under `pa_lock`.
-pub fn load_portaudio(dll_path: Option<&Path>) -> Result<PortAudioLibrary, String> {
+pub fn load_portaudio() -> Result<PortAudioLibrary, String> {
     let _g = pa_lock();
-    // Optional explicit path: only used on first load if global empty
-    if dll_path.is_some() {
-        let slot = pa_global().lock().unwrap_or_else(|e| e.into_inner());
-        if slot.is_none() {
-            // Force path as first candidate by temporarily trying it
-            drop(slot);
-            if let Some(p) = dll_path {
-                // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                if let Ok(lib) = unsafe { crate::native_loader::load(p) } {
-                    // If path works, seed via normal ensure after putting file first
-                    let _ = lib; // drop this temp load — ensure_pa will load properly
-                                 // Prefer explicit path by prepending: re-implement quick bind
-                    if let Ok(()) = try_load_path_locked(p) {
-                        ensure_pa_ready_locked()?;
-                        let path = pa_path_locked()?;
-                        return Ok(PortAudioLibrary { path });
-                    }
-                }
-            }
-        }
-    }
     ensure_pa_ready_locked()?;
     let path = pa_path_locked()?;
     Ok(PortAudioLibrary { path })
-}
-
-pub(super) fn try_load_path_locked(path: &Path) -> Result<(), String> {
-    let mut slot = pa_global().lock().unwrap_or_else(|e| e.into_inner());
-    if slot.is_some() {
-        return Ok(());
-    }
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let lib = unsafe { crate::native_loader::load(path) }
-        .map_err(|e| format!("load {}: {e}", path.display()))?;
-    let bindings = bind_pa_symbols(&lib)?;
-    let _leaked: &'static Library = Box::leak(Box::new(lib));
-    let path_resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    *slot = Some(PaGlobal::Ready(Box::new(PaFns::from_bindings(
-        path_resolved,
-        bindings,
-    ))));
-    Ok(())
 }
 
 pub(super) fn pa_path_locked() -> Result<PathBuf, String> {

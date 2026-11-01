@@ -14,7 +14,7 @@ func spawnExternalConnectorProcess(
     stdout: Pipe,
     stderr: Pipe
 ) throws -> pid_t {
-    let spawnPlan = externalConnectorSpawnPlan(
+    let spawnPlan = try externalConnectorSpawnPlan(
         executable: executable,
         arguments: arguments,
         environment: environment
@@ -53,7 +53,9 @@ private func externalConnectorSpawnPlan(
     executable: String,
     arguments: [String],
     environment: [String: String]
-) -> ExternalConnectorSpawnPlan {
+) throws -> ExternalConnectorSpawnPlan {
+    // Every connector executable reaches `env` here, so a leading "-" or "=" is refused in one place.
+    let executable = try validatedExternalExecutable(executable, field: "executable")
     var mergedEnvironment = ProcessInfo.processInfo.environment
     for (key, value) in environment {
         mergedEnvironment[key] = value

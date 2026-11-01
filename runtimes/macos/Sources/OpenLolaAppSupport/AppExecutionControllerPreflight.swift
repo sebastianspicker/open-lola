@@ -75,8 +75,17 @@ enum AppConnectionPreflightChain {
 
     /// Deletes a report left by an earlier preflight so a run that writes nothing cannot reuse it.
     static func removeStaleReport(atPath path: String, fileManager: FileManager = .default) throws {
-        guard fileManager.fileExists(atPath: path) else {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path) else {
             return
+        }
+        // attributesOfItem does not follow symlinks, so a link or folder is refused, never removed.
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw AppConnectionPreflightReportPathError(path: path)
+        }
+        // Only a file that is a connection preflight report may be deleted, never another file at that path.
+        guard let data = try? BoundedFileReader.data(atPath: path, maxBytes: 1024 * 1024),
+              (try? JSONDecoder().decode(MacToMacConnectionEstablishmentReport.self, from: data)) != nil else {
+            throw AppConnectionPreflightReportPathError(path: path)
         }
         try fileManager.removeItem(atPath: path)
     }
@@ -203,5 +212,13 @@ extension AppExecutionController {
             finishReport()
             recordError(AppRunFailureMessage.describe(error))
         }
+    }
+}
+
+struct AppConnectionPreflightReportPathError: Error, LocalizedError, Equatable {
+    let path: String
+
+    var errorDescription: String? {
+        "The connection preflight report path must not exist yet or hold an earlier preflight report: \(path). Choose another report path in Settings."
     }
 }

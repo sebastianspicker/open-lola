@@ -144,7 +144,7 @@ public struct RTPPacket: Codable, Equatable, Sendable {
                 timestamp: timestamp,
                 ssrc: ssrc
             ),
-            payload: data.dropFirst(RTPPacketHeader.byteCount)
+            payload: data.subdata(in: data.startIndex + RTPPacketHeader.byteCount ..< data.endIndex)
         )
     }
 
@@ -217,7 +217,7 @@ public enum L24PCMCodec {
         }
         for sampleIndex in 0..<sampleCount {
             let sample = inputBase.load(fromByteOffset: sampleIndex * MemoryLayout<Float>.size, as: Float.self)
-            let clamped = min(max(sample, -1.0), 1.0)
+            let clamped = sample.isNaN ? 0 : min(max(sample, -1.0), 1.0)
             let scaled = Int32((clamped * 8_388_607.0).rounded())
             let unsigned = UInt32(bitPattern: scaled) & 0xFF_FFFF
             let offset = sampleIndex * 3
@@ -278,11 +278,22 @@ public enum L24PCMCodec {
 
 /// Tracks continuity and AES67/ST 2110-30 L24 profile conformance across received RTP packets.
 public struct AES67ST2110L24RTPReceiveValidator: Sendable {
+    /// Consecutive packets from a new SSRC required before the validator adopts it.
+    static let ssrcAdoptionPacketCount = 8
     public var expectedSSRC: UInt32?
     public let packetTime: AES67ST2110L24PacketTime
     public private(set) var lostPackets: Int = 0
+    /// Consecutive packets that must agree on a new sequence/timestamp line before it replaces the baseline.
+    static let resyncPacketCount = 4
+    /// Sequence or timestamp line changes adopted as a new baseline after `resyncPacketCount` agreeing packets.
+    public private(set) var discontinuities: Int = 0
+    private var resyncCandidate: (sequenceNumber: UInt16, timestamp: UInt32, count: Int)?
+    /// Sender restarts (new SSRC) adopted after consecutive packets.
+    public private(set) var ssrcChanges: Int = 0
     private var nextSequenceNumber: UInt16?
     private var nextTimestamp: UInt32?
+    private var candidateSSRC: UInt32?
+    private var candidateSSRCPacketCount = 0
 
     public init(
         expectedSSRC: UInt32? = nil,
@@ -297,8 +308,10 @@ public struct AES67ST2110L24RTPReceiveValidator: Sendable {
             throw RTPPacketError.unsupportedPayloadType(packet.header.payloadType)
         }
         if let expectedSSRC {
-            guard packet.header.ssrc == expectedSSRC else {
-                throw RTPPacketError.ssrcMismatch(expected: expectedSSRC, actual: packet.header.ssrc)
+            if packet.header.ssrc == expectedSSRC {
+                candidateSSRC = nil
+            } else {
+                try trackSSRCCandidate(packet.header.ssrc, expected: expectedSSRC)
             }
         } else {
             expectedSSRC = packet.header.ssrc
@@ -314,31 +327,59 @@ public struct AES67ST2110L24RTPReceiveValidator: Sendable {
         nextTimestamp = packet.header.timestamp &+ UInt32(packetTime.framesPerPacket)
     }
 
+    private mutating func trackSSRCCandidate(_ ssrc: UInt32, expected: UInt32) throws {
+        candidateSSRCPacketCount = candidateSSRC == ssrc ? candidateSSRCPacketCount + 1 : 1
+        candidateSSRC = ssrc
+        guard candidateSSRCPacketCount >= Self.ssrcAdoptionPacketCount else {
+            throw RTPPacketError.ssrcMismatch(expected: expected, actual: ssrc)
+        }
+        expectedSSRC = ssrc
+        candidateSSRC = nil
+        ssrcChanges += 1
+        nextSequenceNumber = nil
+        nextTimestamp = nil
+    }
+
     private mutating func validateSequenceAndTimestamp(_ header: RTPPacketHeader) throws {
         if let nextSequenceNumber, header.sequenceNumber != nextSequenceNumber {
             let sequenceGap = Int(UInt16(header.sequenceNumber &- nextSequenceNumber))
-            if sequenceGap > 0 && sequenceGap <= 1_024 {
-                let skippedFrames = UInt32(sequenceGap) * UInt32(packetTime.framesPerPacket)
-                let expectedTimestamp = nextTimestamp.map { $0 &+ skippedFrames }
-                if let expectedTimestamp, header.timestamp != expectedTimestamp {
-                    throw RTPPacketError.timestampStepMismatch(
-                        expected: expectedTimestamp,
-                        actual: header.timestamp
-                    )
-                }
+            let skippedFrames = UInt32(truncatingIfNeeded: sequenceGap) &* UInt32(packetTime.framesPerPacket)
+            if sequenceGap <= 1_024, nextTimestamp.map({ header.timestamp == $0 &+ skippedFrames }) ?? true {
                 lostPackets += sequenceGap
+                resyncCandidate = nil
             } else {
-                throw RTPPacketError.sequenceDiscontinuity(
+                try confirmResync(header, error: .sequenceDiscontinuity(
                     expected: nextSequenceNumber,
                     actual: header.sequenceNumber
-                )
+                ))
             }
         } else if let nextTimestamp, header.timestamp != nextTimestamp {
-            throw RTPPacketError.timestampStepMismatch(
+            try confirmResync(header, error: .timestampStepMismatch(
                 expected: nextTimestamp,
                 actual: header.timestamp
-            )
+            ))
+        } else {
+            resyncCandidate = nil
         }
+    }
+
+    /// A packet off the current sequence/timestamp line (late, duplicate, stray, or the first of a
+    /// sender restart) is rejected; the line moves only after `resyncPacketCount` consecutive packets
+    /// agree on a new one, so a single stray packet cannot hijack the baseline.
+    private mutating func confirmResync(_ header: RTPPacketHeader, error: RTPPacketError) throws {
+        let count = resyncCandidate.map {
+            $0.sequenceNumber == header.sequenceNumber && $0.timestamp == header.timestamp ? $0.count + 1 : 1
+        } ?? 1
+        guard count >= Self.resyncPacketCount else {
+            resyncCandidate = (
+                header.sequenceNumber &+ 1,
+                header.timestamp &+ UInt32(packetTime.framesPerPacket),
+                count
+            )
+            throw error
+        }
+        resyncCandidate = nil
+        discontinuities += 1
     }
 }
 
@@ -460,14 +501,6 @@ private extension MediaStreamDirection {
             return nil
         }
     }
-}
-
-private func appendFloat32LE(_ value: Float, to data: inout Data) {
-    let bitPattern = value.bitPattern
-    data.append(UInt8(bitPattern & 0xff))
-    data.append(UInt8((bitPattern >> 8) & 0xff))
-    data.append(UInt8((bitPattern >> 16) & 0xff))
-    data.append(UInt8((bitPattern >> 24) & 0xff))
 }
 
 private func readRTPUInt16BE(_ bytes: Data, offset: Int) -> UInt16 {

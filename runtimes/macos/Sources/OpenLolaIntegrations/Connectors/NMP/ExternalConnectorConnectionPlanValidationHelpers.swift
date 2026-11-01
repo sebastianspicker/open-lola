@@ -20,7 +20,7 @@ func connectionPlanShellCommand(_ command: [String]) -> String {
 func shellQuote(_ value: String) -> String {
     guard !value.isEmpty, value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
           !value.contains("'"), value.range(of: #"[^A-Za-z0-9_./:=@+-]"#, options: .regularExpression) == nil else {
-        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+        return posixSingleQuoted(value)
     }
     return value
 }

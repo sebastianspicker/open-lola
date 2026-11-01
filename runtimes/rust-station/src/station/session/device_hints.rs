@@ -183,6 +183,7 @@ mod tests {
                 format("YUYV", vec![mode(640, 480, &[30, 15])]),
                 format("MJPG", vec![mode(1280, 720, &[60])]),
             ],
+            error: None,
         }
     }
 

@@ -83,38 +83,6 @@ struct RealtimeAudioPacketHandoffInitialState {
     }
 }
 
-/// Host-thread convenience wrapper for tests and non-real-time owners.
-///
-/// Do not call this wrapper from real-time audio callbacks. Real-time IOProc
-/// paths must own `RealtimeAudioPacketHandoff` directly or use a bounded
-/// nonblocking handoff primitive.
-public final class RealtimeAudioPacketHandoffRuntime: @unchecked Sendable {
-    private let lock = NSLock()
-    private var handoff: RealtimeAudioPacketHandoff
-
-    public init(configuration: RealtimeAudioEngineConfiguration) throws {
-        self.handoff = try RealtimeAudioPacketHandoff(configuration: configuration)
-    }
-
-    public func receive(_ packet: UdpPcmPacket) throws -> RealtimeAudioPacketReceiveResult {
-        lock.lock()
-        defer { lock.unlock() }
-        return try handoff.receive(packet)
-    }
-
-    public func renderCallback() -> RealtimeAudioPlayoutResult {
-        lock.lock()
-        defer { lock.unlock() }
-        return handoff.renderCallback()
-    }
-
-    public func metricsSnapshot() -> RealtimeAudioHandoffMetrics {
-        lock.lock()
-        defer { lock.unlock() }
-        return handoff.metrics
-    }
-}
-
 struct RealtimeAudioPacketHandoffClock: Sendable {
     private let numerator: UInt64
     private let denominator: UInt64

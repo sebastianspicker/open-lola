@@ -12,6 +12,7 @@ use super::super::{SessionOptions, SessionResult};
 use crate::config::StationSettings;
 use crate::net::Udp;
 use crate::protocol::{FrameReassembler, MESG_DISCONNECT, MESG_STOP_AUDIO_SIGNAL};
+use crate::station::bounded::push_bounded;
 use crate::station::monitor::NetworkMonitor;
 use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::sync::lock_unpoison;
@@ -60,7 +61,7 @@ impl ListenerControlCleanup {
             });
             let mut result = lock_unpoison(shared);
             match send {
-                Ok(()) => result.messages_sent.push(message_name.into()),
+                Ok(()) => push_bounded(&mut result.messages_sent, message_name.into()),
                 Err(error) => result
                     .cleanup_warnings
                     .push(format!("listener {message_name}: {error}")),
@@ -144,8 +145,6 @@ pub(super) fn run_listen_media(
     let mut recorder = open_recorder(settings, options);
     let mut monitor = NetworkMonitor::new();
     let mut v_re = FrameReassembler::strict_video();
-    let mut a_re =
-        FrameReassembler::with_limit(settings.network.audio_receive_queue_depth.max(1) as usize);
     let mut audio_queue = AudioReceiveQueue::new(settings);
     let mut video_queue = VideoReceiveQueue::new(
         settings.network.video_receive_queue_depth,
@@ -180,7 +179,6 @@ pub(super) fn run_listen_media(
             &mut recorder,
             &mut previews,
             &mut monitor,
-            &mut a_re,
             &mut audio_queue,
             &mut v_re,
             &mut video_queue,

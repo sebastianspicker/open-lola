@@ -176,6 +176,7 @@ public enum RecordingSessionRunConfigurationError: Error, Equatable, Sendable {
     case nonPositiveArgument(String)
     case integratedBaselineReadFailed(String)
     case integratedBaselineDecodeFailed(String)
+    case unsafeOutputDirectory(String)
 }
 /// Runs the recording-session artifact evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum RecordingSessionRunner {
@@ -202,7 +203,9 @@ public enum RecordingSessionRunner {
         configuration: RecordingSessionRunConfiguration,
         integratedBaseline: IntegratedAvReport
     ) throws -> RecordingSessionArtifactReport {
-        try run(
+        // Refuse an unusable output folder before capturing, so a take is never recorded and then lost.
+        try requireReplaceableRecordingOutput(at: URL(fileURLWithPath: configuration.outputDirectory, isDirectory: true))
+        return try run(
             configuration: configuration,
             integratedBaseline: integratedBaseline,
             capturedMedia: RecordingSessionLiveMediaCapture.capture(configuration: configuration)

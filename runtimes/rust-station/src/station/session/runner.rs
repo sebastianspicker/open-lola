@@ -6,7 +6,7 @@ use super::control::{
 use super::peer::{peer_session_body, peer_thread, PeerPorts, PeerSockets};
 use super::types::{resolve_mode, session_lock};
 use super::{PeerRole, SessionOptions, SessionResult};
-use crate::config::{default_settings, StationSettings};
+use crate::config::StationSettings;
 use crate::net::{check_reachable, Udp};
 use crate::protocol::MESG_CHECKLOLASTATUS;
 use crate::station::sync::lock_unpoison;
@@ -35,6 +35,12 @@ fn run_session_body(
     if !timeout.is_finite() || !(0.001..=86400.0).contains(&timeout) {
         return *failed_result(crate::station::SessionError::Configuration(
             "timeout must be finite and between 0.001 and 86400 seconds".into(),
+        ));
+    }
+    // Profile and CLI overrides are applied by now; catch bad values before streaming.
+    if let Err(error) = settings.validate() {
+        return *failed_result(crate::station::SessionError::Configuration(
+            error.to_string(),
         ));
     }
     let peer_role = match validate_session_start(&options) {
@@ -108,6 +114,10 @@ fn configure_session_mode(
     }
     result.media_transport = "udp".into();
     result.raw_plane_used = false;
+    // Catalog-derived geometry was not covered by the early check.
+    settings
+        .validate()
+        .map_err(|error| crate::station::SessionError::Configuration(error.to_string()))?;
     Ok(())
 }
 
@@ -278,8 +288,8 @@ fn establish_initiator_peer(
             loopback: None,
         });
     }
-    let bind = settings.network.bind_ip.clone();
-    let (sockets, ports) = PeerSockets::bind_ephemeral(&bind)?;
+    // The diagnostic peer never leaves the host, whatever `bind_ip` says.
+    let (sockets, ports) = PeerSockets::bind_ephemeral("127.0.0.1")?;
     let shared = Arc::new(Mutex::new(SessionResult::default()));
     let thread_settings = settings.clone();
     let thread_options = options.clone();
@@ -293,11 +303,7 @@ fn establish_initiator_peer(
             timeout.max(5.0),
         )
     });
-    let host = if bind == "0.0.0.0" {
-        "127.0.0.1".into()
-    } else {
-        settings.network.local_ip.clone()
-    };
+    let host = "127.0.0.1".to_string();
     Ok(InitiatorPeer {
         control: ports.control,
         audio: ports.audio,
@@ -552,32 +558,10 @@ pub fn run_check_only(
     result
 }
 
-pub fn run_reject_session(settings: StationSettings, timeout: f64) -> SessionResult {
-    let mut options = SessionOptions::demo();
-    options.expected_rejection = true;
-    options.peer_reject = true;
-    options.control_extras = false;
-    options.stream_frames = 1;
-    run_session(settings, timeout, options)
-}
-
-pub fn run_default_session(
-    timeout: f64,
-    frames: u32,
-    compress: bool,
-    extras: bool,
-) -> SessionResult {
-    let mut settings = default_settings();
-    settings.video.compression = compress;
-    let mut options = SessionOptions::demo();
-    options.stream_frames = frames.max(1);
-    options.control_extras = extras;
-    run_session(settings, timeout, options)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::default_settings;
 
     #[test]
     fn reachability_precheck_keeps_loopback_off_the_network() {

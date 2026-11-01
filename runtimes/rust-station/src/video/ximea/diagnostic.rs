@@ -21,7 +21,7 @@ impl CameraBackendInfo {
 /// Probe: true only when DLL actually loads and required symbols bind.
 pub fn probe_ximea() -> CameraBackendInfo {
     let _g = xi_lock().lock().unwrap_or_else(|e| e.into_inner());
-    match load_xiapi(None) {
+    match load_xiapi() {
         Ok(lib) => {
             let device_count = lib.get_number_devices().ok();
             CameraBackendInfo {
@@ -50,6 +50,6 @@ pub fn probe_ximea() -> CameraBackendInfo {
 
 /// Copies the discovered xiAPI DLL into a shipping directory when possible.
 pub fn ensure_shipped_ximea_dll(ship_dir: impl AsRef<Path>) -> Option<PathBuf> {
-    let library = load_xiapi(None).ok()?;
+    let library = load_xiapi().ok()?;
     crate::native_loader::copy_trusted(library.path(), &ship_dir.as_ref().join("xiapi64.dll"))
 }

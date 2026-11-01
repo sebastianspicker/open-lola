@@ -85,6 +85,15 @@ public enum NatRendezvousRunner {
             return
         }
 
+        guard natRelayRegistrationCapacityAllows(
+            peerID: request.peerID,
+            expectedPeerCount: configuration.expectedPeerCount,
+            registrations: state.registrations
+        ) else {
+            state.skippedDatagrams.wrongPeer += 1
+            return
+        }
+
         let observedEndpoint = endpoint(from: datagram.source)
         _ = recordNatRendezvousRegistration(
             peerID: request.peerID,
@@ -96,16 +105,25 @@ public enum NatRendezvousRunner {
         if !peerEndpoints.isEmpty {
             state.completedPeerIDs.insert(request.peerID)
         }
-        try sendRendezvousResponse(NatRendezvousResponseSendRequest(
-            registrationRequest: request,
-            observedEndpoint: observedEndpoint,
-            peerEndpoints: peerEndpoints,
-            registrationCount: state.registrations.count,
-            sessionComplete: state.registrations.count >= configuration.expectedPeerCount,
-            socket: socket,
-            destination: datagram.source
-        ))
+        do {
+            try sendRendezvousResponse(NatRendezvousResponseSendRequest(
+                registrationRequest: request,
+                observedEndpoint: observedEndpoint,
+                peerEndpoints: peerEndpoints,
+                registrationCount: state.registrations.count,
+                sessionComplete: state.registrations.count >= configuration.expectedPeerCount,
+                socket: socket,
+                destination: datagram.source
+            ))
+        } catch UdpPcmRouteProbeError.sendFailed(let code) where Self.perDestinationSendErrors.contains(code) {
+            // One unanswerable peer must not end the run for the others; local socket failures still throw.
+            state.skippedDatagrams.malformed += 1
+        }
     }
+
+    private static let perDestinationSendErrors: Set<Int32> = [
+        EMSGSIZE, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ECONNREFUSED, ENOBUFS
+    ]
 
     private static func decodeRendezvousRequest(
         _ data: Data,
@@ -272,8 +290,9 @@ public enum NatRendezvousClient {
                 host: configuration.rendezvousEndpoint.host,
                 port: configuration.rendezvousEndpoint.port.bigEndian
             )
-            if let responseData = try receiveRendezvousResponse(socket: socket),
-               let response = try? JSONDecoder().decode(NatRendezvousRegistrationResponse.self, from: responseData),
+            if let datagram = try receiveRendezvousDatagram(socket: socket),
+               endpoint(from: datagram.source) == configuration.rendezvousEndpoint,
+               let response = try? JSONDecoder().decode(NatRendezvousRegistrationResponse.self, from: datagram.data),
                natRendezvousRegistrationResponseIsUsable(response, configuration: configuration) {
                 latestResponse = response
                 if response.peerEndpoint != nil || response.peerEndpoints?.isEmpty == false {

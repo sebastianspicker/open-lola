@@ -202,7 +202,8 @@ extension AVFoundationSampleBufferCollector {
         let retainedDataStart = min(rawFrameDataBaseOffset, rawFrameData.count)
         return RecordingCapturedVideo(
             rawFrameData: rawFrameData.subdata(in: retainedDataStart..<rawFrameData.count),
-            frameIndex: rawFrameIndex.map(normalizedRawFrameIndexEntry)
+            frameIndex: rawFrameIndex.map(normalizedRawFrameIndexEntry),
+            framesCaptured: rawPayloadsCaptured
         )
     }
 

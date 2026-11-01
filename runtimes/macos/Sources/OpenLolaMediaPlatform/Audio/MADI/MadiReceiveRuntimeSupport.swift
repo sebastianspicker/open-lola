@@ -17,16 +17,7 @@ extension MadiReceiveEngine {
     mutating func removePendingDeadline(
         playoutFrame: UInt64
     ) -> MadiReceivePendingDeadline? {
-        let targetFrames = currentTargetFrames
-        return pendingDeadlines.remove { pending in
-            guard let pendingPlayoutFrame = try? Self.targetPlayoutFrame(
-                senderFrameIndex: pending.reference.senderFrameIndex,
-                targetFrames: targetFrames
-            ) else {
-                return false
-            }
-            return pendingPlayoutFrame == playoutFrame
-        }
+        pendingDeadlines.remove { $0.playoutFrame == playoutFrame }
     }
 
     static func targetPlayoutFrame(senderFrameIndex: UInt64, targetFrames: Int) throws -> UInt64 {
@@ -135,25 +126,19 @@ extension MadiReceiveEngine {
         packetAgeMicroseconds: Double?,
         pressure: Bool
     ) {
-        guard var controller = adaptiveRxBufferController else {
-            return
-        }
-        let previousEventCount = controller.targetChangeEvents.count
-        let decision = controller.observe(
+        guard let decision = adaptiveRxBufferController?.observe(
             RxBufferAdaptationSample(
                 sequenceNumber: sequenceNumber,
                 jitterP99Microseconds: packetAgeMicroseconds ?? 0,
                 latePackets: pressure ? 1 : 0
             )
-        )
-        adaptiveRxBufferController = controller
-        guard decision.changed else {
+        ), decision.changed else {
             return
         }
         currentTargetFrames = decision.targetFrames
         metrics.rxBuffer.recordTargetFrames(decision.targetFrames)
-        for event in controller.targetChangeEvents.dropFirst(previousEventCount) {
-            metrics.rxBuffer.targetChangeEvents.append(event)
+        if let event = adaptiveRxBufferController?.targetChangeEvents.last {
+            metrics.rxBuffer.recordTargetChange(event)
         }
     }
 }

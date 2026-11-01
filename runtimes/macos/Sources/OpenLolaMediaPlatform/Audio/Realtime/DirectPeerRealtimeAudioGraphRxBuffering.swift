@@ -27,29 +27,27 @@ extension DirectPeerRealtimeAudioGraph {
     ) {
         rxBufferAdaptationLock.lock()
         defer { rxBufferAdaptationLock.unlock() }
-        guard var controller = adaptiveRxBufferController else {
+        guard adaptiveRxBufferController != nil else {
             return
         }
-        let previousEventCount = controller.targetChangeEvents.count
         let jitterMicroseconds = updateInterarrivalJitterLocked(
             senderHostTimeNanoseconds: hostTimeNanoseconds,
             arrivalNanoseconds: DispatchTime.now().uptimeNanoseconds
         )
         let sequenceNumber = startFrame / UInt64(max(1, configuration.framesPerBuffer))
-        let decision = controller.observe(
+        // Mutate in place: a local copy would force a full array copy on every change.
+        guard let decision = adaptiveRxBufferController?.observe(
             RxBufferAdaptationSample(
                 sequenceNumber: sequenceNumber,
                 jitterP99Microseconds: jitterMicroseconds,
                 latePackets: pressure ? 1 : 0
             )
-        )
-        adaptiveRxBufferController = controller
-        guard decision.changed else {
+        ), decision.changed else {
             return
         }
         rxBufferSnapshot?.recordTargetFrames(decision.targetFrames)
-        for event in controller.targetChangeEvents.dropFirst(previousEventCount) {
-            rxBufferSnapshot?.targetChangeEvents.append(event)
+        if let event = adaptiveRxBufferController?.targetChangeEvents.last {
+            rxBufferSnapshot?.recordTargetChange(event)
         }
     }
 

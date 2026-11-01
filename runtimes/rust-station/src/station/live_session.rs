@@ -230,6 +230,16 @@ impl LiveStationService {
         self.get_report()
     }
 
+    /// Stop the worker and wait at most `timeout` for the session to end.
+    /// Returns true when it ended in time.
+    pub fn stop_within(&self, timeout: std::time::Duration) -> bool {
+        let Some(handle) = lock_unpoison(&self.handle).as_ref().cloned() else {
+            return true;
+        };
+        handle.stop();
+        handle.wait_inactive_until(std::time::Instant::now() + timeout)
+    }
+
     /// Non-blocking stop signal suitable for the GUI update thread.
     pub fn request_stop(&self) -> Value {
         if let Some(handle) = lock_unpoison(&self.handle).as_ref() {

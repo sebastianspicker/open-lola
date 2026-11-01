@@ -46,6 +46,7 @@ public enum LoLaCompatibilityWireFrameError: Error, Equatable, Sendable {
     case ipv4TotalLengthMismatch(expected: Int, actual: Int)
     case nonZeroTrailingBytes(expectedEndOffset: Int, actualByteCount: Int)
     case udpLengthMismatch(expected: Int, actual: Int)
+    case udpLengthTooShort(Int)
     case invalidIPv4Checksum
     case invalidUDPChecksum
 }
@@ -133,6 +134,18 @@ public struct LoLaCompatibilityWireFrame: Equatable, Sendable {
         return data
     }
 
+    /// True for an Ethernet frame carrying IPv4/UDP; with a non-wildcard `peer`, also requires that host as source or destination.
+    public static func isIPv4UDP<Bytes: DataProtocol>(_ bytes: Bytes, peer: String = "0.0.0.0") -> Bool {
+        let data = [UInt8](bytes)
+        guard data.count >= LoLaCompatibilityMediaModel.wirePayloadOffset,
+              readLoLaUInt16BE(data, offset: 12) == etherTypeIPv4,
+              data[14] == ipv4VersionAndHeaderLength,
+              data[23] == ipv4ProtocolUDP else { return false }
+        return peer == "0.0.0.0" || peer.isEmpty
+            || data[26..<30].map(String.init).joined(separator: ".") == peer
+            || data[30..<34].map(String.init).joined(separator: ".") == peer
+    }
+
     public static func decode<Bytes: DataProtocol>(_ bytes: Bytes) throws -> LoLaCompatibilityWireFrame {
         let data = [UInt8](bytes)
         try validateMinimumFrameLength(data)
@@ -205,6 +218,9 @@ public struct LoLaCompatibilityWireFrame: Equatable, Sendable {
 
     private static func validatedUDPLength(_ data: [UInt8], ipv4TotalLength: Int) throws -> Int {
         let udpLength = Int(readLoLaUInt16BE(data, offset: 38))
+        guard udpLength >= LoLaCompatibilityMediaModel.udpHeaderByteCount else {
+            throw LoLaCompatibilityWireFrameError.udpLengthTooShort(udpLength)
+        }
         let actualUDPLength = ipv4TotalLength - LoLaCompatibilityMediaModel.ipv4HeaderByteCount
         guard udpLength == actualUDPLength else {
             throw LoLaCompatibilityWireFrameError.udpLengthMismatch(

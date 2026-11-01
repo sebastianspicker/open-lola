@@ -86,11 +86,28 @@ pub(super) fn inventory() -> V4l2Result<Vec<V4l2DeviceInfo>> {
     for path in paths {
         match inventory_path_with_budget(&path, &mut budget) {
             Ok(device) => devices.push(device),
-            Err(error @ V4l2Error::InventoryLimit(_)) => return Err(error),
-            Err(_) => {}
+            // Keep what was found; the limit is recorded on the node that hit it.
+            Err(error @ V4l2Error::InventoryLimit(_)) => {
+                devices.push(failed_device(path.to_string_lossy().into_owned(), &error));
+                break;
+            }
+            Err(error) => devices.push(failed_device(path.to_string_lossy().into_owned(), &error)),
         }
     }
     Ok(devices)
+}
+
+fn failed_device(device: String, error: &V4l2Error) -> V4l2DeviceInfo {
+    V4l2DeviceInfo {
+        device,
+        driver: String::new(),
+        card: String::new(),
+        bus_info: String::new(),
+        version: 0,
+        capabilities: V4l2Capabilities::default(),
+        formats: Vec::new(),
+        error: Some(error.to_string()),
+    }
 }
 
 pub(super) fn inventory_device(device: &str) -> V4l2Result<V4l2DeviceInfo> {
@@ -131,6 +148,7 @@ fn inventory_path_with_budget(
         version: capability.version,
         capabilities,
         formats,
+        error: None,
     })
 }
 

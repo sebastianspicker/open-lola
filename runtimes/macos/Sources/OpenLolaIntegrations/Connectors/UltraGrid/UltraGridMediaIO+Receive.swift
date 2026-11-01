@@ -60,6 +60,7 @@ struct UltraGridBoundReceiveExchange {
         UltraGridCompatibilityReceiveResult(
             datagrams: outcome.ledger.evidence,
             receivedDatagramCount: outcome.ledger.receivedDatagramCount,
+            rejectedDatagramCount: outcome.ledger.rejectedDatagramCount,
             incrementalSummary: outcome.ledger.observationSummary()
         )
     }
@@ -175,6 +176,7 @@ struct UltraGridStandaloneReceiveLoop {
         }
         return UltraGridCompatibilityReceiveResult(
             datagrams: ledger.evidence, receivedDatagramCount: ledger.receivedDatagramCount,
+            rejectedDatagramCount: ledger.rejectedDatagramCount,
             incrementalSummary: ledger.observationSummary()
         )
     }
@@ -256,4 +258,34 @@ private func ultraGridSocketReceiveRequest(
         socket: socket, port: port, stream: stream, peer: request.peer,
         payloadRegistry: request.payloadRegistry, encryptionConfiguration: request.encryptionConfiguration
     )
+}
+
+/// Returns accepted datagrams and the total count observed during a receive attempt.
+public struct UltraGridCompatibilityReceiveResult: Sendable {
+    public var datagrams: [UltraGridCompatibilityDatagram]
+    public var receivedDatagramCount: Int
+    /// Datagrams that failed RTP or payload decoding (wrong key, junk traffic); reported as rejected media.
+    var rejectedDatagramCount = 0
+    var incrementalSummary: UltraGridIncrementalReceiveSummary?
+
+    public init(
+        datagrams: [UltraGridCompatibilityDatagram],
+        receivedDatagramCount: Int? = nil
+    ) {
+        self.datagrams = datagrams
+        self.receivedDatagramCount = receivedDatagramCount ?? datagrams.count
+        self.incrementalSummary = nil
+    }
+
+    init(
+        datagrams: [UltraGridCompatibilityDatagram],
+        receivedDatagramCount: Int,
+        rejectedDatagramCount: Int,
+        incrementalSummary: UltraGridIncrementalReceiveSummary?
+    ) {
+        self.datagrams = datagrams
+        self.receivedDatagramCount = receivedDatagramCount
+        self.rejectedDatagramCount = rejectedDatagramCount
+        self.incrementalSummary = incrementalSummary
+    }
 }

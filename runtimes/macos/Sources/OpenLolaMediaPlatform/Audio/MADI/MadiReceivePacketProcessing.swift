@@ -47,8 +47,14 @@ extension MadiReceiveEngine {
             streamID: packet.header.streamID,
             sequenceNumber: packet.header.sequenceNumber
         )
-        var pending = pendingDeadlines.pending(for: key)
-            ?? MadiReceivePendingDeadline(reference: packet.header)
+        var pending = try pendingDeadlines.pending(for: key)
+            ?? MadiReceivePendingDeadline(
+                reference: packet.header,
+                playoutFrame: Self.targetPlayoutFrame(
+                    senderFrameIndex: packet.header.senderFrameIndex,
+                    targetFrames: currentTargetFrames
+                )
+            )
         let insertResult: MadiReceivePendingInsertResult
         do {
             insertResult = try pending.insert(packet)
@@ -135,6 +141,9 @@ extension MadiReceiveEngine {
             _ = droppedBlock.sequenceNumber
             recordOverrun()
             return nil
+        case .droppedMisaligned:
+            metrics.droppedNetworkFragments += 1
+            return .droppedFull
         case .droppedFuture:
             recordFutureDrop()
             observeAdaptiveRxBuffer(
@@ -179,10 +188,14 @@ extension MadiReceiveEngine {
         }
         warmupComplete = true
 
+        let evictionsBefore = readyBlocks.lateEvictionCount
         if let block = readyBlocks.remove(playoutFrame: dueFrame) {
             metrics.renderedBlocks += 1
             updateMaximumBufferedBlocks()
             return .played(block)
+        }
+        if readyBlocks.lateEvictionCount != evictionsBefore {
+            recordLateDrop()
         }
 
         if let pending = removePendingDeadline(playoutFrame: dueFrame) {

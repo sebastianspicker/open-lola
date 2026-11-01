@@ -11,15 +11,19 @@ public struct JackTripCompatibilityReceiveResult: Codable, Equatable, Sendable {
     public var datagrams: [JackTripCompatibilityDatagram]
     public var stopControlDatagramCount: Int
     public var receivedDatagramCount: Int
+    /// Datagrams that did not decode as JackTrip audio (wrong header mode, junk traffic); nil in older JSON.
+    public var rejectedDatagramCount: Int?
 
     public init(
         datagrams: [JackTripCompatibilityDatagram],
         stopControlDatagramCount: Int = 0,
-        receivedDatagramCount: Int? = nil
+        receivedDatagramCount: Int? = nil,
+        rejectedDatagramCount: Int? = nil
     ) {
         self.datagrams = datagrams
         self.stopControlDatagramCount = stopControlDatagramCount
         self.receivedDatagramCount = receivedDatagramCount ?? datagrams.count
+        self.rejectedDatagramCount = rejectedDatagramCount
     }
 }
 
@@ -29,6 +33,7 @@ struct JackTripRunMediaResult: Sendable {
     var received: [JackTripCompatibilityDatagram]
     var receivedDatagramCount: Int
     var stopControlDatagramCount: Int
+    var rejectedDatagramCount = 0
     var expectedReceiveCount: Int
     var sink: ExternalConnectorMediaSinkReport?
 }

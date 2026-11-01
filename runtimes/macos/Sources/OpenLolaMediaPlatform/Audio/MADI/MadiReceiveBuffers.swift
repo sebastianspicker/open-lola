@@ -91,10 +91,13 @@ enum MadiReceiveReadyBlockStoreResult: Equatable {
     case droppedNewest
     case droppedOldest(MadiReceivePlayoutBlock)
     case droppedFuture
+    case droppedMisaligned
 }
 
 struct MadiReceivePendingDeadline: Sendable {
     var reference: UdpPcmV2PacketHeader
+    /// Playout frame fixed when the first fragment arrived; the adaptive target may change later.
+    var playoutFrame: UInt64
     var fragmentsByIndex: [UdpPcmV2Packet?]
     var receivedFragments = 0
 
@@ -117,8 +120,9 @@ struct MadiReceivePendingDeadline: Sendable {
         return missing
     }
 
-    init(reference: UdpPcmV2PacketHeader) {
+    init(reference: UdpPcmV2PacketHeader, playoutFrame: UInt64) {
         self.reference = reference
+        self.playoutFrame = playoutFrame
         self.fragmentsByIndex = Array(repeating: nil, count: Int(reference.fragmentCount))
     }
 

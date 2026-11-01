@@ -291,12 +291,17 @@ public struct VideoOutputRenderer: Equatable, Sendable {
     }
 
     private func keepsContinuity(_ packet: VideoTransportPacket) -> Bool {
-        guard pacingPolicy == .continuity,
-              let previous = queue.last(where: { $0.packet.streamID == packet.streamID })?
-                .packet.sequenceNumber ?? lastOutputSequenceNumberByStreamID[packet.streamID] else {
+        guard pacingPolicy == .continuity else {
             return true
         }
-        return packet.sequenceNumber == previous &+ 1
+        if let queued = queue.last(where: { $0.packet.streamID == packet.streamID })?.packet.sequenceNumber {
+            return packet.sequenceNumber == queued &+ 1
+        }
+        guard let previous = lastOutputSequenceNumberByStreamID[packet.streamID] else {
+            return true
+        }
+        // Nothing queued for this stream: resync on any newer frame instead of freezing after a lost one.
+        return videoFrameSequenceIsNewer(packet.sequenceNumber, than: previous)
     }
 }
 

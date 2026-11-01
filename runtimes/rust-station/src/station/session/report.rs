@@ -120,6 +120,7 @@ impl SessionResult {
         }
         object.insert("realtime_priority".into(), json!(self.realtime_priority));
         object.insert("cleanup_warnings".into(), json!(self.cleanup_warnings));
+        object.insert("skipped_controls".into(), json!(self.skipped_controls));
         value
     }
 }

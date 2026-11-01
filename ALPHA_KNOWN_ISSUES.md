@@ -36,6 +36,10 @@ it, and what to send us when something goes wrong.
   starting, the app checks that the other Mac is on the same subnet and answers
   pings without loss. If it is behind a router or a VPN, the app does not start
   and lists the reasons. Workaround: use the one-command-per-Mac recipe.
+- **SSH runs need a run folder without spaces.** The default folder under
+  Application Support has a space, so SSH mode refuses it before anything starts.
+  Workaround: choose a plan path in a folder that exists on both Macs, for example
+  `/Users/Shared/OpenLoLa/MacToMac`.
 - **Stop may not restore audio settings if a peer is slow.** Stop asks both
   peers, including peers started over SSH, to end their media, restore their
   audio device settings, and write a report marked "stopped by signal" (verdict

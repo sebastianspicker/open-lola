@@ -59,6 +59,8 @@ public struct JackTripCompatibilityMediaReport: ReportValidatingArtifact, Pretty
     public var transmittedDatagramCount: Int
     public var receivedDatagramCount: Int
     public var stopControlDatagramCount: Int
+    /// Datagrams that did not decode as JackTrip audio (wrong header mode, junk traffic); nil in older JSON.
+    public var rejectedDatagramCount: Int?
     public var redundancyRecoveredPacketCount: Int
     public var packetLossCount: Int
     public var duplicatePacketCount: Int
@@ -88,6 +90,7 @@ public struct JackTripCompatibilityMediaReport: ReportValidatingArtifact, Pretty
         transmittedDatagramCount = fields.transmittedDatagramCount
         receivedDatagramCount = fields.receivedDatagramCount
         stopControlDatagramCount = fields.stopControlDatagramCount
+        rejectedDatagramCount = fields.rejectedDatagramCount
         redundancyRecoveredPacketCount = fields.redundancyRecoveredPacketCount
         packetLossCount = fields.packetLossCount
         duplicatePacketCount = fields.duplicatePacketCount
@@ -179,6 +182,7 @@ public struct JackTripCompatibilityMediaReportFields: Sendable {
     public var transmittedDatagramCount = 0
     public var receivedDatagramCount = 0
     public var stopControlDatagramCount = 0
+    public var rejectedDatagramCount: Int?
     public var redundancyRecoveredPacketCount = 0
     public var packetLossCount = 0
     public var duplicatePacketCount = 0

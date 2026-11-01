@@ -1,31 +1,7 @@
 use super::{NativeFormat, V4l2Error, V4l2Result};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum YuvMatrix {
-    Bt601,
-    Bt709,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum YuvRange {
-    Limited,
-    Full,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct YuyvColorProfile {
-    pub matrix: YuvMatrix,
-    pub range: YuvRange,
-}
-
-impl Default for YuyvColorProfile {
-    fn default() -> Self {
-        Self {
-            matrix: YuvMatrix::Bt601,
-            range: YuvRange::Limited,
-        }
-    }
-}
+use crate::video::convert::{swap_red_blue, yuv_to_rgb};
+pub(super) use crate::video::convert::{YuvMatrix, YuvRange, YuyvColorProfile};
+use crate::video::jpeg::gray_to_rgb;
 
 fn copy_rows(source: &[u8], height: u32, row_bytes: usize, stride: usize) -> V4l2Result<Vec<u8>> {
     if stride < row_bytes {
@@ -75,11 +51,8 @@ pub(super) fn normalize_frame(
         return match decoded.mode.as_str() {
             "L" => {
                 // MJPG is negotiated as RGB24 regardless of JPEG component count.
-                let pixels = decoded
-                    .pixels
-                    .into_iter()
-                    .flat_map(|value| [value; 3])
-                    .collect();
+                let pixels = gray_to_rgb(&decoded.pixels, width, height)
+                    .map_err(|error| V4l2Error::Conversion(error.to_string()))?;
                 Ok((pixels, "RGB24".into()))
             }
             "RGB" => Ok((decoded.pixels, "RGB24".into())),
@@ -101,9 +74,7 @@ pub(super) fn normalize_frame(
         NativeFormat::Gray8 => Ok((packed, "Mono8".into())),
         NativeFormat::Bgr24 => {
             let mut rgb = packed;
-            for pixel in rgb.as_chunks_mut::<3>().0 {
-                pixel.swap(0, 2);
-            }
+            swap_red_blue(&mut rgb);
             Ok((rgb, "RGB24".into()))
         }
         NativeFormat::Yuyv => {
@@ -122,23 +93,6 @@ pub(super) fn normalize_frame(
         }
         NativeFormat::Mjpeg => unreachable!(),
     }
-}
-
-fn yuv_to_rgb(y: i32, u: i32, v: i32, profile: YuyvColorProfile) -> [u8; 3] {
-    let d = u - 128;
-    let e = v - 128;
-    let clamp = |value: i32| ((value + 128) >> 8).clamp(0, 255) as u8;
-    let (y_term, red_v, green_u, green_v, blue_u) = match (profile.range, profile.matrix) {
-        (YuvRange::Limited, YuvMatrix::Bt601) => (298 * (y - 16), 409, 100, 208, 516),
-        (YuvRange::Limited, YuvMatrix::Bt709) => (298 * (y - 16), 459, 55, 136, 541),
-        (YuvRange::Full, YuvMatrix::Bt601) => (256 * y, 359, 88, 183, 454),
-        (YuvRange::Full, YuvMatrix::Bt709) => (256 * y, 403, 48, 120, 475),
-    };
-    [
-        clamp(y_term + red_v * e),
-        clamp(y_term - green_u * d - green_v * e),
-        clamp(y_term + blue_u * d),
-    ]
 }
 
 /// Return the dequeued buffer even if validation/conversion fails.

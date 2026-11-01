@@ -6,6 +6,9 @@
 //! for neutral chroma, so Mono8 and RGB24 output agree on brightness.
 
 use super::modes::{MfOutput, MfSubtype};
+use crate::video::convert::{
+    clamp_scaled, rgb_luma, yuv_to_rgb as shared_yuv_to_rgb, YuyvColorProfile,
+};
 
 /// Geometry of one locked Media Foundation frame buffer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -215,30 +218,19 @@ fn yuy2_row_to_rgb(row: &[u8], frame: &mut Vec<u8>) {
     }
 }
 
-fn clamp_scaled(value: i32) -> u8 {
-    ((value + 128) >> 8).clamp(0, 255) as u8
-}
-
 /// BT.601 limited-range luma expanded to 0..=255.
 fn luma(y: &u8) -> u8 {
     clamp_scaled(298 * (i32::from(*y) - 16))
 }
 
-/// The weights the software camera uses for RGB to luma.
-fn rgb_luma(red: u8, green: u8, blue: u8) -> u8 {
-    ((77u32 * u32::from(red) + 150u32 * u32::from(green) + 29u32 * u32::from(blue)) >> 8) as u8
-}
-
 /// BT.601 limited-range YCbCr to RGB.
 fn yuv_to_rgb(y: u8, u: u8, v: u8) -> [u8; 3] {
-    let c = 298 * (i32::from(y) - 16);
-    let d = i32::from(u) - 128;
-    let e = i32::from(v) - 128;
-    [
-        clamp_scaled(c + 409 * e),
-        clamp_scaled(c - 100 * d - 208 * e),
-        clamp_scaled(c + 516 * d),
-    ]
+    shared_yuv_to_rgb(
+        i32::from(y),
+        i32::from(u),
+        i32::from(v),
+        YuyvColorProfile::default(),
+    )
 }
 
 #[cfg(test)]

@@ -143,18 +143,26 @@ private func loLaRawLinkNextDeadline(
 public struct LoLaBpfRawLinkReceiver: LoLaRawLinkReceiver {
     public var interfaceName: String
     public var timeoutSeconds: Int
+    public var peerIP: String
 
-    public init(interfaceName: String, timeoutSeconds: Int = 1) {
+    public init(interfaceName: String, timeoutSeconds: Int = 1, peerIP: String = "0.0.0.0") {
         self.interfaceName = interfaceName
         self.timeoutSeconds = timeoutSeconds
+        self.peerIP = peerIP
     }
 
     public func receive(maxFrames: Int) throws -> [Data] {
+        try receiveCountingSkipped(maxFrames: maxFrames).frames
+    }
+
+    /// Keeps only IPv4/UDP frames to or from the peer; other traffic on the link is counted, not retained.
+    public func receiveCountingSkipped(maxFrames: Int) throws -> (frames: [Data], skipped: Int) {
         let descriptor = try openBpfDescriptor()
         defer { close(descriptor) }
         try configureBpfDescriptor(descriptor, interfaceName: interfaceName)
         try configureNonBlockingRawLinkDescriptor(descriptor)
         var received: [Data] = []
+        var skipped = 0
         var buffer = [UInt8](repeating: 0, count: try bpfBufferLength(descriptor))
         let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, timeoutSeconds)))
         while received.count < maxFrames, deadline.hasTimeRemaining {
@@ -176,12 +184,15 @@ public struct LoLaBpfRawLinkReceiver: LoLaRawLinkReceiver {
                 )
                 continue
             }
-            received.append(contentsOf: try extractBpfPackets(Array(buffer.prefix(byteCount))))
+            let packets = try extractBpfPackets(Array(buffer.prefix(byteCount)))
+            let matching = packets.filter { LoLaCompatibilityWireFrame.isIPv4UDP($0, peer: peerIP) }
+            skipped += packets.count - matching.count
+            received.append(contentsOf: matching)
         }
         guard received.count >= maxFrames else {
             throw ExternalConnectorSessionError.receiveTimedOut
         }
-        return Array(received.prefix(maxFrames))
+        return (Array(received.prefix(maxFrames)), skipped)
     }
 }
 

@@ -263,14 +263,6 @@ impl AudioDatagramWriter {
     }
 }
 
-pub fn expected_audio_payload_size(
-    channels: u16,
-    bits_per_sample: u16,
-    frames_per_callback: u16,
-) -> usize {
-    channels as usize * frames_per_callback as usize * (bits_per_sample as usize / 8)
-}
-
 pub fn build_video_payloads(
     sequence: u32,
     payload: &[u8],
@@ -288,13 +280,6 @@ pub fn build_video_payloads(
     ));
     out.extend(fragments);
     out
-}
-
-pub fn parse_media_payload(data: &[u8]) -> Result<Option<Fragment>, MediaError> {
-    if parse_video_prelude(data).is_some() {
-        return Ok(None);
-    }
-    parse_fragment(data).map(Some)
 }
 
 #[cfg(test)]

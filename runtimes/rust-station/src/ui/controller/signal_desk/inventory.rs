@@ -47,7 +47,7 @@ fn audio_devices(backend: AudioBackend) -> InventoryState {
             Err(error) => InventoryState::Error(error.to_string()),
         },
         AudioBackend::PortAudioAsio => {
-            match load_portaudio(None).and_then(|library| library.devices()) {
+            match load_portaudio().and_then(|library| library.devices()) {
                 Ok(devices) => InventoryState::Available(
                     devices
                         .into_iter()
@@ -79,6 +79,8 @@ fn video_devices(backend: VideoBackend) -> InventoryState {
             Ok(devices) => InventoryState::Available(
                 devices
                     .into_iter()
+                    // Entries that failed to probe are not selectable devices.
+                    .filter(|device| device.error.is_none())
                     .map(|device| DeviceChoice {
                         id: device.device.clone(),
                         label: format!("{} · {}", device.device, device.card),

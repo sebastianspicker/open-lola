@@ -206,6 +206,9 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
             try requireNativeAppExecutionNonEmpty(macBSSH, "macBSSH")
             try requireNativeAppExecutionNonEmpty(sshExecutable, "sshExecutable")
             try requireNativeAppExecutionNonEmpty(scpExecutable, "scpExecutable")
+            try DirectPeerTwoPeerRunPathPolicy.validateSSHRunArtifactPath(
+                URL(fileURLWithPath: planPath).deletingLastPathComponent().path
+            )
         }
     }
 

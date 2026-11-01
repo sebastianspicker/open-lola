@@ -20,30 +20,6 @@ struct RealtimeAudioCapturedPayload: Sendable {
     var payload: Data
 }
 
-struct RealtimeAudioBufferListReader {
-    private let pointer: UnsafePointer<AudioBufferList>
-
-    var count: Int {
-        Int(pointer.pointee.mNumberBuffers)
-    }
-
-    init(_ pointer: UnsafePointer<AudioBufferList>) {
-        self.pointer = pointer
-    }
-
-    subscript(index: Int) -> AudioBuffer? {
-        guard index >= 0 && index < count,
-              let bufferOffset = MemoryLayout<AudioBufferList>.offset(of: \.mBuffers) else {
-            return nil
-        }
-        return UnsafeRawPointer(pointer)
-            .advanced(by: bufferOffset)
-            .advanced(by: index * MemoryLayout<AudioBuffer>.stride)
-            .assumingMemoryBound(to: AudioBuffer.self)
-            .pointee
-    }
-}
-
 struct RealtimeAudioPayloadCaptureRing: Sendable {
     private var blocks: [RealtimeAudioFrameBlock?]
     private var payloadStorage: [UInt8]
@@ -147,7 +123,7 @@ struct RealtimeAudioPayloadCaptureRing: Sendable {
     mutating func pushAudioBuffers(
         startFrame: UInt64,
         hostTimeNanoseconds: UInt64,
-        inputBuffers: RealtimeAudioBufferListReader
+        inputBuffers: ReadOnlyAudioBufferListPointer
     ) -> RealtimeAudioCapturePushResult {
         guard inputBuffers.count > 0 else {
             return invalidDrop()

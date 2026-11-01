@@ -10,9 +10,10 @@ use crate::config::{
     DEFAULT_VIDEO_PORT,
 };
 use crate::net::check_reachable;
+use crate::station::runtime::normalize_requested_stop;
 use crate::station::{
     find_emulation_mode, list_emulation_modes, run_emulation, run_multi_sid, run_reject_session,
-    run_session, save_session_profile, SessionOptions, SessionProfile,
+    run_session, save_session_profile, SessionOptions, SessionProfile, SessionRuntimeControl,
 };
 use crate::ui::{run_interactive_ui, StationUIController};
 use crate::video::{convert_path, BayerPattern, ConvertMode};
@@ -20,6 +21,7 @@ use crate::IDENTITY;
 use crate::VERSION;
 use std::path::PathBuf;
 
+use super::interrupt::{self, CancelWatcher};
 use super::notices;
 use super::operator::run_operator_command;
 
@@ -149,7 +151,7 @@ fn station_command(command: Commands) -> i32 {
     {
         eprintln!("{notice}");
     }
-    let result = if reject {
+    let mut result = if reject {
         run_reject_session(settings, timeout)
     } else {
         run_station_session(
@@ -169,12 +171,16 @@ fn station_command(command: Commands) -> i32 {
             catalog,
         )
     };
+    let signal = interrupt::signal();
+    if signal.is_some() {
+        normalize_requested_stop(&mut result, true);
+    }
     println!(
         "{}",
         serde_json::to_string_pretty(&result.to_json()).unwrap()
     );
     if result.ok {
-        0
+        signal.map_or(0, interrupt::exit_code_for)
     } else {
         eprintln!(
             "station failed: {}",
@@ -251,6 +257,10 @@ fn run_station_session(
     options.precheck_reachable = precheck_reachable.then_some(true);
     options.reachability_timeout_ms = reachable_timeout_ms;
     options.catalog_path = catalog;
+    interrupt::install();
+    let control = SessionRuntimeControl::default();
+    options.runtime_control = Some(control.clone());
+    let _watcher = CancelWatcher::spawn(control, interrupt::interrupted);
     run_session(settings, timeout, options)
 }
 
@@ -314,7 +324,8 @@ fn ui_command(command: Commands) -> i32 {
             audio_backend,
         );
     }
-    match run_interactive_ui() {
+    interrupt::install();
+    match run_interactive_ui(interrupt::interrupted) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("{error}");
@@ -489,4 +500,5 @@ fn parse_session_ids(value: &str) -> Option<Vec<i64>> {
         .collect::<Result<Vec<_>, _>>()
         .ok()
         .filter(|ids| !ids.is_empty())
+        .filter(|ids| ids.iter().all(|id| u32::try_from(*id).is_ok()))
 }

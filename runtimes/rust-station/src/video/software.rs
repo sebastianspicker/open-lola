@@ -1,5 +1,6 @@
 //! Software camera: synthetic frames for CI / no-hardware path.
 
+use super::convert::rgb_luma;
 use crate::config::CameraMode;
 
 /// Approximate SMPTE / EBU color-bar primaries (RGB 8-bit). Manual §4.12.
@@ -29,9 +30,7 @@ pub fn generate_smpte_bars(width: u32, height: u32, mono8: bool) -> Result<Vec<u
             let (r, g, b) = SMPTE_BARS_RGB[bar];
             if mono8 {
                 // Rec.601-ish luminance
-                out[(y * width + x) as usize] =
-                    ((77u32 * u32::from(r) + 150u32 * u32::from(g) + 29u32 * u32::from(b)) >> 8)
-                        as u8;
+                out[(y * width + x) as usize] = rgb_luma(r, g, b);
             } else {
                 let i = ((y * width + x) * 3) as usize;
                 out[i] = r;

@@ -11,7 +11,8 @@ use crate::station::bounded::push_bounded;
 #[cfg(any(feature = "gui", test))]
 use crate::station::session::VideoPreviewUpdate;
 use crate::station::session::{
-    run_session, SessionOptions, SessionPhase, SessionResult, SessionRuntimeControl,
+    check_queued_control, run_session, SessionOptions, SessionPhase, SessionResult,
+    SessionRuntimeControl,
 };
 use crate::station::sync::lock_unpoison;
 pub use crate::station::SessionError;
@@ -142,6 +143,7 @@ struct RuntimeInner {
     snapshot: SessionSnapshot,
     worker: Option<JoinHandle<()>>,
     session_control: Option<SessionRuntimeControl>,
+    control_settings: Option<StationSettings>,
 }
 
 #[derive(Clone)]
@@ -168,6 +170,7 @@ impl SessionRuntime {
                     snapshot: SessionSnapshot::default(),
                     worker: None,
                     session_control: None,
+                    control_settings: None,
                 }),
                 Condvar::new(),
             )),
@@ -269,6 +272,7 @@ impl SessionRuntime {
         {
             let mut inner = lock_unpoison(lock);
             inner.session_control = Some(session_control);
+            inner.control_settings = Some(config.settings.clone());
         }
         let worker = thread::Builder::new()
             .name("station-runtime".into())
@@ -336,6 +340,10 @@ impl SessionHandle {
             .session_control
             .clone()
             .ok_or(SessionError::NotActive)?;
+        if let Some(settings) = inner.control_settings.as_ref() {
+            check_queued_control(settings, &message)
+                .map_err(|error| SessionError::Configuration(error.to_string()))?;
+        }
         control
             .send(message.clone())
             .map_err(SessionError::Transport)?;
@@ -488,6 +496,9 @@ fn populate_session_evidence(snapshot: &mut SessionSnapshot, result: &SessionRes
     snapshot
         .warnings
         .extend(result.cleanup_warnings.iter().cloned());
+    snapshot
+        .warnings
+        .extend(result.skipped_controls.iter().cloned());
     extend_network_counters(snapshot, result);
     populate_backend_evidence(snapshot, result);
 }
@@ -530,7 +541,7 @@ fn populate_backend_evidence(snapshot: &mut SessionSnapshot, result: &SessionRes
     }
 }
 
-fn reported_audio_backend(name: &str) -> Option<AudioBackend> {
+pub(crate) fn reported_audio_backend(name: &str) -> Option<AudioBackend> {
     if is_diagnostic_backend(name) {
         return Some(AudioBackend::Diagnostic);
     }
@@ -543,7 +554,7 @@ fn reported_audio_backend(name: &str) -> Option<AudioBackend> {
 
 /// Map the camera backend name a session reports (`SessionCameraBackend::name`) back to
 /// its kind; an unrecognised name is not guessed at.
-fn reported_video_backend(name: &str) -> Option<VideoBackend> {
+pub(crate) fn reported_video_backend(name: &str) -> Option<VideoBackend> {
     if is_diagnostic_backend(name) {
         return Some(VideoBackend::Diagnostic);
     }

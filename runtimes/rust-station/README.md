@@ -129,12 +129,13 @@ every failed result has a non-empty `error`.
 
 ### Stopping a run
 
-Ctrl-C (SIGINT) or SIGTERM stops a `connect` or `listen` run cleanly. The
+Ctrl-C (SIGINT) or SIGTERM stops a `connect`, `listen` or `station` run cleanly. The
 session sends DISCONNECT and still prints the result JSON with `ok: true`,
 `stopped_by`, and a "stopped by operator" note. The exit status is 130 for
 SIGINT and 143 for SIGTERM (130 for Windows console events). A run that had
 already failed keeps its failure and exits 1. A second signal exits
-immediately.
+immediately. Closing the GUI window stops a live session the same way, waiting
+up to 2 seconds for the disconnect and for recordings to be finalized.
 
 When the peer ends the session with DISCONNECT, that is a normal end too:
 `ok: true`, a "peer disconnected" note, and exit status 0.

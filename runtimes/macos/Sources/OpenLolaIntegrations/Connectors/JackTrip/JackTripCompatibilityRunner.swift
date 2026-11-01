@@ -282,6 +282,7 @@ public enum JackTripCompatibilityRunner {
             received: receiveResult.datagrams,
             receivedDatagramCount: receiveResult.receivedDatagramCount,
             stopControlDatagramCount: receiveResult.stopControlDatagramCount,
+            rejectedDatagramCount: receiveResult.rejectedDatagramCount ?? 0,
             expectedReceiveCount: expectedReceiveCount,
             sink: receiveAudioSink?.didConsumeDatagrams == true ? receiveAudioSink?.report() : nil
         )
@@ -363,6 +364,7 @@ public enum JackTripCompatibilityRunner {
         fields.transmittedDatagramCount = context.media.transmitted
         fields.receivedDatagramCount = context.media.receivedDatagramCount
         fields.stopControlDatagramCount = context.media.stopControlDatagramCount
+        fields.rejectedDatagramCount = context.media.rejectedDatagramCount
         fields.redundancyRecoveredPacketCount = context.analysis.redundancyRecovered
         fields.packetLossCount = context.runtimeError == nil
             ? context.analysis.missing

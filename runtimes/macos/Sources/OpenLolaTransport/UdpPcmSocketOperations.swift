@@ -344,10 +344,16 @@ private func udpReceiveErrorMeansNoDatagram(_ savedErrno: Int32) -> Bool {
 }
 
 package func receiveDatagram(socket: Int32, byteCount: Int) throws -> Data {
+    try receiveDatagramReportingOversize(socket: socket, byteCount: byteCount).data
+}
+
+/// Blocking receive that reads one byte past `byteCount` so a longer datagram is reported as oversize;
+/// `data` is then the first `byteCount` bytes.
+package func receiveDatagramReportingOversize(socket: Int32, byteCount: Int) throws -> (data: Data, isOversize: Bool) {
     try validateUdpReceiveByteCount(byteCount)
-    var buffer = [UInt8](repeating: 0, count: byteCount)
+    var buffer = [UInt8](repeating: 0, count: byteCount + 1)
     let received = buffer.withUnsafeMutableBytes { bytes in
-        recv(socket, bytes.baseAddress, byteCount, 0)
+        recv(socket, bytes.baseAddress, byteCount + 1, 0)
     }
     let savedErrno = errno
     guard received >= 0 else {
@@ -356,7 +362,7 @@ package func receiveDatagram(socket: Int32, byteCount: Int) throws -> Data {
     guard received > 0 else {
         throw UdpPcmRouteProbeError.receiveFailed(EINVAL)
     }
-    return Data(buffer.prefix(received))
+    return (Data(buffer.prefix(min(received, byteCount))), received > byteCount)
 }
 
 private func ipv4Address(_ host: String) throws -> in_addr {
@@ -383,24 +389,40 @@ package func receiveDatagramIfAvailable(
     buffer: inout [UInt8],
     includingEmptyDatagrams: Bool = false
 ) throws -> Data? {
+    try receiveDatagramReportingOversize(
+        socket: socket,
+        byteCount: byteCount,
+        buffer: &buffer,
+        includingEmptyDatagrams: includingEmptyDatagrams
+    ).data
+}
+
+/// Reads one byte past `byteCount` so a longer datagram is reported as oversize instead of
+/// looking like a complete packet; `data` is then the first `byteCount` bytes.
+package func receiveDatagramReportingOversize(
+    socket: Int32,
+    byteCount: Int,
+    buffer: inout [UInt8],
+    includingEmptyDatagrams: Bool = false
+) throws -> (data: Data?, isOversize: Bool) {
     try validateUdpReceiveByteCount(byteCount)
-    if buffer.count < byteCount {
-        buffer = [UInt8](repeating: 0, count: byteCount)
+    if buffer.count <= byteCount {
+        buffer = [UInt8](repeating: 0, count: byteCount + 1)
     }
     let received = buffer.withUnsafeMutableBytes { bytes in
-        recv(socket, bytes.baseAddress, byteCount, MSG_DONTWAIT)
+        recv(socket, bytes.baseAddress, byteCount + 1, MSG_DONTWAIT)
     }
     let savedErrno = errno
     if received < 0 {
         if udpReceiveErrorMeansNoDatagram(savedErrno) {
-            return nil
+            return (nil, false)
         }
         throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
     }
     guard received > 0 || includingEmptyDatagrams else {
-        return nil
+        return (nil, false)
     }
-    return Data(buffer.prefix(received))
+    return (Data(buffer.prefix(min(received, byteCount))), received > byteCount)
 }
 
 package struct UdpDatagramWithSource: Sendable {

@@ -207,22 +207,34 @@ struct UltraGridIncrementalReceiveSummary: Sendable {
 /// only sequence-number sets and the currently assembling raw-video frame.
 final class UltraGridIncrementalReceiveObserver: @unchecked Sendable {
     private struct SequenceState {
-        var seen: Set<UInt16> = []
+        // Duplicates are only detected inside this sliding window of extended sequence numbers.
+        static let duplicateWindow: Int64 = 4_096
+        var recent: Set<Int64> = []
+        var distinctCount = 0
+        var lowestExtended: Int64?
+        var highestExtended: Int64?
         var ssrcs: Set<UInt32> = []
         var duplicateCount = 0
         var outOfOrderCount = 0
         var timestampRegressionCount = 0
         var jitterLikeDeltaChangeCount = 0
-        var previousSequence: UInt16?
+        var previousExtended: Int64?
         var previousTimestamp: UInt32?
         var expectedTimestampDelta: UInt32?
 
         mutating func record(_ header: RTPPacketHeader) {
-            if !seen.insert(header.sequenceNumber).inserted {
+            var highest = highestExtended ?? Int64(header.sequenceNumber)
+            let extended = UltraGridCompatibilityRunner.extendSequenceNumber(header.sequenceNumber, highest: &highest)
+            highestExtended = highest
+            lowestExtended = min(lowestExtended ?? extended, extended)
+            if !recent.insert(extended).inserted {
                 duplicateCount += 1
+            } else {
+                distinctCount += 1
+                if recent.count > 2 * Int(Self.duplicateWindow) { recent = recent.filter { $0 > highest - Self.duplicateWindow } }
             }
             ssrcs.insert(header.ssrc)
-            if let previousSequence, header.sequenceNumber < previousSequence {
+            if let previousExtended, extended < previousExtended {
                 outOfOrderCount += 1
             }
             if let previousTimestamp {
@@ -239,13 +251,13 @@ final class UltraGridIncrementalReceiveObserver: @unchecked Sendable {
                     }
                 }
             }
-            previousSequence = header.sequenceNumber
+            previousExtended = extended
             previousTimestamp = header.timestamp
         }
 
         var lostCount: Int {
-            guard let minimum = seen.min(), let maximum = seen.max() else { return 0 }
-            return max(0, Int(maximum) - Int(minimum) + 1 - seen.count)
+            guard let minimum = lowestExtended, let maximum = highestExtended else { return 0 }
+            return max(0, Int(maximum - minimum) + 1 - distinctCount)
         }
     }
 

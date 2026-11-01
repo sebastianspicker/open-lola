@@ -176,10 +176,70 @@ fn green_pixel(
 
 pub fn bgr_to_rgb(pixels: &[u8]) -> Vec<u8> {
     let mut out = pixels.to_vec();
-    for chunk in out.as_chunks_mut::<3>().0 {
+    swap_red_blue(&mut out);
+    out
+}
+
+/// Swaps bytes 0 and 2 of every complete 3-byte pixel (BGR <-> RGB).
+pub(crate) fn swap_red_blue(pixels: &mut [u8]) {
+    for chunk in pixels.as_chunks_mut::<3>().0 {
         chunk.swap(0, 2);
     }
-    out
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // chosen from V4L2 colour metadata
+pub(crate) enum YuvMatrix {
+    Bt601,
+    Bt709,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // chosen from V4L2 colour metadata
+pub(crate) enum YuvRange {
+    Limited,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct YuyvColorProfile {
+    pub matrix: YuvMatrix,
+    pub range: YuvRange,
+}
+
+impl Default for YuyvColorProfile {
+    fn default() -> Self {
+        Self {
+            matrix: YuvMatrix::Bt601,
+            range: YuvRange::Limited,
+        }
+    }
+}
+
+/// Rounds a value scaled by 256 back to 0..=255.
+pub(crate) fn clamp_scaled(value: i32) -> u8 {
+    ((value + 128) >> 8).clamp(0, 255) as u8
+}
+
+/// The weights the software camera uses for RGB to luma.
+pub(crate) fn rgb_luma(red: u8, green: u8, blue: u8) -> u8 {
+    ((77u32 * u32::from(red) + 150u32 * u32::from(green) + 29u32 * u32::from(blue)) >> 8) as u8
+}
+
+pub(crate) fn yuv_to_rgb(y: i32, u: i32, v: i32, profile: YuyvColorProfile) -> [u8; 3] {
+    let d = u - 128;
+    let e = v - 128;
+    let (y_term, red_v, green_u, green_v, blue_u) = match (profile.range, profile.matrix) {
+        (YuvRange::Limited, YuvMatrix::Bt601) => (298 * (y - 16), 409, 100, 208, 516),
+        (YuvRange::Limited, YuvMatrix::Bt709) => (298 * (y - 16), 459, 55, 136, 541),
+        (YuvRange::Full, YuvMatrix::Bt601) => (256 * y, 359, 88, 183, 454),
+        (YuvRange::Full, YuvMatrix::Bt709) => (256 * y, 403, 48, 120, 475),
+    };
+    [
+        clamp_scaled(y_term + red_v * e),
+        clamp_scaled(y_term - green_u * d - green_v * e),
+        clamp_scaled(y_term + blue_u * d),
+    ]
 }
 
 /// Convert a single image file according to mode; writes into out_dir.

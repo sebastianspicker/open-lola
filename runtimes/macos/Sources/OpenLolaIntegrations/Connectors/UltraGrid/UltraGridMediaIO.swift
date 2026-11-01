@@ -101,31 +101,6 @@ public struct UltraGridMediaReceiveRequest: Sendable {
         self.runUntilDeadline = runUntilDeadline
     }
 }
-/// Returns accepted datagrams and the total count observed during a receive attempt.
-public struct UltraGridCompatibilityReceiveResult: Sendable {
-    public var datagrams: [UltraGridCompatibilityDatagram]
-    public var receivedDatagramCount: Int
-    var incrementalSummary: UltraGridIncrementalReceiveSummary?
-
-    public init(
-        datagrams: [UltraGridCompatibilityDatagram],
-        receivedDatagramCount: Int? = nil
-    ) {
-        self.datagrams = datagrams
-        self.receivedDatagramCount = receivedDatagramCount ?? datagrams.count
-        self.incrementalSummary = nil
-    }
-
-    init(
-        datagrams: [UltraGridCompatibilityDatagram],
-        receivedDatagramCount: Int,
-        incrementalSummary: UltraGridIncrementalReceiveSummary?
-    ) {
-        self.datagrams = datagrams
-        self.receivedDatagramCount = receivedDatagramCount
-        self.incrementalSummary = incrementalSummary
-    }
-}
 /// Distinguishes attempted datagrams from those successfully emitted by a transmit attempt.
 public struct UltraGridCompatibilityTransmitResult: Sendable {
     public var successfulDatagramCount: Int
@@ -328,6 +303,7 @@ struct UltraGridSocketReceiveEvidenceLedger {
     let evidenceLimit: Int
     private let observer: UltraGridIncrementalReceiveObserver?
     private(set) var receivedDatagramCount = 0
+    var rejectedDatagramCount = 0
     private(set) var evidence: [UltraGridCompatibilityDatagram] = []
 
     init(
@@ -575,12 +551,18 @@ public struct UltraGridSocketMediaReceiver: Sendable, UltraGridCompatibilityMedi
             guard request.peer == "0.0.0.0" || datagram.host == request.peer else {
                 continue
             }
-            let rtp = try RTPPacket.decode(datagram.data)
-            _ = try UltraGridCompatibility.decode(
-                rtp,
-                registry: request.payloadRegistry,
-                encryptionConfiguration: request.encryptionConfiguration
-            )
+            let rtp: RTPPacket
+            do {
+                rtp = try RTPPacket.decode(datagram.data)
+                _ = try UltraGridCompatibility.decode(
+                    rtp,
+                    registry: request.payloadRegistry,
+                    encryptionConfiguration: request.encryptionConfiguration
+                )
+            } catch {
+                ledger.rejectedDatagramCount += 1
+                continue
+            }
             ledger.record(UltraGridCompatibilityDatagram(
                 stream: request.stream,
                 sourceHost: datagram.host,

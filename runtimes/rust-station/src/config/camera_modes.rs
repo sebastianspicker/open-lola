@@ -1,11 +1,8 @@
 //! Parse LoLa-compatible camera mode catalog lines (CAMERAFILES/*.ini).
 
 use crate::protocol::{MAX_DIMENSION_PIXELS, MAX_FRAME_RATE};
-use regex::Regex;
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::sync::OnceLock;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -47,13 +44,50 @@ impl CameraMode {
     }
 }
 
-fn mode_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(
-            r"^(?P<id>\d{3})-(?P<vendor>[A-Za-z0-9]+)-(?P<model>[A-Za-z0-9_]+)-(?P<width>\d+)x(?P<height>\d+)-(?P<format>Mono8|RGB24)-Fps(?P<fps>\d+)\s*$",
-        )
-        .expect("mode regex")
+struct ModeFields<'a> {
+    id: &'a str,
+    vendor: &'a str,
+    model: &'a str,
+    width: &'a str,
+    height: &'a str,
+    format: &'a str,
+    fps: &'a str,
+}
+
+/// Splits `NNN-Vendor-Model-WxH-(Mono8|RGB24)-FpsN`; vendor and model contain no `-`.
+fn split_mode_line(s: &str) -> Option<ModeFields<'_>> {
+    let mut parts = s.splitn(6, '-');
+    let (id, vendor, model, size, format, fps) = (
+        parts.next()?,
+        parts.next()?,
+        parts.next()?,
+        parts.next()?,
+        parts.next()?,
+        parts.next()?.strip_prefix("Fps")?,
+    );
+    let (width, height) = size.split_once('x')?;
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    let word = |t: &str, extra: bool| {
+        !t.is_empty()
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || (extra && b == b'_'))
+    };
+    let valid = id.len() == 3
+        && digits(id)
+        && word(vendor, false)
+        && word(model, true)
+        && digits(width)
+        && digits(height)
+        && matches!(format, "Mono8" | "RGB24")
+        && digits(fps);
+    valid.then_some(ModeFields {
+        id,
+        vendor,
+        model,
+        width,
+        height,
+        format,
+        fps,
     })
 }
 
@@ -62,19 +96,17 @@ pub fn parse_mode_line(line: &str) -> Result<Option<CameraMode>, CatalogError> {
     if s.is_empty() || s.starts_with('#') || s.starts_with(';') {
         return Ok(None);
     }
-    let m = mode_re()
-        .captures(s)
-        .ok_or_else(|| CatalogError::InvalidLine(line.to_string()))?;
-    let width = parse_catalog_number(&m["width"], "width", s, MAX_DIMENSION_PIXELS)?;
-    let height = parse_catalog_number(&m["height"], "height", s, MAX_DIMENSION_PIXELS)?;
-    let max_fps = parse_catalog_number(&m["fps"], "fps", s, MAX_FRAME_RATE)?;
+    let m = split_mode_line(s).ok_or_else(|| CatalogError::InvalidLine(line.to_string()))?;
+    let width = parse_catalog_number(m.width, "width", s, MAX_DIMENSION_PIXELS)?;
+    let height = parse_catalog_number(m.height, "height", s, MAX_DIMENSION_PIXELS)?;
+    let max_fps = parse_catalog_number(m.fps, "fps", s, MAX_FRAME_RATE)?;
     Ok(Some(CameraMode {
-        mode_id: m["id"].to_string(),
-        vendor: m["vendor"].to_string(),
-        model: m["model"].to_string(),
+        mode_id: m.id.to_string(),
+        vendor: m.vendor.to_string(),
+        model: m.model.to_string(),
         width,
         height,
-        pixel_format: m["format"].to_string(),
+        pixel_format: m.format.to_string(),
         max_fps,
         raw_line: s.to_string(),
     }))
@@ -117,48 +149,4 @@ pub fn load_camera_modes(path: impl AsRef<Path>) -> Result<Vec<CameraMode>, Cata
 
 pub fn find_mode<'a>(modes: &'a [CameraMode], mode_id: &str) -> Option<&'a CameraMode> {
     modes.iter().find(|m| m.mode_id == mode_id)
-}
-
-pub fn load_camera_catalogs(directory: impl AsRef<Path>) -> BTreeMap<String, Vec<CameraMode>> {
-    let d = directory.as_ref();
-    let mut catalogs = BTreeMap::new();
-    if !d.is_dir() {
-        return catalogs;
-    }
-    let mut paths: Vec<_> = match fs::read_dir(d) {
-        Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| e.path()).collect(),
-        Err(_) => return catalogs,
-    };
-    paths.sort();
-    for path in paths {
-        if path.extension().and_then(|e| e.to_str()) != Some("ini") {
-            continue;
-        }
-        // Skip colors-style files that are not mode catalogs
-        if let Ok(modes) = load_camera_modes(&path) {
-            if modes.is_empty() {
-                continue;
-            }
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                catalogs.insert(stem.to_string(), modes);
-            }
-        }
-    }
-    catalogs
-}
-
-pub fn find_mode_across<'a>(
-    catalogs: &'a BTreeMap<String, Vec<CameraMode>>,
-    mode_id: &str,
-) -> Option<&'a CameraMode> {
-    for modes in catalogs.values() {
-        if let Some(m) = find_mode(modes, mode_id) {
-            return Some(m);
-        }
-    }
-    None
-}
-
-pub fn shipped_camera_catalogs() -> BTreeMap<String, Vec<CameraMode>> {
-    load_camera_catalogs(crate::shipped_camera_modes_dir())
 }

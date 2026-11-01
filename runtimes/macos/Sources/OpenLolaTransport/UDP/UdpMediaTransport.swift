@@ -14,12 +14,17 @@ public final class UdpMediaTransport: @unchecked Sendable {
     public var metrics: UdpMediaMetrics {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return metricsState
+        var snapshot = metricsState
+        snapshot.packetizationDuration = packetizationWindow.summary
+        snapshot.depacketizationDuration = depacketizationWindow.summary
+        return snapshot
     }
 
     let descriptor: Int32
     let stateLock = NSLock()
     private var metricsState = UdpMediaMetrics()
+    private var packetizationWindow = PerformanceCounterWindow()
+    private var depacketizationWindow = PerformanceCounterWindow()
     private var nextSequenceByStream: [UdpMediaSequenceKey: UInt64] = [:]
     private var recentSequencesByStream: [UdpMediaSequenceKey: UdpMediaRecentSequences] = [:]
     private var receiveStreamOrder: [UdpMediaSequenceKey] = []
@@ -152,7 +157,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
             let encodingStart = DispatchTime.now().uptimeNanoseconds
             packet.encodePrevalidated(into: &sendScratch)
             let encodingDuration = mediaTransportElapsedMicroseconds(since: encodingStart)
-            metricsState.packetizationDuration.record(validationDuration + encodingDuration)
+            packetizationWindow.record(validationDuration + encodingDuration)
             let result = try trySendConnectedDatagram(
                 sendScratch,
                 socket: descriptor,
@@ -187,7 +192,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
                 mode: mode,
                 into: &sendScratch
             )
-            metricsState.packetizationDuration.record(
+            packetizationWindow.record(
                 mediaTransportElapsedMicroseconds(since: start)
             )
             let result = try trySendConnectedDatagram(
@@ -210,7 +215,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
             guard cursor.encodeNext(into: &sendScratch) else {
                 return nil
             }
-            metricsState.packetizationDuration.record(
+            packetizationWindow.record(
                 mediaTransportElapsedMicroseconds(since: start)
             )
             let result = try trySendConnectedDatagram(
@@ -254,7 +259,18 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     public func receiveDecoded(maxByteCount: Int) throws -> UdpMediaDecodedPacket {
         let socket = try openSocketDescriptor()
-        let data = try receiveDatagram(socket: socket, byteCount: maxByteCount)
+        var received = try receiveDatagramReportingOversize(socket: socket, byteCount: maxByteCount)
+        var skipped = 0
+        while received.isOversize {
+            try requireSocketOpenAfterBlockingOperation()
+            recordOversizeReceived()
+            skipped += 1
+            guard skipped < Self.maximumOversizeSkipsPerReceive else {
+                throw UdpPcmRouteProbeError.receiveFailed(EAGAIN)
+            }
+            received = try receiveDatagramReportingOversize(socket: socket, byteCount: maxByteCount)
+        }
+        let data = received.data
         try requireSocketOpenAfterBlockingOperation()
         let receivedAt = DispatchTime.now().uptimeNanoseconds
         return try decodeReceived(data, receivedAt: receivedAt)
@@ -265,19 +281,32 @@ public final class UdpMediaTransport: @unchecked Sendable {
     }
 
     public func tryReceiveDecoded(maxByteCount: Int) throws -> UdpMediaDecodedPacket? {
-        let data = try withOpenSocketLock {
-            try receiveDatagramIfAvailable(
+        var received = try receiveDatagramOrOversize(maxByteCount: maxByteCount)
+        var skipped = 0
+        while received.isOversize {
+            recordOversizeReceived()
+            skipped += 1
+            guard skipped < Self.maximumOversizeSkipsPerReceive else {
+                return nil
+            }
+            received = try receiveDatagramOrOversize(maxByteCount: maxByteCount)
+        }
+        guard let data = received.data else {
+            return nil
+        }
+        let receivedAt = DispatchTime.now().uptimeNanoseconds
+        return try decodeReceived(data, receivedAt: receivedAt)
+    }
+
+    private func receiveDatagramOrOversize(maxByteCount: Int) throws -> (data: Data?, isOversize: Bool) {
+        try withOpenSocketLock {
+            try receiveDatagramReportingOversize(
                 socket: descriptor,
                 byteCount: maxByteCount,
                 buffer: &receiveScratch,
                 includingEmptyDatagrams: true
             )
         }
-        guard let data else {
-            return nil
-        }
-        let receivedAt = DispatchTime.now().uptimeNanoseconds
-        return try decodeReceived(data, receivedAt: receivedAt)
     }
 
     public func tryReceiveRawDatagram(maxByteCount: Int) throws -> Data? {
@@ -361,7 +390,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
     ) {
         stateLock.lock()
         defer { stateLock.unlock() }
-        metricsState.depacketizationDuration.record(depacketizationDurationMicroseconds)
+        depacketizationWindow.record(depacketizationDurationMicroseconds)
         metricsState.packetsReceived = saturatingOpenLolaCounterSum(metricsState.packetsReceived, 1)
         metricsState.bytesReceived = saturatingOpenLolaCounterSum(metricsState.bytesReceived, byteCount)
         let key = UdpMediaSequenceKey(
@@ -412,6 +441,22 @@ public final class UdpMediaTransport: @unchecked Sendable {
     private func recordMalformedReceived() {
         stateLock.lock()
         metricsState.malformedPackets = saturatingOpenLolaCounterSum(metricsState.malformedPackets, 1)
+        stateLock.unlock()
+    }
+
+    /// Counters only. Prefer this for periodic reads: `metrics` also sorts both duration windows while holding the lock.
+    public var counters: UdpMediaMetrics {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return metricsState
+    }
+
+    /// Oversize datagrams dropped in one receive call before it gives up, so a flood cannot pin the caller.
+    static let maximumOversizeSkipsPerReceive = 64
+
+    private func recordOversizeReceived() {
+        stateLock.lock()
+        metricsState.oversizeDatagrams = saturatingOpenLolaCounterSum(metricsState.oversizeDatagrams ?? 0, 1)
         stateLock.unlock()
     }
 

@@ -236,6 +236,7 @@ public enum RxBufferBenchmarkRunner {
             profile: policy,
             targetFramesOverTime: targets,
             targetChangeEvents: controller.targetChangeEvents,
+            targetChangesInsideAudioCallback: controller.snapshot.targetChangesInsideAudioCallback,
             impairmentSummary: result.summary
         )
     }

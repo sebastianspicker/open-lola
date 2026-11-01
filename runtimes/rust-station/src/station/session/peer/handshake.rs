@@ -9,6 +9,7 @@ use crate::net::Udp;
 use crate::protocol::{
     decode_mesg, parse_quickconn_fields, MediaSettings, Mesg, ProtocolError, MESG_QUICKCONN,
 };
+use crate::station::bounded::push_bounded;
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
 use serde_json::Value;
@@ -17,6 +18,14 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 const VIDEO_FIELDS: &[&str] = &["FPS", "BPP", "X", "Y", "COMP", "BAYER"];
+
+pub(super) fn record_received(shared: &Arc<Mutex<SessionResult>>, name: &str) {
+    push_bounded(&mut lock_unpoison(shared).messages_received, name.into());
+}
+
+pub(super) fn record_sent(shared: &Arc<Mutex<SessionResult>>, name: &str) {
+    push_bounded(&mut lock_unpoison(shared).messages_sent, name.into());
+}
 
 /// Whether the session carries video, i.e. whether video fields in QUICKCONN
 /// are binding.
@@ -92,8 +101,14 @@ pub(super) fn pump_peer_control_from(
                 let Ok(message) = decode_mesg(&data) else {
                     continue;
                 };
-                if validate_incoming_control(&message, sender, settings, Some(expected_sender))
-                    .is_err()
+                if validate_incoming_control(
+                    &message,
+                    sender,
+                    settings,
+                    Some(expected_sender),
+                    true,
+                )
+                .is_err()
                 {
                     continue;
                 }

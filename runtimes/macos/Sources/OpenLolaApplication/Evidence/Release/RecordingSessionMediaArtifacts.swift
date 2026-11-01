@@ -12,17 +12,21 @@ public struct RecordingCapturedAudio: Equatable, Sendable {
     public var callbackP99Microseconds: Double?
     public var callbackMaxMicroseconds: Double?
     public var underruns: Int
+    /// Callbacks whose buffer held a different frame count than requested.
+    public var frameCountMismatches: Int
 
     public init(
         data: Data,
         callbackP99Microseconds: Double? = nil,
         callbackMaxMicroseconds: Double? = nil,
-        underruns: Int = 0
+        underruns: Int = 0,
+        frameCountMismatches: Int = 0
     ) {
         self.data = data
         self.callbackP99Microseconds = callbackP99Microseconds
         self.callbackMaxMicroseconds = callbackMaxMicroseconds
         self.underruns = underruns
+        self.frameCountMismatches = frameCountMismatches
     }
 }
 
@@ -30,10 +34,23 @@ public struct RecordingCapturedAudio: Equatable, Sendable {
 public struct RecordingCapturedVideo: Equatable, Sendable {
     public var rawFrameData: Data
     public var frameIndex: [RecordingVideoFrameIndexEntry]
+    /// Frames captured before older ones were dropped; nil when unknown.
+    public var framesCaptured: Int?
 
-    public init(rawFrameData: Data, frameIndex: [RecordingVideoFrameIndexEntry]) {
+    public init(rawFrameData: Data, frameIndex: [RecordingVideoFrameIndexEntry], framesCaptured: Int? = nil) {
         self.rawFrameData = rawFrameData
         self.frameIndex = frameIndex
+        self.framesCaptured = framesCaptured
+    }
+}
+
+extension RecordingCapturedVideo {
+    /// A plain note when older frames were dropped, so the take is not reported as complete.
+    var truncationNote: String? {
+        guard let framesCaptured, framesCaptured > frameIndex.count else {
+            return nil
+        }
+        return "partial video: kept only the last \(frameIndex.count) of \(framesCaptured) video frames"
     }
 }
 
@@ -175,7 +192,7 @@ data: Data((
         guard capture.mode == .on else {
             return .off
         }
-        guard capturedMedia.audio != nil else {
+        guard let audio = capturedMedia.audio else {
             return RecordingAudioArtifactMetrics(
                 state: .unavailable,
                 blockers: capturedMedia.audioBlockers.isEmpty
@@ -190,7 +207,10 @@ data: Data((
             state: .recorded,
             relativePath: entry.relativePath,
             byteCount: entry.byteCount,
-            checksum: entry.checksum
+            checksum: entry.checksum,
+            blockers: audio.frameCountMismatches > 0
+                ? ["\(audio.frameCountMismatches) audio callbacks delivered a different number of frames than requested"]
+                : []
         )
     }
 
@@ -224,7 +244,8 @@ data: Data((
                 rawChecksum: raw.checksum,
                 frameIndexChecksum: index.checksum,
                 framesWritten: video.frameIndex.count
-            )
+            ),
+            blockers: video.truncationNote.map { [$0] } ?? []
         )
     }
 }

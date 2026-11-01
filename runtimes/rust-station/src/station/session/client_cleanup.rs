@@ -91,12 +91,14 @@ pub(super) fn finalize_client_session(
         };
         let mut finalizers: [CleanupFinalizer<'_>; 7] = [
             ("stop-audio-signal", &mut stop_audio_signal),
+            // Disconnect and recorder come before the bounded capture join: the capture
+            // worker never feeds the recorder, and a slow join must not eat their time.
+            ("disconnect", &mut disconnect),
+            ("recorder", &mut recorder),
             ("capture-worker", &mut stop_capture),
             ("camera", &mut stop_camera),
             ("audio", &mut stop_audio),
             ("transport", &mut shutdown_transport),
-            ("disconnect", &mut disconnect),
-            ("recorder", &mut recorder),
         ];
         cleanup.finalize(primary.err(), &mut finalizers)
     };

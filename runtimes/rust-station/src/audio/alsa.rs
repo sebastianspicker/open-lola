@@ -495,10 +495,6 @@ pub fn inventory_alsa_devices() -> AlsaResult<Vec<AlsaDeviceInfo>> {
     }
 }
 
-pub fn alsa_device_inventory() -> AlsaResult<Vec<AlsaDeviceInfo>> {
-    inventory_alsa_devices()
-}
-
 #[cfg(target_os = "linux")]
 mod native;
 #[cfg(test)]

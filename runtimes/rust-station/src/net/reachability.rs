@@ -1,7 +1,7 @@
 //! Host reachability probing (ICMP via system ping / TCP fallback).
 
 use serde_json::{json, Value};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -107,9 +107,7 @@ fn tcp_probe(ip: &str, timeout_ms: u32, count: u32) -> Vec<f64> {
 }
 
 fn tcp_port_rtt(ip: &str, port: u16, timeout_ms: u32) -> Option<f64> {
-    let addr = format!("{ip}:{port}")
-        .parse()
-        .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], port)));
+    let addr = SocketAddr::new(ip.parse::<IpAddr>().ok()?, port);
     let start = Instant::now();
     let outcome = TcpStream::connect_timeout(&addr, Duration::from_millis(timeout_ms as u64));
     // Connection refused still proves host reachability on many stacks.

@@ -382,6 +382,11 @@ impl SessionOptions {
 }
 
 impl SessionOptions {
+    /// True for a loopback `peer_mode`, normalised the way `PeerRole::parse` does.
+    pub fn is_loopback(&self) -> bool {
+        PeerRole::parse(&self.peer_mode) == Ok(PeerRole::Loopback)
+    }
+
     /// Validate an optional stream duration before it reaches a scheduler.
     pub fn validate_duration(&self) -> Result<(), SessionError> {
         if self
@@ -423,6 +428,8 @@ pub struct SessionResult {
     pub states: Vec<String>,
     pub messages_sent: Vec<String>,
     pub messages_received: Vec<String>,
+    /// Every control message received; `messages_received` keeps only the latest few.
+    pub control_messages_received: u64,
     pub media_frames_sent: u64,
     pub media_frames_received: u64,
     pub video_frames_sent: u64,
@@ -491,6 +498,8 @@ pub struct SessionResult {
     pub realtime_priority: Option<String>,
     /// Cleanup failures retained alongside a primary session failure.
     pub cleanup_warnings: Vec<String>,
+    /// Queued controls dropped at send time; informational, never a session failure.
+    pub skipped_controls: Vec<String>,
 }
 
 impl SessionResult {

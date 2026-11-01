@@ -25,6 +25,7 @@ public enum ExternalConnectorSessionError: Error, Equatable, Sendable {
     case invalidVideoGeometry(String)
     case invalidPort(String, String)
     case emptyField(String)
+    case invalidExecutable(String)
     case emptyList(String)
     case missingSourceReference(ExternalConnectorKind)
     case connectorDoesNotSupportMediaMode(ExternalConnectorKind, ExternalConnectorMediaMode)

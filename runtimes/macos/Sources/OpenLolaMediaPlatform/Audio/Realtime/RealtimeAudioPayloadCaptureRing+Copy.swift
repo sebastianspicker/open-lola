@@ -56,7 +56,7 @@ extension RealtimeAudioPayloadCaptureRing {
     }
 
     static func copySelectedAudioBuffers(
-        _ inputBuffers: RealtimeAudioBufferListReader,
+        _ inputBuffers: ReadOnlyAudioBufferListPointer,
         destinationBase: UnsafeMutableRawPointer,
         shape: RealtimeAudioPayloadShape,
         inputChannelMap: [Int]
@@ -117,7 +117,7 @@ extension RealtimeAudioPayloadCaptureRing {
 
     private static func audioBufferForCopy(
         at index: Int,
-        in inputBuffers: RealtimeAudioBufferListReader,
+        in inputBuffers: ReadOnlyAudioBufferListPointer,
         shape: RealtimeAudioPayloadShape
     ) -> AudioBuffer? {
         guard let buffer = inputBuffers[index] else {
@@ -138,7 +138,7 @@ extension RealtimeAudioPayloadCaptureRing {
 
     private static func bufferLocation(
         forStableChannel stableChannel: Int,
-        in inputBuffers: RealtimeAudioBufferListReader
+        in inputBuffers: ReadOnlyAudioBufferListPointer
     ) -> (bufferIndex: Int, localChannel: Int)? {
         guard stableChannel >= 0 else {
             return nil

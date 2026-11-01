@@ -126,10 +126,11 @@ public enum UltraGridRTPPacketCodec {
     }
 
     private static func decryptedPayload(
-        _ payload: Data,
+        _ input: Data,
         mediaHeaderByteCount: Int,
         configuration: UltraGridEncryptionConfiguration
     ) throws -> Data {
+        let payload = Data(input) // rebase so a slice with a non-zero startIndex indexes from 0
         let minimum = mediaHeaderByteCount
             + UltraGridCryptoPayloadHeader.byteCount
             + UltraGridOpenSSLEncryption.lengthByteCount

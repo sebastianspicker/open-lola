@@ -11,10 +11,11 @@ use super::control::{
 };
 use super::lifecycle::{record_cached_transport_stats, record_transport_monitor};
 use super::media::{should_stream_more, SessionMediaTransport};
-use super::preflight::preflight_devices;
+use super::preflight::{check_video_fragment_limit, preflight_devices};
 use super::stream::run_interleaved_stream;
 use super::types::{now_us, session_cancelled, stream_dims};
 use super::video::{send_recv_video_frame, VideoReceiveQueue};
+use super::PeerRole;
 use super::{SessionOptions, SessionPhase, SessionResult};
 use crate::config::{ColorSettings, MediaTransportKind, StationSettings};
 use crate::net::Udp;
@@ -43,14 +44,12 @@ pub(super) fn client_session(
     let mut monitor = NetworkMonitor::new();
     monitor.local_fps_settings = settings.video.fps as f64;
     let bind = &settings.network.bind_ip;
-    let fixed_media_ports = !options.peer_mode.eq_ignore_ascii_case("loopback");
+    let fixed_media_ports = !options.is_loopback();
     let control_bind_port = settings.network.control_port * u16::from(fixed_media_ports);
     let client_ctrl =
         Udp::bind(bind, control_bind_port).map_err(|e| SessionError::Transport(e.to_string()))?;
     SessionError::from_socket_timeout(client_ctrl.set_timeout(0.01))?;
-    let deadline_scheduled = options.interleaved_av
-        || options.persistent
-        || !options.peer_mode.eq_ignore_ascii_case("loopback");
+    let deadline_scheduled = options.interleaved_av || options.persistent || !options.is_loopback();
     let audio_period = f64::from(settings.audio.buffer_samples.max(1))
         / f64::from(settings.audio.sample_rate.max(1));
     // A scheduler receive step must be bounded well below an audio callback.
@@ -73,6 +72,7 @@ pub(super) fn client_session(
         ));
     }
     // A device or format failure is reported locally before anything is sent.
+    check_video_fragment_limit(settings, options)?;
     preflight_devices(settings, options)?;
     if let Some(control) = options.runtime_control.as_ref() {
         control.set_activity(result);
@@ -246,8 +246,8 @@ fn run_client_stream(
     let scheduled = options.interleaved_av
         || options.persistent
         || matches!(
-            options.peer_mode.trim().to_ascii_lowercase().as_str(),
-            "loopback" | "remote"
+            PeerRole::parse(&options.peer_mode),
+            Ok(PeerRole::Loopback | PeerRole::Remote)
         );
     configure_client_capture(
         settings,
@@ -264,8 +264,6 @@ fn run_client_stream(
         resources,
     )?;
     let mut video_reassembler = FrameReassembler::strict_video();
-    let mut audio_reassembler =
-        FrameReassembler::with_limit(settings.network.audio_receive_queue_depth.max(1) as usize);
     let mut audio_queue = AudioReceiveQueue::new(settings);
     let mut video_queue = VideoReceiveQueue::new(
         settings.network.video_receive_queue_depth,
@@ -299,7 +297,6 @@ fn run_client_stream(
             &mut resources.dual,
             &mut previews,
             monitor,
-            &mut audio_reassembler,
             &mut audio_queue,
             &mut video_reassembler,
             &mut video_queue,
@@ -328,7 +325,6 @@ fn run_client_stream(
             use_jpeg,
             sid,
             t0,
-            &mut audio_reassembler,
             &mut audio_queue,
             &mut video_reassembler,
             &mut video_queue,
@@ -479,7 +475,6 @@ fn run_sequential_client_stream(
     use_jpeg: bool,
     sid: u32,
     t0: u64,
-    audio_reassembler: &mut FrameReassembler,
     audio_queue: &mut AudioReceiveQueue,
     video_reassembler: &mut FrameReassembler,
     video_queue: &mut VideoReceiveQueue,
@@ -536,7 +531,6 @@ fn run_sequential_client_stream(
                 audio,
                 transport,
                 peer_audio,
-                audio_reassembler,
                 packet_size,
                 settings.audio.channels,
                 settings.audio.sample_rate,

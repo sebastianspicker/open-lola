@@ -9,7 +9,12 @@ use crate::station::SessionError;
 use crate::video::mediafoundation::{MfCamera, MfConfig};
 use crate::video::v4l2::{V4l2Camera, V4l2Config};
 use crate::video::{open_ximea_strict, SoftwareCamera, StrictXimeaCamera, XimeaConfig};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// Failed grabs in a row after which a camera counts as broken.
+const MAX_CONSECUTIVE_GRAB_ERRORS: u32 = 30;
+/// Transient grab errors also give up this long after the first of the current run.
+const MAX_GRAB_ERROR_RUN: Duration = Duration::from_secs(3);
 
 pub(super) enum SessionCameraBackend {
     Diagnostic(SoftwareCamera),
@@ -101,19 +106,42 @@ impl SessionCameraBackend {
         }
     }
 
+    /// Grab one frame. Transient errors (late, truncated or undecodable frames) skip the
+    /// frame; the grab fails after `MAX_CONSECUTIVE_GRAB_ERRORS` in a row or `MAX_GRAB_ERROR_RUN`. Fatal errors
+    /// (device gone, cancelled) fail at once.
     pub(super) fn grab(&mut self) -> Result<(Vec<u8>, String), SessionError> {
+        let mut consecutive = 0;
+        let mut first_error = None;
+        loop {
+            let (error, transient) = match self.grab_once() {
+                Ok(frame) => return Ok(frame),
+                Err(failure) => failure,
+            };
+            consecutive += 1;
+            let run_started = *first_error.get_or_insert_with(Instant::now);
+            if !transient
+                || consecutive >= MAX_CONSECUTIVE_GRAB_ERRORS
+                || run_started.elapsed() >= MAX_GRAB_ERROR_RUN
+            {
+                return Err(SessionError::VideoBackend(error));
+            }
+        }
+    }
+
+    /// One grab; the error text and whether the next grab may still succeed.
+    fn grab_once(&mut self) -> Result<(Vec<u8>, String), (String, bool)> {
         match self {
             Self::Diagnostic(camera) => Ok(camera.grab()),
             Self::V4l2(camera) => camera
                 .grab()
-                .map_err(|error| SessionError::VideoBackend(error.to_string())),
+                .map_err(|error| (error.to_string(), error.is_transient())),
             Self::Ximea(camera) => camera
                 .grab()
                 .map(|frame| (frame.pixels, frame.pixel_format))
-                .map_err(|error| SessionError::VideoBackend(error.to_string())),
+                .map_err(|error| (error.to_string(), error.is_transient())),
             Self::MediaFoundation(camera) => camera
                 .grab()
-                .map_err(|error| SessionError::VideoBackend(error.to_string())),
+                .map_err(|error| (error.to_string(), error.is_transient())),
         }
     }
 
@@ -285,9 +313,7 @@ impl SessionAudioBackend {
                 capture_timeouts,
                 ..
             } => {
-                let queued = audio
-                    .callback_stats()
-                    .map_or(0, |stats| stats.capture_queued_blocks);
+                let queued = audio.callback_stats().capture_queued_blocks;
                 if queued > CAPTURE_BACKLOG_TRIM_ABOVE {
                     *capture_backlog_drops += audio.discard_capture_backlog(1) as u64;
                 }
@@ -349,12 +375,15 @@ impl SessionAudioBackend {
     pub(super) fn xruns(&self) -> Option<u64> {
         match self {
             Self::Alsa { audio, .. } => Some(audio.xruns()),
-            Self::PortAudio { audio, .. } => audio.callback_stats().map(|stats| {
-                stats.capture_overflow_blocks
-                    + stats.playback_underflow_callbacks
-                    + stats.portaudio_input_overflow_callbacks
-                    + stats.portaudio_output_underflow_callbacks
-            }),
+            Self::PortAudio { audio, .. } => {
+                let stats = audio.callback_stats();
+                Some(
+                    stats.capture_overflow_blocks
+                        + stats.playback_underflow_callbacks
+                        + stats.portaudio_input_overflow_callbacks
+                        + stats.portaudio_output_underflow_callbacks,
+                )
+            }
             _ => None,
         }
     }
@@ -363,9 +392,7 @@ impl SessionAudioBackend {
     /// `None` when the backend has no device-side queue to pace from.
     pub(super) fn capture_blocks_ready(&self) -> Option<usize> {
         match self {
-            Self::PortAudio { audio, .. } => audio
-                .callback_stats()
-                .map(|stats| stats.capture_queued_blocks),
+            Self::PortAudio { audio, .. } => Some(audio.callback_stats().capture_queued_blocks),
             _ => None,
         }
     }

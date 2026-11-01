@@ -28,7 +28,7 @@ struct DirectP2PTwoPeerLocalRunOptions {
         let options = DirectP2PTwoPeerLocalRunOptions(
             planPath: try directP2PRequiredString("--plan", values),
             outputPath: try directP2PRequiredString("--output", values),
-            execute: try directP2PTwoPeerLocalRunBool(values["--execute"]),
+            execute: try directP2PTwoPeerLocalRunBool(values["--execute"], flag: "--execute"),
             executablePath: values["--executable"],
             executionMode: try directP2PTwoPeerExecutionMode(values["--execution-mode"]),
             macASSH: values["--mac-a-ssh"],
@@ -39,14 +39,14 @@ struct DirectP2PTwoPeerLocalRunOptions {
             macBWorkingDirectory: values["--mac-b-workdir"],
             sshExecutable: values["--ssh-executable"] ?? "/usr/bin/ssh",
             scpExecutable: values["--scp-executable"] ?? "/usr/bin/scp",
-            sshFallbackExplicit: try directP2PTwoPeerLocalRunBool(values["--ssh-fallback-explicit"]),
+            sshFallbackExplicit: try directP2PTwoPeerLocalRunBool(values["--ssh-fallback-explicit"], flag: "--ssh-fallback-explicit"),
             sshFallbackReason: values["--ssh-fallback-reason"],
             readinessDelayMilliseconds: try directP2PTwoPeerLocalRunPositiveInt(
                 values["--readiness-delay-ms"],
                 defaultValue: 300,
                 label: "--readiness-delay-ms"
             ),
-            requirePreflight: try directP2PTwoPeerLocalRunBool(values["--require-preflight"], defaultValue: true),
+            requirePreflight: try directP2PTwoPeerLocalRunBool(values["--require-preflight"], flag: "--require-preflight", defaultValue: true),
             connectionPreflightReportPath: values["--connection-preflight-report"]
         )
         try options.validate()
@@ -144,7 +144,7 @@ private func directP2PTwoPeerLocalRunValues(_ arguments: [String]) throws -> [St
     return try parseDirectP2PArguments(arguments, allowed: allowed)
 }
 
-private func directP2PTwoPeerLocalRunBool(_ value: String?, defaultValue: Bool = false) throws -> Bool {
+private func directP2PTwoPeerLocalRunBool(_ value: String?, flag: String, defaultValue: Bool = false) throws -> Bool {
     guard let value else {
         return defaultValue
     }
@@ -154,7 +154,7 @@ private func directP2PTwoPeerLocalRunBool(_ value: String?, defaultValue: Bool =
     case "false":
         return false
     default:
-        throw CommandError.invalidArgument("invalid --execute")
+        throw CommandError.invalidArgument("invalid \(flag)")
     }
 }
 

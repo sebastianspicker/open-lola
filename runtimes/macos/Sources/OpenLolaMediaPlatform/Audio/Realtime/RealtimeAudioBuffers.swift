@@ -80,55 +80,6 @@ public enum RealtimeAudioRingPushResult: Equatable, Sendable {
     case droppedInvalid
 }
 
-/// Holds a fixed number of audio blocks so queue growth cannot inflate callback latency.
-public struct RealtimeAudioBlockRing: Sendable {
-    private var storage: [RealtimeAudioFrameBlock?]
-    private var readIndex = 0
-    private var writeIndex = 0
-
-    public private(set) var count = 0
-    public private(set) var droppedBlocks = 0
-
-    public var capacity: Int {
-        storage.count
-    }
-
-    public init(capacity: Int) {
-        precondition(capacity > 0, "RealtimeAudioBlockRing capacity must be positive")
-        self.storage = Array(repeating: nil, count: capacity)
-    }
-
-    public mutating func push(_ block: RealtimeAudioFrameBlock) -> RealtimeAudioRingPushResult {
-        guard count < storage.count else {
-            droppedBlocks += 1
-            return .droppedFull
-        }
-
-        storage[writeIndex] = block
-        writeIndex = (writeIndex + 1) % storage.count
-        count += 1
-        return .stored
-    }
-
-    public func peek() -> RealtimeAudioFrameBlock? {
-        guard count > 0 else {
-            return nil
-        }
-        return storage[readIndex]
-    }
-
-    public mutating func pop() -> RealtimeAudioFrameBlock? {
-        guard count > 0 else {
-            return nil
-        }
-        let block = storage[readIndex]
-        storage[readIndex] = nil
-        readIndex = (readIndex + 1) % storage.count
-        count -= 1
-        return block
-    }
-}
-
 /// Distinguishes rendered audio from an intentional silence fallback in the callback path.
 public enum RealtimeAudioPlayoutResult: Equatable, Sendable {
     case played(RealtimeAudioFrameBlock)
@@ -164,6 +115,10 @@ public struct RealtimeAudioDueBlockPlayout: Sendable {
     }
 
     public mutating func enqueue(_ block: RealtimeAudioFrameBlock) -> RealtimeAudioRingPushResult {
+        guard block.startFrame % UInt64(framesPerBlock) == 0 else {
+            dropped += 1
+            return .droppedInvalid
+        }
         guard block.startFrame >= nextFrame else {
             dropped += 1
             return .droppedLate
@@ -195,6 +150,12 @@ public struct RealtimeAudioDueBlockPlayout: Sendable {
         nextFrame += UInt64(framesPerBlock)
         let slot = slot(for: dueFrame)
         guard let block = storage[slot], block.startFrame == dueFrame else {
+            // A stale block would otherwise hold this slot forever.
+            if let stale = storage[slot], stale.startFrame < dueFrame {
+                storage[slot] = nil
+                count -= 1
+                dropped += 1
+            }
             return .silence(startFrame: dueFrame, frameCount: framesPerBlock)
         }
         storage[slot] = nil

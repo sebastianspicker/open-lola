@@ -193,4 +193,11 @@ pub enum XimeaError {
     InvalidFrame(String),
 }
 
+impl XimeaError {
+    /// A frame that failed validation; the next grab can still succeed.
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::InvalidFrame(_))
+    }
+}
+
 pub type XimeaResult<T> = Result<T, XimeaError>;

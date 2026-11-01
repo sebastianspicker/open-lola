@@ -283,13 +283,15 @@ public enum UltraGridCompatibility {
     }
 
     private static func encryptedPacket(
-        _ packet: RTPPacket,
+        _ input: RTPPacket,
         encryptedPayloadType: UInt8,
         mediaHeaderByteCount: Int,
         configuration: UltraGridEncryptionConfiguration,
         // swiftlint:disable:next identifier_name
         iv: Data?
     ) throws -> RTPPacket {
+        var packet = input
+        packet.payload = Data(input.payload) // rebase so a slice with a non-zero startIndex indexes from 0
         guard packet.payload.count >= mediaHeaderByteCount else {
             throw UltraGridCompatibilityError.truncatedPayload(byteCount: packet.payload.count)
         }

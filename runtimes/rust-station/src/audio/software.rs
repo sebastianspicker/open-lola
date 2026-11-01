@@ -5,7 +5,7 @@ pub const TEST_TONE_HZ_PRIMARY: f64 = 689.0;
 pub const TEST_TONE_HZ_SECONDARY: f64 = 750.0;
 pub const TEST_TONE_AMPLITUDE: f64 = 0.251188643150958; // 10^(-12/20)
 
-/// Generate interleaved PCM tone (s16le when bits==16).
+/// Generate interleaved signed little-endian PCM tone (8/16/24/32 bits; other values give 16).
 pub fn generate_pcm_tone(
     channels: u16,
     sample_rate: u32,
@@ -20,20 +20,28 @@ pub fn generate_pcm_tone(
     let sr = sample_rate.max(1) as f64;
     let amp = amplitude.clamp(0.0, 1.0);
     let freq = frequency_hz.max(1.0);
-    let mut out = Vec::with_capacity(n * ch * (bits_per_sample as usize / 8).max(1));
+    let bytes_per_sample = if matches!(bits_per_sample, 8 | 24 | 32) {
+        bits_per_sample as usize / 8
+    } else {
+        2
+    };
+    let mut out = Vec::with_capacity(n * ch * bytes_per_sample);
     for i in 0..n {
         let t = (phase_offset_samples as f64 + i as f64) / sr;
         let sample = (t * freq * std::f64::consts::TAU).sin() * amp;
-        if bits_per_sample == 16 {
-            let s16 = (sample * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
-            for _ in 0..ch {
-                out.extend_from_slice(&s16.to_le_bytes());
+        // Signed little-endian PCM, matching the PortAudio/ALSA device formats.
+        let bytes = match bits_per_sample {
+            24 => ((sample * 8_388_607.0).round() as i32).to_le_bytes(),
+            32 => ((sample * 2_147_483_647.0).round() as i32).to_le_bytes(),
+            8 => [(sample * 127.0).round() as i8 as u8, 0, 0, 0],
+            _ => {
+                let [lo, hi] =
+                    ((sample * 32767.0).round().clamp(-32768.0, 32767.0) as i16).to_le_bytes();
+                [lo, hi, 0, 0]
             }
-        } else {
-            let u = ((sample * 127.0) + 128.0).round().clamp(0.0, 255.0) as u8;
-            for _ in 0..ch {
-                out.push(u);
-            }
+        };
+        for _ in 0..ch {
+            out.extend_from_slice(&bytes[..bytes_per_sample]);
         }
     }
     out
@@ -92,7 +100,7 @@ impl SoftwareAudio {
 
     pub fn stop(&mut self) {}
 
-    /// Read one buffer of interleaved PCM (s16le when 16-bit).
+    /// Read one buffer of interleaved signed little-endian PCM.
     pub fn read_pcm(&mut self) -> Vec<u8> {
         let mut out = Vec::new();
         self.read_pcm_into(&mut out);
@@ -104,18 +112,28 @@ impl SoftwareAudio {
         let n = self.buffer_samples as usize;
         let ch = self.channels as usize;
         out.clear();
-        out.reserve(n * ch * (self.bits_per_sample as usize / 8));
+        let bytes_per_sample = match self.bits_per_sample {
+            8 | 24 | 32 => self.bits_per_sample as usize / 8,
+            _ => 2,
+        };
+        out.reserve(n * ch * bytes_per_sample);
         for i in 0..n {
             let t = (self.frame as f32 + i as f32) / self.sample_rate as f32;
-            let sample = (t * 440.0 * std::f32::consts::TAU).sin();
-            let s16 = (sample * 16000.0) as i16;
+            let sample = f64::from((t * 440.0 * std::f32::consts::TAU).sin()) * 0.5;
             for c in 0..ch {
-                let scaled = s16.wrapping_mul((c as i16) + 1);
-                if self.bits_per_sample == 16 {
-                    out.extend_from_slice(&scaled.to_le_bytes());
-                } else {
-                    out.push((scaled as u8).wrapping_add(c as u8));
-                }
+                // Distinct per-channel level so channel routing stays visible.
+                let v = sample * (c as f64 + 1.0);
+                let bytes = match self.bits_per_sample {
+                    8 => [((v * 127.0).clamp(-128.0, 127.0) as i8) as u8, 0, 0, 0],
+                    24 => ((v * 8_388_607.0).clamp(-8_388_608.0, 8_388_607.0) as i32).to_le_bytes(),
+                    32 => ((v * 2_147_483_647.0) as i32).to_le_bytes(),
+                    _ => {
+                        let [lo, hi] =
+                            ((v * 32767.0).clamp(-32768.0, 32767.0) as i16).to_le_bytes();
+                        [lo, hi, 0, 0]
+                    }
+                };
+                out.extend_from_slice(&bytes[..bytes_per_sample]);
             }
         }
         self.frame = self.frame.wrapping_add(self.buffer_samples);

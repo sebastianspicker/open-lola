@@ -5,6 +5,7 @@ struct MadiReceiveReadyBlockRing: Sendable {
     private var storage: [MadiReceivePlayoutBlock?]
     private let framesPerBlock: Int
     private var storedCount = 0
+    private(set) var lateEvictionCount = 0
 
     var count: Int {
         storedCount
@@ -43,6 +44,9 @@ struct MadiReceiveReadyBlockRing: Sendable {
         nextDueFrame: UInt64,
         overrunPolicy: MadiReceiveOverrunPolicy
     ) -> MadiReceiveReadyBlockStoreResult {
+        guard block.startFrame % UInt64(framesPerBlock) == 0 else {
+            return .droppedMisaligned
+        }
         guard accepts(playoutFrame: block.startFrame, nextDueFrame: nextDueFrame) else {
             return .droppedFuture
         }
@@ -70,6 +74,12 @@ struct MadiReceiveReadyBlockRing: Sendable {
     mutating func remove(playoutFrame: UInt64) -> MadiReceivePlayoutBlock? {
         let index = storageIndex(for: playoutFrame)
         guard storage[index]?.startFrame == playoutFrame else {
+            // A stale block would otherwise hold this slot forever.
+            if let stale = storage[index], stale.startFrame < playoutFrame {
+                storage[index] = nil
+                storedCount -= 1
+                lateEvictionCount += 1
+            }
             return nil
         }
         let block = storage[index]

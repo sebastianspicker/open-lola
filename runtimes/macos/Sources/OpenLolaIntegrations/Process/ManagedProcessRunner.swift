@@ -36,11 +36,27 @@ private final class ManagedProcessLogCapture: @unchecked Sendable {
 
         let readHandle = pipe.fileHandleForReading
         readHandle.readabilityHandler = nil
-        while let data = try readHandle.read(upToCount: 64 * 1_024), !data.isEmpty {
-            consume(data, whileClosing: true)
+        // Closing our write end first lets EOF arrive. The descriptor stays blocking (a handler still
+        // running would trap on EAGAIN), so poll before each read to survive a grandchild holding the pipe.
+        try? pipe.fileHandleForWriting.close()
+        let descriptor = readHandle.fileDescriptor
+        let deadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+        var chunk = [UInt8](repeating: 0, count: 64 * 1_024)
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            var pollDescriptor = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&pollDescriptor, 1, 200)
+            if ready < 0 && errno == EINTR { continue }
+            guard ready > 0 else { break }
+            let count = read(descriptor, &chunk, chunk.count)
+            if count > 0 {
+                consume(Data(chunk[0..<count]), whileClosing: true)
+            } else if count < 0 && errno == EINTR {
+                continue
+            } else {
+                break
+            }
         }
         try readHandle.close()
-        try pipe.fileHandleForWriting.close()
         try logHandle.close()
         lock.lock()
         finished = true
