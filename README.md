@@ -21,6 +21,8 @@ Open LoLa has two runtimes: a native **macOS app and CLI**, and a **Rust station
 for Windows and Linux. They share protocol test fixtures but no runtime code.
 Python is used only for repository tooling.
 
+> _Claude was used to polish and proof-read the code and documentation of this repository._
+
 <details>
 <summary>Status and limitations</summary>
 

@@ -6,29 +6,38 @@ neither imports the other.
 
 ## System context
 
+Who uses Open LoLa, and what does each runtime talk to?
+
 ```mermaid
 flowchart LR
-    Operator[Operator]
-    Mac[macOS app and CLI]
-    Rust[Rust station]
+    Operator((Operator))
+    subgraph mac [macOS host]
+        Mac[macOS app and CLI]
+    end
+    subgraph station [Windows or Linux host]
+        Rust[Rust station]
+    end
     Peer[Configured peer]
     Devices[Audio and video devices]
-    Reports[Reports and evidence files]
+    Reports[(Reports and evidence files)]
     Corpus[interop/lola2 corpus]
 
-    Operator --> Mac
-    Operator --> Rust
-    Mac <--> Peer
-    Rust <--> Peer
-    Mac <--> Devices
-    Rust <--> Devices
-    Mac --> Reports
-    Rust --> Reports
+    Operator -->|"Signal Desk or CLI"| Mac
+    Operator -->|"rusty-lola CLI or egui"| Rust
+    Mac <-->|"UDP control JSON + media"| Peer
+    Rust <-->|"LoLa 2.0 over UDP or Npcap"| Peer
+    Mac <-->|"Core Audio, AVFoundation"| Devices
+    Rust <-->|"ASIO, ALSA, V4L2, XIMEA"| Devices
+    Mac -->|"write JSON report"| Reports
+    Rust -->|"write JSON report"| Reports
     Corpus -. contract tests .-> Mac
     Corpus -. contract tests .-> Rust
 ```
 
-Reports record what happened; they are never read back as configuration.
+Each runtime is a separate program on its own host; they never call each other.
+Both send control and media to the peer over UDP, and media never shares the
+control socket. Reports record what happened; they are never read back as
+configuration. The corpus is only read by tests.
 
 `runtimes/macos` is the main operator runtime. `runtimes/rust-station` is the
 Windows and native Linux station: PortAudio/ASIO with XIMEA or Media Foundation
@@ -46,6 +55,22 @@ provenance metadata; it is a regression suite, not a reference-peer capture.
 | `third_party/` | Upstream Opus and JPEG XS source | Selected C targets declared by SwiftPM |
 | `tools/` | Verification, local bundle assembly, evidence helpers, and source export | Repository scripts |
 | `web/demo/` | Fixture-backed interface walkthrough | Static files |
+
+If you are new, read in this order:
+
+1. [main.swift](../runtimes/macos/Sources/open-lola/main.swift) and
+   [CLICommandCatalog.swift](../runtimes/macos/Sources/OpenLolaApplication/CLI/CLICommandCatalog.swift):
+   every macOS command is dispatched from the first and listed in the second.
+2. [OpenLolaApp.swift](../runtimes/macos/Sources/OpenLolaAppSupport/OpenLolaApp.swift)
+   and [AppExecutionController.swift](../runtimes/macos/Sources/OpenLolaAppSupport/AppExecutionController.swift):
+   how the app turns a button into a CLI run.
+3. [Session/DirectPeer/](../runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer):
+   one direct-peer session, end to end.
+4. [src/cli/handlers.rs](../runtimes/rust-station/src/cli/handlers.rs) and
+   [src/station/session/runner.rs](../runtimes/rust-station/src/station/session/runner.rs):
+   the Rust station's equivalent.
+5. [tools/verify_architecture.py](../tools/verify_architecture.py): the layering
+   rules below, as code.
 
 Build output, caches, captures, reports, local and private files, and
 `archive/` are not part of the source or the release; see
@@ -124,6 +149,69 @@ report, so report schemas stay the same for direct-peer and connector runs. It
 survives Stop and completion, so finished runs can still be reviewed; the next
 launch replaces it and a configuration change clears it.
 
+### What happens when the operator presses Run
+
+This is the default route, a direct-peer session between two Macs. Every box
+below is the same `open-lola` executable started with a different command.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Op as Operator
+    participant app as Signal Desk app
+    participant sup as Supervisor process
+    participant resp as Responder peer
+    participant init as Initiator peer
+    participant fs as Run directory
+    Op->>app: Run (Session workspace)
+    app->>fs: write session.token
+    app->>sup: spawn two-peer-local-run
+    sup->>resp: spawn direct-p2p-session-run
+    resp-->>sup: ready file written
+    sup->>init: spawn direct-p2p-session-run
+    init->>resp: UDP control JSON proposal
+    resp-->>init: acceptance
+    par media
+        init-)resp: UDP media
+        resp-)init: UDP media
+    end
+    resp->>fs: peer report
+    init->>fs: peer report
+    sup->>fs: aggregate and supervisor report
+    sup-->>app: exit code
+    Op->>app: Validate
+    app->>app: run open-lola validate-…-report
+    app->>fs: check token and report age
+```
+
+Step 3 runs `open-lola direct-p2p-two-peer-local-run --plan …`, built by
+`supervisorArguments` from the operator's settings. The supervisor reads the
+validated plan and starts the responder first; in SSH mode it starts each peer
+on its Mac through `ssh` instead of locally (steps 4 and 6). It waits for the
+responder's ready file (step 5) before starting the initiator, so the proposal
+in step 7 always finds a listening peer. Steps 7–10 run inside
+`DirectPeerSessionSocketRunner`: control JSON and media use separate UDP
+sockets. Validation (steps 15–17) is a separate one-shot run of
+`open-lola validate-direct-p2p-two-peer-local-run-report`; after it exits, the
+app accepts the result only if the token check from the previous section also
+passes.
+
+Where in the code:
+
+- [AppExecutionControllerLaunch.swift](../runtimes/macos/Sources/OpenLolaAppSupport/AppExecutionControllerLaunch.swift): `launchProcess`, `prepareLaunchState` (token), `finishLaunchedProcess`
+- [NativeAppShellExecution.swift](../runtimes/macos/Sources/OpenLolaApplication/AppShell/NativeAppShellExecution.swift): `supervisorArguments`, `validatorArguments`
+- [main.swift](../runtimes/macos/Sources/open-lola/main.swift): CLI dispatch
+- [NetworkDirectP2PCommands.swift](../runtimes/macos/Sources/open-lola/Commands/Network/NetworkDirectP2PCommands.swift): `direct-p2p-session-run` and the two-peer commands
+- [DirectP2PTwoPeerLocalRunCommandSupport.swift](../runtimes/macos/Sources/open-lola/Commands/Network/DirectP2PTwoPeerLocalRunCommandSupport.swift): supervisor, responder-first start
+- [DirectPeerSessionSocketRunner.swift](../runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/DirectPeerSessionSocketRunner.swift) and [PeerSessionRunner.swift](../runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/PeerSessionRunner.swift): one peer's session
+- [ManagedProcessRunner.swift](../runtimes/macos/Sources/OpenLolaIntegrations/Process/ManagedProcessRunner.swift): every child process above
+
+The Windows LoLa and external-connector routes (UltraGrid, JackTrip and
+others) start a different `open-lola` command from the same `launchRequest`
+switch, but use the same token and validation steps.
+
+### Layers inside one peer
+
 A direct-peer run then flows through these layers in order:
 
 1. Application policy parses configuration and checks capabilities.
@@ -155,6 +243,40 @@ callbacks stay safe.
 
 The Rust binary dispatches CLI commands into configuration, protocol, transport,
 device, session, and egui layers.
+
+What happens on `rusty-lola connect <ip>` (or `listen`)?
+
+```mermaid
+flowchart LR
+    main["main.rs"] -->|"cli::run"| handlers["cli/handlers.rs"]
+    handlers -->|"connect, listen"| operator["cli/operator.rs"]
+    operator -->|"load + override"| config["config/"]
+    operator -->|"run_session"| runner["station/session"]
+    runner -->|"control, audio, video"| net["net/ UDP or Npcap"]
+    runner <-->|"capture, playback"| media["audio/, video/"]
+    net <-->|"LoLa 2.0 datagrams"| peer[Peer]
+    runner -->|SessionResult| report["cli/report.rs"]
+    ui["ui/ egui"] -.->|"controller commands"| runner
+    classDef focus fill:#fde68a,stroke:#b45309,color:#1f2937
+    class runner focus
+```
+
+`run_operator_command` loads the settings file and session profile, applies CLI
+overrides, validates them, and calls `run_session`. The session runner either
+listens or initiates, negotiates with the peer on the control port, then runs
+the media scheduler; `report::finish_run` turns the result into the exit code
+and an optional JSON report. The `ui` command drives the same session through
+typed controller snapshots and commands instead of the CLI. Default ports are
+control 7000, audio 19788 and video 19798.
+
+Where in the code:
+
+- [src/cli/handlers.rs](../runtimes/rust-station/src/cli/handlers.rs): command dispatch
+- [src/cli/operator.rs](../runtimes/rust-station/src/cli/operator.rs): `run_operator_command`
+- [src/station/session/runner.rs](../runtimes/rust-station/src/station/session/runner.rs): `run_session`, listener and initiator paths
+- [src/station/session/client.rs](../runtimes/rust-station/src/station/session/client.rs): control socket and media timing
+- [src/config/settings.rs](../runtimes/rust-station/src/config/settings.rs): defaults and ports
+- [src/net/](../runtimes/rust-station/src/net) and [src/protocol/](../runtimes/rust-station/src/protocol): sockets and LoLa framing
 
 - Windows defaults to XIMEA video and PortAudio/ASIO audio. Media Foundation is
   the Windows camera backend for ordinary webcams and must be selected.
@@ -205,6 +327,30 @@ executables and controlled paths, on isolated networks.
 [SECURITY.md](../SECURITY.md) has the details.
 
 ## Build and release
+
+What does CI check, and when?
+
+```mermaid
+flowchart LR
+    pr[Pull request] --> tests["tests.yml"]
+    tests --> quality["quality: lint, architecture"]
+    tests --> python["python: self-tests, mypy"]
+    tests --> swift["swift: build, test"]
+    tests --> rust["rust: test, selftest"]
+    tests --> win["windows-rust: clippy, test"]
+    tests -.->|"manual or Dependabot"| export["release-export"]
+    manual[Manual dispatch on main] --> readiness["release-readiness.yml"]
+    readiness -->|"verify-release-readiness.sh"| verdict["PARTIAL verdict"]
+```
+
+Most `tests.yml` jobs call the same `make` targets you run locally (`make
+code-quality`, `make architecture`, `make test-rust`, `make swift-test`); the
+Windows job runs plain `cargo`. The release-export job writes a source
+candidate to a temporary folder and scans it, but only on manual runs and
+Dependabot pull requests. Release readiness runs only by hand on `main` and
+ends `PARTIAL` until external evidence exists. CodeQL (`codeql.yml`) runs on
+pushes to `main`, pull requests and a weekly schedule. Nothing in CI publishes
+an artifact.
 
 The root Makefile runs the per-language checks; SwiftPM, Cargo, and the Python
 tooling can each be tested alone. The macOS bundle scripts produce ad-hoc-signed
