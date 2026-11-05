@@ -164,8 +164,12 @@ public enum MadiTransmitSyntheticSmoke {
         let start = DispatchTime.now().uptimeNanoseconds
         let packets = try handoff.sendNextV2Packets(mode: mode) ?? []
         let end = DispatchTime.now().uptimeNanoseconds
-        let reassembled = try UdpPcmV2FragmentReassembler.reassemble(packets)
-        guard reassembled.payload == payload else {
+        var reassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+        var reassembled: DirectPeerOpenLolaRawAudioBlock?
+        for packet in packets {
+            reassembled = try reassembly.receive(packet) ?? reassembled
+        }
+        guard reassembled?.payload == payload else {
             throw MadiTransmitValidationError.emptyField("reassembled.payload")
         }
         return (packets, Double(end - start) / 1_000)

@@ -36,6 +36,7 @@ public enum RecordingSessionArtifactValidationError: Error, Equatable, Sendable,
     case recordedMediaWithoutOptIn(RecordingArtifactKind)
     case mediaOptInWithoutRecordedOrUnavailable(RecordingArtifactKind)
     case unavailableMediaWithoutBlocker(RecordingArtifactKind)
+    case partialMediaWithoutBlocker(RecordingArtifactKind)
     case mediaOffWithArtifact(RecordingArtifactKind)
     case recordedMediaMissingManifestEntry(RecordingArtifactKind, String)
     case recordedMediaByteCountMismatch(RecordingArtifactKind)

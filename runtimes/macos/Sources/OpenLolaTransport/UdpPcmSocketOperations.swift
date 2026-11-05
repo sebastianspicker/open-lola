@@ -334,13 +334,12 @@ private func udpSendErrorDropsDatagram(_ savedErrno: Int32) -> Bool {
 
 /// Receive errors that mean "no usable datagram this time" rather than a broken socket. ICMP-driven
 /// ECONNREFUSED/ECONNRESET and EINTR are transient; EBADF/ENOTSOCK and others stay fatal.
+private func udpReceiveErrorIsTransient(_ savedErrno: Int32) -> Bool {
+    savedErrno == ECONNREFUSED || savedErrno == ECONNRESET || savedErrno == EINTR
+}
+
 private func udpReceiveErrorMeansNoDatagram(_ savedErrno: Int32) -> Bool {
-    switch savedErrno {
-    case EAGAIN, EWOULDBLOCK, ECONNREFUSED, ECONNRESET, EINTR:
-        return true
-    default:
-        return false
-    }
+    savedErrno == EAGAIN || savedErrno == EWOULDBLOCK || udpReceiveErrorIsTransient(savedErrno)
 }
 
 package func receiveDatagram(socket: Int32, byteCount: Int) throws -> Data {
@@ -348,21 +347,38 @@ package func receiveDatagram(socket: Int32, byteCount: Int) throws -> Data {
 }
 
 /// Blocking receive that reads one byte past `byteCount` so a longer datagram is reported as oversize;
-/// `data` is then the first `byteCount` bytes.
+/// `data` is then the first `byteCount` bytes. Transient ICMP errors and EINTR retry; an empty datagram
+/// is returned as empty data so the decoder can count it.
 package func receiveDatagramReportingOversize(socket: Int32, byteCount: Int) throws -> (data: Data, isOversize: Bool) {
+    var buffer = [UInt8]()
+    return try receiveBlockingDatagramReportingOversize(socket: socket, byteCount: byteCount, buffer: &buffer)
+}
+
+package func receiveBlockingDatagramReportingOversize(
+    socket: Int32,
+    byteCount: Int,
+    buffer: inout [UInt8]
+) throws -> (data: Data, isOversize: Bool) {
     try validateUdpReceiveByteCount(byteCount)
-    var buffer = [UInt8](repeating: 0, count: byteCount + 1)
-    let received = buffer.withUnsafeMutableBytes { bytes in
-        recv(socket, bytes.baseAddress, byteCount + 1, 0)
+    if buffer.count <= byteCount {
+        buffer = [UInt8](repeating: 0, count: byteCount + 1)
     }
-    let savedErrno = errno
-    guard received >= 0 else {
-        throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
+    var transientRetries = 0
+    while true {
+        let received = buffer.withUnsafeMutableBytes { bytes in
+            recv(socket, bytes.baseAddress, byteCount + 1, 0)
+        }
+        let savedErrno = errno
+        if received < 0 {
+            // Bounded, so a flood of ICMP errors cannot hold a blocking reader forever.
+            if udpReceiveErrorIsTransient(savedErrno), transientRetries < 64 {
+                transientRetries += 1
+                continue
+            }
+            throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
+        }
+        return (Data(buffer.prefix(min(received, byteCount))), received > byteCount)
     }
-    guard received > 0 else {
-        throw UdpPcmRouteProbeError.receiveFailed(EINVAL)
-    }
-    return (Data(buffer.prefix(min(received, byteCount))), received > byteCount)
 }
 
 private func ipv4Address(_ host: String) throws -> in_addr {
@@ -429,6 +445,8 @@ package struct UdpDatagramWithSource: Sendable {
     package var data: Data
     package var host: String
     package var port: UInt16
+    /// The datagram was longer than the requested size; `data` holds only the first bytes.
+    package var isTruncated = false
 }
 
 package func receiveDatagramWithSourceIfAvailable(socket: Int32, byteCount: Int) throws -> UdpDatagramWithSource? {
@@ -442,13 +460,13 @@ package func receiveDatagramWithSourceIfAvailable(
     buffer: inout [UInt8]
 ) throws -> UdpDatagramWithSource? {
     try validateUdpReceiveByteCount(byteCount)
-    if buffer.count < byteCount {
-        buffer = [UInt8](repeating: 0, count: byteCount)
+    if buffer.count <= byteCount {
+        buffer = [UInt8](repeating: 0, count: byteCount + 1)
     }
     var address = sockaddr_in()
     var addressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
     let (received, savedErrno) = receiveUdpDatagramFrom(
-        UdpDatagramReceiveRequest(socket: socket, byteCount: byteCount, flags: MSG_DONTWAIT),
+        UdpDatagramReceiveRequest(socket: socket, byteCount: byteCount + 1, flags: MSG_DONTWAIT),
         buffer: &buffer,
         address: &address,
         addressLength: &addressLength
@@ -466,9 +484,10 @@ package func receiveDatagramWithSourceIfAvailable(
         throw UdpPcmRouteProbeError.receiveFailed(EINVAL)
     }
     return UdpDatagramWithSource(
-        data: Data(buffer.prefix(received)),
+        data: Data(buffer.prefix(min(received, byteCount))),
         host: try ipv4Host(address.sin_addr),
-        port: UInt16(bigEndian: address.sin_port)
+        port: UInt16(bigEndian: address.sin_port),
+        isTruncated: received > byteCount
     )
 }
 

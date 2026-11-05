@@ -26,4 +26,5 @@ pub use runtime::*;
 pub use session::*;
 pub use tabs::*;
 
-pub(crate) mod recording_worker;
+#[doc(hidden)]
+pub mod recording_worker;

@@ -190,9 +190,13 @@ fn admit_audio_datagram(
         monitor.note_drop(1);
         return;
     }
+    let resyncs = receive_queue.resync_count();
     if !receive_queue.admit_sequence(frame.sequence) {
         monitor.note_drop(1);
         return;
+    }
+    if receive_queue.resync_count() != resyncs {
+        monitor.note_sequence_restart(MediaKind::Audio);
     }
     result.audio_frames_received += 1;
     result.media_frames_received += 1;

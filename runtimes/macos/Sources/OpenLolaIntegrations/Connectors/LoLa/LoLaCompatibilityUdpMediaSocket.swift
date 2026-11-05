@@ -9,8 +9,7 @@ import Foundation
 import OpenLolaSessionDomain
 
 struct LoLaAudioReceiveFreshnessSnapshot: Equatable, Sendable {
-    var coalescedStaleAudioDatagrams: Int
-    var rejectedAudioSourceDatagrams: Int
+    var rejectedSourceDatagrams = 0
     var receivedDatagrams = 0
     var retainedEvidenceDatagrams = 0
     var playoutRejectedDatagrams = 0
@@ -18,8 +17,7 @@ struct LoLaAudioReceiveFreshnessSnapshot: Equatable, Sendable {
 
 final class LoLaAudioReceiveFreshnessCounters: @unchecked Sendable {
     private let lock = NSLock()
-    private var coalescedStaleAudioDatagrams = 0
-    private var rejectedAudioSourceDatagrams = 0
+    private var rejectedSourceDatagrams = 0
     private var receivedDatagrams = 0
     private var retainedEvidenceDatagrams = 0
     private var playoutRejectedDatagrams = 0
@@ -28,8 +26,7 @@ final class LoLaAudioReceiveFreshnessCounters: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return LoLaAudioReceiveFreshnessSnapshot(
-            coalescedStaleAudioDatagrams: coalescedStaleAudioDatagrams,
-            rejectedAudioSourceDatagrams: rejectedAudioSourceDatagrams,
+            rejectedSourceDatagrams: rejectedSourceDatagrams,
             receivedDatagrams: receivedDatagrams,
             retainedEvidenceDatagrams: retainedEvidenceDatagrams,
             playoutRejectedDatagrams: playoutRejectedDatagrams
@@ -42,6 +39,12 @@ final class LoLaAudioReceiveFreshnessCounters: @unchecked Sendable {
         if retainedAsEvidence {
             retainedEvidenceDatagrams += 1
         }
+        lock.unlock()
+    }
+
+    func noteRejectedSource() {
+        lock.lock()
+        rejectedSourceDatagrams += 1
         lock.unlock()
     }
 
@@ -169,8 +172,13 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
                     socket: target.socket, stream: target.stream, port: target.port, peer: request.peer, buffer: &context.videoBuffer
                 )
             }
-            if case let .accepted(datagram) = attempt {
+            switch attempt {
+            case let .accepted(datagram):
                 context.admit(datagram, evidenceLimit: request.maxDatagrams)
+            case .rejectedPeer:
+                context.audioFreshnessCounters?.noteRejectedSource()
+            case .empty:
+                break
             }
         }
     }
@@ -350,15 +358,7 @@ private func receiveLoLaUdpMediaPayload(
 }
 
 private func loLaAudioSequenceNumber(_ payload: Data) -> Int? {
-    guard let fragment = try? LoLaCompatibilityMediaCodec.decode(payload).normalFragment,
-          fragment.header.fragmentCount == 1,
-          fragment.header.fragmentIndex == 0,
-          fragment.header.originalOffset == 0,
-          fragment.header.finalFlag,
-          let sequence = fragment.body?.sequence else {
-        return nil
-    }
-    return Int(sequence)
+    (try? LoLaCompatibilityMediaCodec.decodeAudioDatagram(payload)).map { Int($0.sequence) }
 }
 
 func loLaUdpMediaAddress(host: String, port: UInt16) throws -> sockaddr_in {

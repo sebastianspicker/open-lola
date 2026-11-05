@@ -11,32 +11,6 @@ import OpenLolaSessionDomain
 import Darwin
 #endif
 
-func runExternalProcess(
-    plan: ExternalConnectorLaunchPlan,
-    durationSeconds: Int
-) -> ExternalConnectorProcessResult {
-    guard let executable = plan.executable else {
-        return ExternalConnectorProcessResult(
-            launched: false,
-            error: ExternalConnectorSessionError
-                .externalConnectorRequiresExecutable(plan.connector)
-                .localizedDescription
-        )
-    }
-    return RealExternalConnectorProcessRunner().run(
-        invocations:
-        [
-            ExternalConnectorProcessInvocation(
-                executable: executable,
-                arguments: plan.arguments,
-                connector: plan.connector,
-                role: plan.role
-            )
-        ],
-        durationSeconds: durationSeconds
-    )[0]
-}
-
 func runExternalProcessGroup(
     plan: ExternalConnectorLaunchPlan,
     durationSeconds: Int,
@@ -151,6 +125,8 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
                 terminateExternalConnectorProcessGroup(&launched)
             }
             launched.waitUntilExitStatus()
+            // Kill the group before reading the pipes: a backgrounded child would otherwise hold them open forever.
+            let cleanupStatus = cleanupExternalConnectorProcessGroup(&launched)
             slots[index].result = ExternalConnectorProcessResult(
                 launched: true,
                 processIdentifier: launched.processIdentifier,
@@ -159,7 +135,7 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
                 standardOutputPrefix: externalConnectorPipePrefix(launched.stdout),
                 standardErrorPrefix: externalConnectorPipePrefix(launched.stderr),
                 waitStatusKnown: launched.waitStatusKnown,
-                cleanupStatus: cleanupExternalConnectorProcessGroup(&launched),
+                cleanupStatus: cleanupStatus,
                 error: nil
             )
         }

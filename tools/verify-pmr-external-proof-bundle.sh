@@ -3,6 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+caller_dir="$PWD"
 cd "$repo_root"
 
 # shellcheck disable=SC1091
@@ -46,8 +47,12 @@ if [[ "$#" -ne 1 ]]; then
 fi
 
 bundle_dir="$1"
+# The cd above moved us; resolve a relative bundle path against the caller's directory.
+[[ -n "$bundle_dir" ]] || fail "bundle dir must not be empty"
+[[ "$bundle_dir" == /* ]] || bundle_dir="$caller_dir/$bundle_dir"
 cli_binary="${OPEN_LOLA_CLI:-$(open_lola_default_cli_binary)}"
 tmp_dir="$(mktemp -d)"
+sanitizer_blocked=0
 
 # Remove only the temporary validator-output directory created for this bundle check.
 cleanup() {
@@ -154,11 +159,12 @@ validate_sanitizer_result() {
   require_file "$sanitizer_result"
   if grep -Eq '^SANITIZER_RUNTIME_BLOCKED: .+$' "$sanitizer_result"; then
     echo "PMR-04 sanitizer-result.txt -> runtime blocked"
+    sanitizer_blocked=1
     return
   fi
 
-  require_file_contains "$sanitizer_result" "ASAN: PASS"
-  require_file_contains "$sanitizer_result" "TSAN: PASS"
+  grep -Eq '^ASAN: PASS$' "$sanitizer_result" || fail "$sanitizer_result must contain a line: ASAN: PASS"
+  grep -Eq '^TSAN: PASS$' "$sanitizer_result" || fail "$sanitizer_result must contain a line: TSAN: PASS"
   echo "PMR-04 sanitizer-result.txt -> present"
 }
 
@@ -177,7 +183,7 @@ def fail(message):
 
 
 def require_positive(value, label):
-    if not isinstance(value, int) or value <= 0:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         fail(f"{label} must be > 0")
 
 
@@ -251,7 +257,7 @@ def require_non_empty(value, label):
 
 
 def require_positive(value, label):
-    if not isinstance(value, int) or value <= 0:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         fail(f"{label} must be > 0")
 
 
@@ -320,7 +326,7 @@ def require_non_empty(value, label):
 
 
 def require_positive(value, label):
-    if not isinstance(value, int) or value <= 0:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         fail(f"{label} must be > 0")
 
 
@@ -467,4 +473,9 @@ validate_report "PMR-23" "pmr-23/recording-session.json" "validate-recording-ses
 validate_pmr23_runtime_contract
 
 echo "PMR external proof bundle verified"
-echo "VERDICT: PASS"
+# A blocked sanitizer run is not sanitizer evidence, so the bundle cannot be a full pass.
+if [[ "$sanitizer_blocked" == "1" ]]; then
+  echo "VERDICT: PARTIAL"
+else
+  echo "VERDICT: PASS"
+fi

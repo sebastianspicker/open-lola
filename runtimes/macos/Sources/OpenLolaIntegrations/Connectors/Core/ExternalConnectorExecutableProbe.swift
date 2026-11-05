@@ -45,7 +45,7 @@ private func externalConnectorExecutableAttempt(
     )
 }
 
-private func detectedExternalConnectorExecutableIdentity(
+func detectedExternalConnectorExecutableIdentity(
     _ result: ExternalConnectorProcessResult
 ) -> ExternalConnectorExecutableIdentity {
     guard result.launched, result.exitStatus != 127 else {

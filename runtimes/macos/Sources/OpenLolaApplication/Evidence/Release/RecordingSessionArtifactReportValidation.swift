@@ -177,6 +177,11 @@ extension RecordingSessionArtifactReport {
             try validateAudioArtifactUnavailable()
         case .recorded:
             try validateAudioArtifactRecorded()
+        case .partial:
+            guard !audioArtifact.blockers.isEmpty else {
+                throw RecordingSessionArtifactValidationError.partialMediaWithoutBlocker(.audioPcm)
+            }
+            try validateAudioArtifactRecorded()
         }
     }
 
@@ -222,6 +227,11 @@ extension RecordingSessionArtifactReport {
         case .unavailable:
             try validateVideoArtifactUnavailable()
         case .recorded:
+            try validateVideoArtifactRecorded()
+        case .partial:
+            guard !videoArtifact.blockers.isEmpty else {
+                throw RecordingSessionArtifactValidationError.partialMediaWithoutBlocker(.videoFrames)
+            }
             try validateVideoArtifactRecorded()
         }
     }

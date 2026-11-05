@@ -1,5 +1,4 @@
 use super::ffi::{load_pcap, pcap_lock, PcapLibrary};
-use super::packet::{parse_ethernet_ipv4_udp_frame, ParsedUdpPacket};
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -58,9 +57,6 @@ impl RawMediaPlane {
             format!("no Npcap adapter could be opened: {}", failures.join("; "))
         })
     }
-    pub fn backend_name(&self) -> String {
-        format!("pcap:{}", self.device)
-    }
     /// Send a datagram via pcap_sendpacket when available.
     pub fn send(&self, data: &[u8]) -> Result<(), String> {
         self.lib.sendpacket(self.handle, data)
@@ -80,12 +76,6 @@ impl RawMediaPlane {
         self.lib.set_filter(self.handle, &filter)?;
         Ok(filter)
     }
-    pub fn receive(&self) -> Result<Option<(ParsedUdpPacket, SystemTime)>, String> {
-        self.receive_with(|frame, timestamp| {
-            parse_ethernet_ipv4_udp_frame(frame).map(|packet| (packet, timestamp))
-        })
-        .map(Option::flatten)
-    }
     pub(crate) fn receive_with<T, F>(&self, inspect: F) -> Result<Option<T>, String>
     where
         F: FnOnce(&[u8], SystemTime) -> T,
@@ -100,10 +90,6 @@ impl RawMediaPlane {
         self.close_handle();
         snapshot
     }
-    pub fn is_open(&self) -> bool {
-        !self.closed
-    }
-
     fn close_handle(&mut self) {
         if !self.closed {
             self.lib.close(self.handle);

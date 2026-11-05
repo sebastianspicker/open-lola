@@ -1,6 +1,6 @@
 use super::control::{
-    apply_stream_control, build_session_control, send_control_datagram, validate_incoming_control,
-    QuickconnAckCache,
+    build_session_control, recv_control_until, send_control_datagram,
+    send_control_datagram_or_drop, validate_incoming_control, QuickconnAckCache,
 };
 use super::media::SessionMediaTransport;
 use super::{SessionOptions, SessionResult};
@@ -147,7 +147,14 @@ fn peer_session_body_with_sockets(
     let Some(negotiation) = negotiation else {
         return Ok(());
     };
-    if receive_peer_control_extras(&ctrl, &settings, &options, &shared, negotiation.addr)? {
+    if receive_peer_control_extras(
+        &ctrl,
+        &settings,
+        &options,
+        &shared,
+        &negotiation.ack,
+        negotiation.addr,
+    )? {
         return Ok(());
     }
     ctrl.set_timeout(0.001)
@@ -312,8 +319,10 @@ fn acknowledge_status(
         None,
     )
     .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
-    send_control_datagram(control_socket, &ack, peer)?;
-    record_sent(shared, "/MESG_CHECKLOLASTATUS_ACK");
+    // A dropped acknowledgement is a lost datagram; the initiator repeats its check.
+    if send_control_datagram_or_drop(control_socket, &ack, peer)? {
+        record_sent(shared, "/MESG_CHECKLOLASTATUS_ACK");
+    }
     Ok(())
 }
 
@@ -410,9 +419,9 @@ fn receive_peer_control_extras(
     settings: &StationSettings,
     options: &SessionOptions,
     shared: &Arc<Mutex<SessionResult>>,
+    ack: &QuickconnAckCache,
     peer: SocketAddr,
 ) -> Result<bool, SessionError> {
-    SessionError::from_socket_timeout(control_socket.set_timeout(0.15))?;
     let deadline = Instant::now()
         + if options.control_extras {
             Duration::from_millis(400)
@@ -420,22 +429,10 @@ fn receive_peer_control_extras(
             Duration::ZERO
         };
     while Instant::now() < deadline {
-        let Ok((data, sender)) = control_socket.recv_vec() else {
-            break;
-        };
-        let Ok(message) = decode_mesg(&data) else {
-            continue;
-        };
-        if validate_incoming_control(&message, sender, settings, Some(peer), true).is_err() {
-            continue;
-        }
-        let disconnected = {
-            let mut result = lock_unpoison(shared);
-            apply_stream_control(&message, &mut result, options.runtime_control.as_ref())
-        };
-        if disconnected {
+        if pump_peer_control(control_socket, ack, peer, settings, options, shared)? {
             return Ok(true);
         }
+        std::thread::sleep(Duration::from_millis(10));
     }
     Ok(false)
 }
@@ -532,62 +529,36 @@ fn recv_peer_control_until(
     deadline: Instant,
     accepted_kinds: &[&str],
 ) -> Result<(crate::protocol::Mesg, SocketAddr), SessionError> {
-    const POLL: Duration = Duration::from_millis(10);
     let mut discarded = 0_u64;
     let mut foreign = (0_u64, None);
-    loop {
-        if options
-            .runtime_control
-            .as_ref()
-            .is_some_and(super::SessionRuntimeControl::is_cancelled)
-        {
-            return Err(SessionError::PeerDisconnect(
-                "session cancelled during listener negotiation".into(),
-            ));
-        }
-        let now = Instant::now();
-        if now >= deadline {
-            return Err(SessionError::Timeout(listener_timeout_message(
-                discarded,
-                foreign,
-                &settings.network.remote_ip,
-            )));
-        }
-        socket
-            .set_timeout((deadline - now).min(POLL).as_secs_f64())
-            .map_err(|error| SessionError::Transport(error.to_string()))?;
-        match socket.recv_vec() {
-            Ok((data, sender)) => {
-                if sender.ip().to_string() != settings.network.remote_ip {
-                    foreign = (foreign.0 + 1, Some(sender.ip()));
-                    continue;
-                }
-                if expected_sender.is_some_and(|expected| sender != expected)
-                    || (!options.is_loopback() && sender.port() != settings.network.control_port)
-                {
-                    continue;
-                }
-                let Ok(message) = decode_mesg(&data) else {
-                    discarded += 1;
-                    continue;
-                };
-                if validate_incoming_control(&message, sender, settings, expected_sender, true)
-                    .is_err()
-                    || !accepted_kinds.contains(&message.name.as_str())
-                {
-                    discarded += 1;
-                    continue;
-                }
-                return Ok((message, sender));
+    recv_control_until(
+        socket,
+        deadline,
+        options.runtime_control.as_ref(),
+        "session cancelled during listener negotiation",
+        |data, sender| {
+            if sender.ip().to_string() != settings.network.remote_ip {
+                foreign = (foreign.0 + 1, Some(sender.ip()));
+                return None;
             }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock
-                        | std::io::ErrorKind::TimedOut
-                        | std::io::ErrorKind::Interrupted
-                ) => {}
-            Err(error) => return Err(SessionError::Transport(error.to_string())),
-        }
-    }
+            if expected_sender.is_some_and(|expected| sender != expected)
+                || (!options.is_loopback() && sender.port() != settings.network.control_port)
+            {
+                return None;
+            }
+            let message = decode_mesg(data).ok().filter(|message| {
+                validate_incoming_control(message, sender, settings, expected_sender, true).is_ok()
+                    && accepted_kinds.contains(&message.name.as_str())
+            });
+            discarded += u64::from(message.is_none());
+            message.map(|message| (message, sender))
+        },
+    )?
+    .ok_or_else(|| {
+        SessionError::Timeout(listener_timeout_message(
+            discarded,
+            foreign,
+            &settings.network.remote_ip,
+        ))
+    })
 }

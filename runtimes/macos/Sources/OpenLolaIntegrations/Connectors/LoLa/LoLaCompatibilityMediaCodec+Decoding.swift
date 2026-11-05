@@ -148,6 +148,54 @@ extension LoLaCompatibilityMediaCodec {
         return body
     }
 
+    /// The one admission rule for an audio datagram (same as the Rust station): a padded-size datagram that
+    /// is a single final fragment whose frame ID is sequence + 1 and whose PCM body is non-empty.
+    public static func decodeAudioDatagram(_ payload: Data) throws -> LoLaCompatibilitySerializedMediaBody {
+        guard payload.count == LoLaCompatibilityMediaModel.audioUdpPayloadByteCount else {
+            throw LoLaCompatibilityMediaCodecError.serializedSizeMismatch(
+                expected: LoLaCompatibilityMediaModel.audioUdpPayloadByteCount,
+                actual: payload.count
+            )
+        }
+        guard let fragment = try decode(payload).normalFragment else {
+            throw LoLaCompatibilityMediaCodecError.invalidFragmentMagic
+        }
+        guard fragment.header.fragmentCount == 1 else {
+            throw LoLaCompatibilityMediaCodecError.invalidFragmentCount(fragment.header.fragmentCount)
+        }
+        guard fragment.header.fragmentIndex == 0 else {
+            throw LoLaCompatibilityMediaCodecError.invalidFragmentIndex(fragment.header.fragmentIndex)
+        }
+        guard fragment.header.originalOffset == 0 else {
+            throw LoLaCompatibilityMediaCodecError.fragmentOffsetMismatch(
+                expected: 0,
+                actual: fragment.header.originalOffset
+            )
+        }
+        guard fragment.header.finalFlag else {
+            throw LoLaCompatibilityMediaCodecError.invalidFinalFlag(
+                fragmentIndex: 0,
+                expected: true,
+                actual: false
+            )
+        }
+        let body = try decodeSerializedBody(fragment.fragmentBytes)
+        let expectedFrameID = body.sequence &+ 1
+        guard expectedFrameID == fragment.header.frameID else {
+            throw LoLaCompatibilityMediaCodecError.sequenceMismatch(
+                expected: expectedFrameID,
+                actual: fragment.header.frameID
+            )
+        }
+        guard (1...maxAudioPayloadByteCount).contains(body.payloadLength) else {
+            throw LoLaCompatibilityMediaCodecError.serializedSizeMismatch(
+                expected: maxAudioPayloadByteCount,
+                actual: body.payloadLength
+            )
+        }
+        return body
+    }
+
     public static func decodeSerializedBody(_ data: Data) throws -> LoLaCompatibilitySerializedMediaBody {
         guard data.count >= 8 else {
             throw LoLaCompatibilityMediaCodecError.truncatedPayload(data.count)

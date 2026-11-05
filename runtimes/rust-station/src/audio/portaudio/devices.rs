@@ -241,9 +241,6 @@ impl PortAudioLibrary {
         ensure_pa_ready_locked()
     }
 
-    /// No-op: we never terminate the process-global PA instance (safe under tests).
-    pub fn terminate(&mut self) {}
-
     pub fn device_count(&self) -> Result<i32, String> {
         let _g = pa_lock();
         with_pa_fns_locked(|fns| {
@@ -254,38 +251,6 @@ impl PortAudioLibrary {
             } else {
                 Ok(n)
             }
-        })?
-    }
-
-    pub fn default_input_device(&self) -> i32 {
-        let _g = pa_lock();
-        with_pa_fns_locked(|fns| {
-            if let Some(f) = fns.get_default_input {
-                // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                unsafe { f() }
-            } else {
-                0
-            }
-        })
-        .unwrap_or(0)
-    }
-
-    pub fn default_output_device(&self) -> Result<i32, String> {
-        let _g = pa_lock();
-        with_pa_fns_locked(|fns| match fns.get_default_output {
-            Some(f) => {
-                // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                let device = unsafe { f() };
-                if device < 0 {
-                    Err(format!(
-                        "Pa_GetDefaultOutputDevice: {}",
-                        error_text_fns(fns, device)
-                    ))
-                } else {
-                    Ok(device)
-                }
-            }
-            None => Err("Pa_GetDefaultOutputDevice not bound".into()),
         })?
     }
 

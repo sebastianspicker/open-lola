@@ -15,11 +15,6 @@ struct RealtimeAudioCapturePushResult: Sendable {
     var copyKind: RealtimeAudioCaptureCopyKind
 }
 
-struct RealtimeAudioCapturedPayload: Sendable {
-    var block: RealtimeAudioFrameBlock
-    var payload: Data
-}
-
 struct RealtimeAudioPayloadCaptureRing: Sendable {
     private var blocks: [RealtimeAudioFrameBlock?]
     private var payloadStorage: [UInt8]
@@ -163,18 +158,6 @@ struct RealtimeAudioPayloadCaptureRing: Sendable {
         }
         commitWrite(startFrame: startFrame, hostTimeNanoseconds: hostTimeNanoseconds)
         return RealtimeAudioCapturePushResult(result: .stored, copyKind: .remapped)
-    }
-
-    mutating func pop() -> RealtimeAudioCapturedPayload? {
-        withPoppedPayload { block, payloadBytes in
-            guard let baseAddress = payloadBytes.baseAddress else {
-                return RealtimeAudioCapturedPayload(block: block, payload: Data())
-            }
-            return RealtimeAudioCapturedPayload(
-                block: block,
-                payload: Data(bytes: baseAddress, count: payloadBytes.count)
-            )
-        }
     }
 
     mutating func popPayload(into destination: inout Data) -> RealtimeAudioFrameBlock? {

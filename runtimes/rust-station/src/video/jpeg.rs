@@ -1,4 +1,4 @@
-//! In-memory JPEG encode/decode (quality clamped 40–100 like closed UI).
+//! In-memory JPEG encode/decode.
 
 use image::{DynamicImage, GenericImageView, Rgba};
 use std::io::Cursor;
@@ -16,8 +16,11 @@ pub enum JpegError {
     Image(String),
 }
 
+/// JPEG quality accepted by settings, the CLI and the encoder.
+pub const JPEG_QUALITY_RANGE: std::ops::RangeInclusive<u8> = 1..=100;
+
 pub fn clamp_jpeg_quality(quality: u8) -> u8 {
-    quality.clamp(40, 100)
+    quality.clamp(*JPEG_QUALITY_RANGE.start(), *JPEG_QUALITY_RANGE.end())
 }
 
 struct BorrowedJpegView<'a> {

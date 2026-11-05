@@ -56,10 +56,13 @@ impl CapturePlane for FakeCapturePlane {
     fn receive_with(
         &self,
         inspect: &mut dyn FnMut(&[u8], SystemTime) -> Option<ReceivedDatagram>,
-    ) -> Result<Option<ReceivedDatagram>, String> {
+    ) -> Result<DatagramPoll, String> {
         match self.frames.borrow_mut().pop_front().unwrap_or(Ok(None))? {
-            Some((frame, timestamp)) => Ok(inspect(&frame, timestamp)),
-            None => Ok(None),
+            Some((frame, timestamp)) => {
+                Ok(inspect(&frame, timestamp)
+                    .map_or(DatagramPoll::Discarded, DatagramPoll::Datagram))
+            }
+            None => Ok(DatagramPoll::Empty),
         }
     }
 
@@ -113,6 +116,7 @@ fn transport_with_kernel_result(
         audio_queue_depth: 1,
         video_queue_depth: 1,
         stats: TransportStats::default(),
+        send_faults: Default::default(),
     }
 }
 
@@ -132,6 +136,13 @@ fn frame(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<u8> {
 
 fn captured(frame: Vec<u8>) -> CaptureResult {
     Ok(Some((frame, UNIX_EPOCH + Duration::from_secs(1))))
+}
+
+fn datagram(poll: DatagramPoll) -> ReceivedDatagram {
+    match poll {
+        DatagramPoll::Datagram(datagram) => datagram,
+        other => panic!("expected a datagram, got {other:?}"),
+    }
 }
 
 #[test]
@@ -256,20 +267,20 @@ fn receive_kind_preserves_each_opposite_stream_fragment() {
 
     assert_eq!(
         transport.receive_kind(MediaKind::Audio).expect("poll"),
-        None
+        DatagramPoll::Empty
     );
-    let video = transport
-        .receive_kind(MediaKind::Video)
-        .expect("pending video")
-        .expect("latest video");
-    assert_eq!(video.payload, b"old-video");
-    assert!(transport.receive_kind(MediaKind::Audio).unwrap().is_none());
-    assert_eq!(
+    let video = datagram(
         transport
             .receive_kind(MediaKind::Video)
-            .unwrap()
-            .unwrap()
-            .payload,
+            .expect("pending video"),
+    );
+    assert_eq!(video.payload, b"old-video");
+    assert_eq!(
+        transport.receive_kind(MediaKind::Audio).unwrap(),
+        DatagramPoll::Empty
+    );
+    assert_eq!(
+        datagram(transport.receive_kind(MediaKind::Video).unwrap()).payload,
         b"new-video"
     );
     assert_eq!(transport.stats().queue_replacement_drops, 0);
@@ -320,23 +331,18 @@ fn opposite_stream_flood_yields_after_one_quantum() {
     frames.push(captured(frame(AUDIO_PORT, AUDIO_PORT, b"audio")));
     let mut transport = transport(frames, 0, Arc::new(AtomicUsize::new(0)));
     for index in 1..=65 {
-        assert_eq!(transport.receive_kind(MediaKind::Audio).unwrap(), None);
+        assert_eq!(
+            transport.receive_kind(MediaKind::Audio).unwrap(),
+            DatagramPoll::Empty
+        );
         assert_eq!(transport.stats().received_datagrams, index);
         assert_eq!(
-            transport
-                .receive_kind(MediaKind::Video)
-                .unwrap()
-                .unwrap()
-                .payload,
+            datagram(transport.receive_kind(MediaKind::Video).unwrap()).payload,
             b"video"
         );
     }
     assert_eq!(
-        transport
-            .receive_kind(MediaKind::Audio)
-            .unwrap()
-            .unwrap()
-            .payload,
+        datagram(transport.receive_kind(MediaKind::Audio).unwrap()).payload,
         b"audio"
     );
     assert_eq!(transport.stats().queue_replacement_drops, 0);

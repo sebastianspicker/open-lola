@@ -37,6 +37,8 @@ public enum RecordingMediaSwitch: String, Codable, Equatable, Sendable {
 public enum RecordingMediaArtifactState: String, Codable, Equatable, Sendable {
     case off
     case recorded
+    /// Written to disk but shorter than requested: stopped early, or frames were dropped.
+    case partial
     case unavailable
 }
 

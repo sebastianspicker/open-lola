@@ -8,6 +8,7 @@ func buildLoLaPlan(
     _ configuration: ExternalConnectorSessionConfiguration
 ) throws -> ExternalConnectorLaunchPlan {
     try validateTransmitPeer(configuration)
+    try validateReceivePeer(configuration)
     _ = try lolaControlSessionID(configuration.sessionID)
     let mediaProfile = try ExternalConnectorMediaProfile.build(configuration: configuration)
     let audioWireFrameBytes = try LoLaCompatibilityMediaModel.audioWireFrameByteCount(

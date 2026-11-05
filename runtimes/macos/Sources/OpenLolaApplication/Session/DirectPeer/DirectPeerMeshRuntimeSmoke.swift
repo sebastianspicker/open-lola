@@ -122,8 +122,16 @@ public enum DirectPeerMeshRuntimeSmoke {
             ))
         }
         let received = try receiveRoutePackets(count: packets.count, receiver: context.receiver)
-        let reassembled = try UdpPcmV2FragmentReassembler.reassemble(received)
-        counters.record(sentFragments: packets.count, reassembled: reassembled)
+        var reassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+        var isComplete = false
+        for packet in received {
+            isComplete = try reassembly.receive(packet) != nil || isComplete
+        }
+        counters.record(
+            sentFragments: packets.count,
+            isComplete: isComplete,
+            duplicateFragments: reassembly.consumeDroppedDuplicateFragments()
+        )
     }
 
     private static func receiveRoutePackets(
@@ -208,11 +216,11 @@ private struct MeshRuntimeRouteCounters {
     var incompleteDeadlines = 0
     var duplicateFragments = 0
 
-    mutating func record(sentFragments: Int, reassembled: UdpPcmV2ReassemblyResult) {
+    mutating func record(sentFragments: Int, isComplete: Bool, duplicateFragments: Int) {
         self.sentFragments += sentFragments
         receivedFragments += sentFragments
-        duplicateFragments += reassembled.duplicateFragmentIndices.count
-        if reassembled.isComplete {
+        self.duplicateFragments += duplicateFragments
+        if isComplete {
             completeDeadlines += 1
         } else {
             incompleteDeadlines += 1

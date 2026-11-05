@@ -24,8 +24,6 @@ pub(super) const PA_ASIO: i32 = 3;
 pub(super) type PaInitialize = unsafe extern "C" fn() -> i32;
 pub(super) type PaTerminate = unsafe extern "C" fn() -> i32;
 pub(super) type PaGetDeviceCount = unsafe extern "C" fn() -> i32;
-pub(super) type PaGetDefaultInputDevice = unsafe extern "C" fn() -> i32;
-pub(super) type PaGetDefaultOutputDevice = unsafe extern "C" fn() -> i32;
 pub(super) type PaGetDeviceInfo = unsafe extern "C" fn(i32) -> *const PaDeviceInfo;
 pub(super) type PaGetHostApiInfo = unsafe extern "C" fn(i32) -> *const PaHostApiInfo;
 pub(super) type PaGetErrorText = unsafe extern "C" fn(i32) -> *const i8;
@@ -111,8 +109,6 @@ pub(super) struct PaFns {
     #[allow(dead_code)]
     pub(super) terminate: PaTerminate,
     pub(super) get_device_count: PaGetDeviceCount,
-    pub(super) get_default_input: Option<PaGetDefaultInputDevice>,
-    pub(super) get_default_output: Option<PaGetDefaultOutputDevice>,
     pub(super) get_device_info: Option<PaGetDeviceInfo>,
     pub(super) get_host_api_info: Option<PaGetHostApiInfo>,
     pub(super) get_error_text: Option<PaGetErrorText>,
@@ -127,8 +123,6 @@ pub(super) struct PaBindings {
     initialize: PaInitialize,
     terminate: PaTerminate,
     get_device_count: PaGetDeviceCount,
-    get_default_input: Option<PaGetDefaultInputDevice>,
-    get_default_output: Option<PaGetDefaultOutputDevice>,
     get_device_info: Option<PaGetDeviceInfo>,
     get_host_api_info: Option<PaGetHostApiInfo>,
     get_error_text: Option<PaGetErrorText>,
@@ -145,8 +139,6 @@ impl PaFns {
             initialize: bindings.initialize,
             terminate: bindings.terminate,
             get_device_count: bindings.get_device_count,
-            get_default_input: bindings.get_default_input,
-            get_default_output: bindings.get_default_output,
             get_device_info: bindings.get_device_info,
             get_host_api_info: bindings.get_host_api_info,
             get_error_text: bindings.get_error_text,
@@ -218,11 +210,6 @@ pub(super) fn bind_pa_symbols(lib: &Library) -> Result<PaBindings, String> {
         close_stream: required_symbol!(PaCloseStream, b"Pa_CloseStream\0"),
         start_stream: required_symbol!(PaStartStream, b"Pa_StartStream\0"),
         stop_stream: required_symbol!(PaStopStream, b"Pa_StopStream\0"),
-        get_default_input: optional_symbol!(PaGetDefaultInputDevice, b"Pa_GetDefaultInputDevice\0"),
-        get_default_output: optional_symbol!(
-            PaGetDefaultOutputDevice,
-            b"Pa_GetDefaultOutputDevice\0"
-        ),
         get_device_info: optional_symbol!(PaGetDeviceInfo, b"Pa_GetDeviceInfo\0"),
         get_host_api_info: optional_symbol!(PaGetHostApiInfo, b"Pa_GetHostApiInfo\0"),
         get_error_text: optional_symbol!(PaGetErrorText, b"Pa_GetErrorText\0"),

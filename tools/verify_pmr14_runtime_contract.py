@@ -28,13 +28,13 @@ def load(path: Path) -> JsonObject:
 
 def require_positive(value: object, label: str) -> None:
     """Require a positive integer metric."""
-    if not isinstance(value, int) or value <= 0:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         fail(f"{label} must be > 0")
 
 
 def require_zero(value: object, label: str) -> None:
     """Require an integer metric with no recorded failures."""
-    if not isinstance(value, int) or value != 0:
+    if not isinstance(value, int) or isinstance(value, bool) or value != 0:
         fail(f"{label} must be 0")
 
 

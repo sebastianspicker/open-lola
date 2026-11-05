@@ -29,13 +29,15 @@ pub struct WavData {
     pub pcm: Vec<u8>,
 }
 
-/// Incremental PCM WAV writer. Call [`finish`](Self::finish) to finalize sizes.
-/// Device PCM is signed; 8-bit WAV samples are unsigned, so 8-bit data is
-/// converted on write and on read.
+/// Incremental PCM WAV writer. Sizes are patched about once per second of
+/// audio and finally by [`finish`](Self::finish). Device PCM is signed; 8-bit
+/// WAV samples are unsigned, so 8-bit data is converted on write and on read.
 pub struct WavStreamWriter {
     file: File,
     bits_per_sample: u16,
+    byte_rate: u32,
     data_len: u64,
+    patched_len: u64,
 }
 
 impl WavStreamWriter {
@@ -90,12 +92,15 @@ impl WavStreamWriter {
         Ok(Self {
             file,
             bits_per_sample,
+            byte_rate,
             data_len: 0,
+            patched_len: 0,
         })
     }
 
     pub fn append(&mut self, pcm: &[u8]) -> Result<(), WavError> {
-        const MAX_DATA_LEN: u64 = u32::MAX as u64 - 36;
+        // Even, so a pad byte never pushes the RIFF size past u32::MAX.
+        const MAX_DATA_LEN: u64 = u32::MAX as u64 - 37;
         let appended_len = self
             .data_len
             .checked_add(pcm.len() as u64)
@@ -105,9 +110,16 @@ impl WavStreamWriter {
         }
         if self.bits_per_sample == 8 {
             let unsigned: Vec<u8> = pcm.iter().map(|b| b ^ 0x80).collect();
-            return write_pcm(&mut self.file, &unsigned, &mut self.data_len);
+            write_pcm(&mut self.file, &unsigned, &mut self.data_len)?;
+        } else {
+            write_pcm(&mut self.file, pcm, &mut self.data_len)?;
         }
-        write_pcm(&mut self.file, pcm, &mut self.data_len)
+        // Keeps the file readable if the process dies before `finish`.
+        if self.data_len - self.patched_len >= u64::from(self.byte_rate.max(1)) {
+            self.write_sizes(0)?;
+            self.file.seek(SeekFrom::End(0))?;
+        }
+        Ok(())
     }
 
     pub fn data_len(&self) -> u64 {
@@ -115,18 +127,23 @@ impl WavStreamWriter {
     }
 
     pub fn finish(mut self) -> Result<(), WavError> {
-        let data_len = self.data_len as u32;
-        let padding = self.data_len % 2;
+        let padding = (self.data_len % 2) as u32;
         if padding != 0 {
             self.file.write_all(&[0])?;
         }
-        self.file.flush()?;
-        let riff_len = 36 + data_len + padding as u32;
+        self.write_sizes(padding)?;
+        self.file.sync_all()?;
+        Ok(())
+    }
+
+    fn write_sizes(&mut self, padding: u32) -> Result<(), WavError> {
+        let data_len = self.data_len as u32;
         self.file.seek(SeekFrom::Start(4))?;
-        self.file.write_all(&riff_len.to_le_bytes())?;
+        self.file
+            .write_all(&(36 + data_len + padding).to_le_bytes())?;
         self.file.seek(SeekFrom::Start(40))?;
         self.file.write_all(&data_len.to_le_bytes())?;
-        self.file.flush()?;
+        self.patched_len = self.data_len;
         Ok(())
     }
 }

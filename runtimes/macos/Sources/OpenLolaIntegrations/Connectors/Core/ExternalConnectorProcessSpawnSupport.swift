@@ -101,6 +101,11 @@ private func addExternalConnectorSpawnPipeActions(
             operation: "posix_spawn_file_actions_adddup2 stderr"
         )
     ]
+    // Children never read our stdin; /dev/null also keeps fd 0 open under POSIX_SPAWN_CLOEXEC_DEFAULT.
+    try checkExternalConnectorSpawnStatus(
+        posix_spawn_file_actions_addopen(&fileActions, STDIN_FILENO, "/dev/null", O_RDONLY, 0),
+        "posix_spawn_file_actions_addopen stdin"
+    )
     for action in pipeActions {
         try checkExternalConnectorSpawnStatus(
             posix_spawn_file_actions_adddup2(
@@ -138,7 +143,8 @@ private func makeExternalConnectorSpawnAttributes() throws -> posix_spawnattr_t?
     )
     do {
         try checkExternalConnectorSpawnStatus(
-            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP)),
+            // CLOEXEC_DEFAULT keeps our sockets and pipes out of the child; only the file actions' 0/1/2 survive.
+            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)),
             "posix_spawnattr_setflags"
         )
         try checkExternalConnectorSpawnStatus(

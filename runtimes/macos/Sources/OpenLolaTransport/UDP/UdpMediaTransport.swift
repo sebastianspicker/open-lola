@@ -29,6 +29,8 @@ public final class UdpMediaTransport: @unchecked Sendable {
     private var recentSequencesByStream: [UdpMediaSequenceKey: UdpMediaRecentSequences] = [:]
     private var receiveStreamOrder: [UdpMediaSequenceKey] = []
     private var receiveScratch: [UInt8] = []
+    // Used only by the blocking receive, which runs without the state lock on a single reader.
+    private var blockingReceiveScratch: [UInt8] = []
     private var sendScratch = Data()
     private var jitterState = UdpMediaJitterState()
     var isClosed = false
@@ -259,7 +261,11 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     public func receiveDecoded(maxByteCount: Int) throws -> UdpMediaDecodedPacket {
         let socket = try openSocketDescriptor()
-        var received = try receiveDatagramReportingOversize(socket: socket, byteCount: maxByteCount)
+        var received = try receiveBlockingDatagramReportingOversize(
+            socket: socket,
+            byteCount: maxByteCount,
+            buffer: &blockingReceiveScratch
+        )
         var skipped = 0
         while received.isOversize {
             try requireSocketOpenAfterBlockingOperation()
@@ -268,7 +274,11 @@ public final class UdpMediaTransport: @unchecked Sendable {
             guard skipped < Self.maximumOversizeSkipsPerReceive else {
                 throw UdpPcmRouteProbeError.receiveFailed(EAGAIN)
             }
-            received = try receiveDatagramReportingOversize(socket: socket, byteCount: maxByteCount)
+            received = try receiveBlockingDatagramReportingOversize(
+            socket: socket,
+            byteCount: maxByteCount,
+            buffer: &blockingReceiveScratch
+        )
         }
         let data = received.data
         try requireSocketOpenAfterBlockingOperation()
@@ -311,11 +321,27 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     public func tryReceiveRawDatagram(maxByteCount: Int) throws -> Data? {
         try withOpenSocketLock {
-            let data = try receiveDatagramIfAvailable(
+            var received = try receiveDatagramReportingOversize(
                 socket: descriptor,
                 byteCount: maxByteCount,
                 buffer: &receiveScratch
             )
+            // Truncated datagrams must not look like complete packets; drop them and keep draining.
+            var skipped = 0
+            while received.isOversize {
+                // withOpenSocketLock holds stateLock, so count inline rather than via recordOversizeReceived.
+                metricsState.oversizeDatagrams = saturatingOpenLolaCounterSum(metricsState.oversizeDatagrams ?? 0, 1)
+                skipped += 1
+                guard skipped < Self.maximumOversizeSkipsPerReceive else {
+                    return nil
+                }
+                received = try receiveDatagramReportingOversize(
+                    socket: descriptor,
+                    byteCount: maxByteCount,
+                    buffer: &receiveScratch
+                )
+            }
+            let data = received.data
             if let data {
                 metricsState.packetsReceived = saturatingOpenLolaCounterSum(metricsState.packetsReceived, 1)
                 metricsState.bytesReceived = saturatingOpenLolaCounterSum(metricsState.bytesReceived, data.count)

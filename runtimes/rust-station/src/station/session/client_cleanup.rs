@@ -1,6 +1,6 @@
 use super::backends::{SessionAudioBackend, SessionCameraBackend};
 use super::capture::CaptureWorker;
-use super::control::{build_session_control, send_control_datagram, ClientDisconnectGuard};
+use super::control::{build_session_control, send_control_datagram};
 use super::lifecycle::{CleanupFinalizer, CleanupReport};
 use super::media::SessionMediaTransport;
 use crate::config::StationSettings;
@@ -9,6 +9,58 @@ use crate::protocol::{MESG_DISCONNECT, MESG_STOP_AUDIO_SIGNAL};
 use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::SessionError;
 use std::net::SocketAddr;
+
+/// Best-effort protocol cleanup for every successfully negotiated client session.
+///
+/// The normal path still reports checked sends. If a media/backend/recording
+/// operation returns early, this guard keeps the peer from waiting indefinitely.
+pub(super) struct ClientDisconnectGuard<'a> {
+    socket: &'a Udp,
+    peer: SocketAddr,
+    stop_audio: Vec<u8>,
+    disconnect: Vec<u8>,
+    armed: bool,
+}
+
+impl<'a> ClientDisconnectGuard<'a> {
+    pub(super) fn new(
+        socket: &'a Udp,
+        peer: SocketAddr,
+        settings: &StationSettings,
+    ) -> Result<Self, SessionError> {
+        let encode = |kind| {
+            build_session_control(
+                settings,
+                kind,
+                &settings.network.local_ip,
+                &settings.network.remote_ip,
+                "",
+                None,
+            )
+            .map_err(|error| SessionError::ControlHandshake(error.to_string()))
+        };
+        Ok(Self {
+            socket,
+            peer,
+            stop_audio: encode(MESG_STOP_AUDIO_SIGNAL)?,
+            disconnect: encode(MESG_DISCONNECT)?,
+            armed: true,
+        })
+    }
+
+    pub(super) fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ClientDisconnectGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = send_control_datagram(self.socket, &self.stop_audio, self.peer);
+            let _ = send_control_datagram(self.socket, &self.disconnect, self.peer);
+        }
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn finalize_client_session(

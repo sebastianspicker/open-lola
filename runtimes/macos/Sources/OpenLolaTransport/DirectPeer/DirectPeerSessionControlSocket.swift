@@ -142,12 +142,8 @@ package final class DirectPeerSessionControlSocket: @unchecked Sendable {
     ) throws -> SessionControlMessage {
         let deadline = DispatchTime.now().uptimeNanoseconds + receiveTimeoutNanoseconds
         while DispatchTime.now().uptimeNanoseconds < deadline {
-            if let datagram = try receiveDatagramWithSourceIfAvailable(socket: descriptor, byteCount: 16_384) {
-                guard controlSourceMatches(datagram, expectedSource: expectedSource) else {
-                    continue
-                }
-                incrementReceivedDatagrams()
-                return try SessionControlCodec.decode(datagram.data)
+            if let message = try receiveMessageIfAvailable(expectedSource: expectedSource) {
+                return message
             }
             let now = DispatchTime.now().uptimeNanoseconds
             guard deadline > now else {
@@ -180,6 +176,10 @@ package final class DirectPeerSessionControlSocket: @unchecked Sendable {
                 continue
             }
             incrementReceivedDatagrams()
+            guard !datagram.isTruncated else {
+                incrementDroppedDatagrams()
+                continue
+            }
             do {
                 return try SessionControlCodec.decode(datagram.data)
             } catch {

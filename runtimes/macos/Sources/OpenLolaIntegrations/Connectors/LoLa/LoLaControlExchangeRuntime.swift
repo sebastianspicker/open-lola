@@ -106,46 +106,6 @@ func runLoLaControlExchangeAttempt(
     }
 }
 
-private struct LoLaReceiveControlState {
-    var sentMessages: [String] = []
-    var receivedMessages: [String] = []
-    var opaqueControlDatagrams: [LoLaOpaqueControlDatagram] = []
-    var bytesTransferred = 0
-
-    mutating func recordSent(_ message: String, byteCount: Int) {
-        sentMessages.append(message)
-        bytesTransferred += byteCount
-    }
-
-    mutating func recordDiscarded(
-        _ received: LoLaReceivedControlMessage,
-        maximumOpaqueDatagrams: Int
-    ) {
-        bytesTransferred += received.bytesTransferred
-        if let opaqueDatagram = received.opaqueDatagram,
-            opaqueControlDatagrams.count < maximumOpaqueDatagrams
-        {
-            opaqueControlDatagrams.append(opaqueDatagram)
-        }
-    }
-
-    func failure(
-        parsedMessageName: String?,
-        fields: [String: String],
-        runtimeError: Error
-    ) -> LoLaControlExchangeAttempt {
-        lolaControlAttemptFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            bytesTransferred: bytesTransferred,
-            opaqueControlDatagrams: opaqueControlDatagrams,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            runtimeError: runtimeError
-        )
-    }
-}
-
 private func receiveLoLaControlAttempt(
     configuration: ExternalConnectorSessionConfiguration,
     onReady: (@Sendable () -> Void)? = nil
@@ -155,7 +115,7 @@ private func receiveLoLaControlAttempt(
     try prepareLoLaReceiveControlSocket(descriptor, configuration: configuration)
     onReady?()
 
-    var state = LoLaReceiveControlState()
+    var state = LoLaExchangeState()
     let initialStatusDeadline = MonotonicDeadline(
         seconds: TimeInterval(max(1, configuration.durationSeconds))
     )
@@ -239,7 +199,7 @@ private func prepareLoLaReceiveControlSocket(
 
 private func receiveLoLaReceiveControlMessage(
     socket descriptor: Int32,
-    state: LoLaReceiveControlState,
+    state: LoLaExchangeState,
     configuration: ExternalConnectorSessionConfiguration,
     deadline: MonotonicDeadline,
     parsed: LoLaParsedControlMessage? = nil
@@ -258,7 +218,7 @@ private func receiveLoLaReceiveControlMessage(
 
 private func receiveLoLaIncomingHandshakeMessage(
     socket descriptor: Int32,
-    state: inout LoLaReceiveControlState,
+    state: inout LoLaExchangeState,
     configuration: ExternalConnectorSessionConfiguration,
     deadline: MonotonicDeadline,
     discardedDatagrams: inout Int,
@@ -330,7 +290,7 @@ private func receiveLoLaIncomingHandshakeMessage(
 
 private func parseLoLaReceiveControlMessage(
     _ received: LoLaReceivedControlMessage,
-    state: inout LoLaReceiveControlState,
+    state: inout LoLaExchangeState,
     previous: LoLaParsedControlMessage? = nil
 ) -> LoLaParsedControlMessage {
     parseReceivedLoLaControlMessage(
@@ -347,7 +307,7 @@ private func parseLoLaReceiveControlMessage(
 private func answerLoLaStatusRetries(
     socket descriptor: Int32,
     configuration: ExternalConnectorSessionConfiguration,
-    state: inout LoLaReceiveControlState,
+    state: inout LoLaExchangeState,
     current: inout LoLaReceivedControlMessage,
     parsed: inout LoLaParsedControlMessage,
     deadline: MonotonicDeadline,
@@ -397,7 +357,7 @@ private func answerLoLaStatusRetries(
 private func validateLoLaStatusCheck(
     _ current: LoLaReceivedControlMessage,
     parsed: LoLaParsedControlMessage,
-    state: LoLaReceiveControlState,
+    state: LoLaExchangeState,
     configuration: ExternalConnectorSessionConfiguration
 ) -> LoLaControlExchangeAttempt? {
     validateLoLaIncomingHandshake(
@@ -416,7 +376,7 @@ private func validateLoLaStatusCheck(
 private func sendLoLaStatusAck(
     socket descriptor: Int32,
     configuration: ExternalConnectorSessionConfiguration,
-    state: inout LoLaReceiveControlState,
+    state: inout LoLaExchangeState,
     current: LoLaReceivedControlMessage,
     parsed: LoLaParsedControlMessage
 ) throws {
@@ -431,7 +391,7 @@ private func sendLoLaStatusAck(
 private func sendLoLaReceiveAck(
     _ ack: String,
     socket descriptor: Int32,
-    state: inout LoLaReceiveControlState,
+    state: inout LoLaExchangeState,
     current: LoLaReceivedControlMessage
 ) throws {
     let byteCount = try sendExternalConnectorUdp(
@@ -446,7 +406,7 @@ private func sendLoLaReceiveAck(
 private func answerLoLaQuickConnect(
     socket descriptor: Int32,
     configuration: ExternalConnectorSessionConfiguration,
-    state: inout LoLaReceiveControlState,
+    state: inout LoLaExchangeState,
     current: LoLaReceivedControlMessage,
     parsed: LoLaParsedControlMessage
 ) throws -> LoLaControlExchangeAttempt {
@@ -504,7 +464,7 @@ private struct LoLaIncomingHandshakeExpectation {
 private func validateLoLaIncomingHandshake(
     _ current: LoLaReceivedControlMessage,
     parsed: LoLaParsedControlMessage,
-    state: LoLaReceiveControlState,
+    state: LoLaExchangeState,
     expectation: LoLaIncomingHandshakeExpectation
 ) -> LoLaControlExchangeAttempt? {
     lolaIncomingHandshakeFailure(

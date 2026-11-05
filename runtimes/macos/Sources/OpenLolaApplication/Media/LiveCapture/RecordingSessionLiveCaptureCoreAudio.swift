@@ -17,7 +17,8 @@ import Darwin
 enum CoreAudioRawInputRecorder {
     static func run(
         selection: RecordingAudioCaptureSelection,
-        durationSeconds: Int
+        durationSeconds: Int,
+        stop: DispatchSemaphore
     ) throws -> RecordingCapturedAudio {
         let plan = try makeRecordingAudioInputPlan(selection: selection, durationSeconds: durationSeconds)
         try requireFloat32InputFormat(deviceID: plan.deviceID)
@@ -29,7 +30,8 @@ enum CoreAudioRawInputRecorder {
         try runRecordingAudioInputIOProc(
             deviceID: plan.deviceID,
             ioProcID: registration.ioProcID,
-            durationSeconds: durationSeconds
+            durationSeconds: durationSeconds,
+            stop: stop
         )
         let audio = state.capturedAudio()
         guard !audio.data.isEmpty else {
@@ -76,6 +78,7 @@ enum CoreAudioRawInputRecorder {
         guard selection.inputChannels.allSatisfy({ $0 < device.inputChannelCount }) else {
             throw RecordingLiveCaptureError.audioChannelOutOfRange
         }
+        try requireRecordingSampleRate(deviceHertz: device.nominalSampleRateHertz, requestedHertz: sampleRate)
         return RecordingAudioInputPlan(
             deviceID: AudioObjectID(device.id),
             framesPerBuffer: frames,
@@ -132,7 +135,8 @@ enum CoreAudioRawInputRecorder {
     private static func runRecordingAudioInputIOProc(
         deviceID: AudioObjectID,
         ioProcID: AudioDeviceIOProcID,
-        durationSeconds: Int
+        durationSeconds: Int,
+        stop: DispatchSemaphore
     ) throws {
         var didStartDevice = false
         defer {
@@ -150,7 +154,7 @@ enum CoreAudioRawInputRecorder {
         var status = AudioDeviceStart(deviceID, ioProcID)
         try throwRecordingAudioStatus(status, "start recording AudioDeviceIOProc")
         didStartDevice = true
-        RecordingLiveCaptureWait.wait(durationSeconds: durationSeconds)
+        RecordingLiveCaptureWait.wait(durationSeconds: durationSeconds, cancellation: stop)
         status = AudioDeviceStop(deviceID, ioProcID)
         didStartDevice = false
         try throwRecordingAudioStatus(status, "stop recording AudioDeviceIOProc")
@@ -199,25 +203,15 @@ final class CoreAudioRawInputState {
         self.inputChannels = inputChannels
         self.bytesPerSample = sampleFormat.bytesPerSample
         self.outputIsFloat32 = sampleFormat == .float32LittleEndian
-        guard let bytesPerBuffer = checkedRecordingAudioByteCount(
-            frames: framesPerBuffer,
-            channels: channelCount,
-            bytesPerSample: sampleFormat.bytesPerSample
-        ) else {
-            throw RecordingLiveCaptureError.audioBufferSizingOverflow
-        }
-        let durationProduct = durationSeconds.multipliedReportingOverflow(by: sampleRateHertz)
-        guard !durationProduct.overflow else {
-            throw RecordingLiveCaptureError.audioBufferSizingOverflow
-        }
-        let rawCallbackCount = durationProduct.partialValue / framesPerBuffer + 2
-        let callbackCount = max(1, rawCallbackCount)
-        self.callbackCapacity = callbackCount
-        let capacityProduct = bytesPerBuffer.multipliedReportingOverflow(by: callbackCount)
-        guard !capacityProduct.overflow else {
-            throw RecordingLiveCaptureError.audioBufferSizingOverflow
-        }
-        self.capacity = capacityProduct.partialValue
+        let size = try recordingAudioTakeSize(
+            framesPerBuffer: framesPerBuffer,
+            channelCount: channelCount,
+            bytesPerSample: sampleFormat.bytesPerSample,
+            durationSeconds: durationSeconds,
+            sampleRateHertz: sampleRateHertz
+        )
+        self.callbackCapacity = size.callbackCount
+        self.capacity = size.byteCount
         self.bufferStorage = RecordingRawByteBuffer(byteCount: capacity, alignment: 16)
         self.callbackDurationsStorage = RecordingUInt64Buffer(capacity: callbackCapacity)
         open_lola_atomic_u64_init(&callbacksActive, 1)
@@ -245,12 +239,11 @@ final class CoreAudioRawInputState {
     func record(input: UnsafePointer<AudioBufferList>) {
         let start = DispatchTime.now().uptimeNanoseconds
         defer { recordCallbackDuration(startNanoseconds: start) }
-        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
-        guard !buffers.isEmpty else {
+        let buffers = ReadOnlyAudioBufferListPointer(input)
+        guard buffers.count > 0 else {
             return
         }
-        let interleaved = buffers.count == 1 && Int(buffers[0].mNumberChannels) > (inputChannels.max() ?? 0)
-        let available = interleaved ? interleavedFrames(buffers[0]) : planarFrames(buffers)
+        let available = availableFrames(buffers)
         let frames = available // a longer callback is kept whole; the capacity check below bounds the total
         if available != framesPerBuffer {
             frameCountMismatches += 1
@@ -268,29 +261,32 @@ final class CoreAudioRawInputState {
             overflowedBuffers += 1
             return
         }
-        let destination = bufferStorage.pointer.advanced(by: writtenBytes)
-        if interleaved {
-            copyInterleaved(buffer: buffers[0], frames: frames, destination: destination)
-        } else {
-            copyPlanar(buffers: buffers, frames: frames, destination: destination)
-        }
+        copyChannels(buffers: buffers, frames: frames, destination: bufferStorage.pointer.advanced(by: writtenBytes))
         writtenBytes += needed
     }
 
-    private func interleavedFrames(_ buffer: AudioBuffer) -> Int {
-        Int(buffer.mDataByteSize) / (max(1, Int(buffer.mNumberChannels)) * MemoryLayout<Float>.size)
-    }
-
-    private func planarFrames(_ buffers: UnsafeMutableAudioBufferListPointer) -> Int {
-        let counts = inputChannels.filter { $0 < buffers.count }
-            .map { Int(buffers[$0].mDataByteSize) / MemoryLayout<Float>.size }
-        return counts.min() ?? 0
+    // Channel numbers count across all buffers, so a split-buffer device maps the way DirectPeer maps it.
+    private func availableFrames(_ buffers: ReadOnlyAudioBufferListPointer) -> Int {
+        var frames: Int?
+        for inputChannel in inputChannels {
+            guard let location = readOnlyBufferLocation(forStableChannel: inputChannel, in: buffers) else {
+                continue
+            }
+            let channelFrames = Int(location.buffer.mDataByteSize) / (location.channelCount * MemoryLayout<Float>.size)
+            frames = min(frames ?? channelFrames, channelFrames)
+        }
+        return frames ?? 0
     }
 
     func capturedAudio() -> RecordingCapturedAudio {
         let metrics = callbackMetrics()
         return RecordingCapturedAudio(
-            data: Data(bytes: bufferStorage.pointer, count: writtenBytes),
+            // The Data keeps the take buffer alive instead of copying the whole take again.
+            data: Data(
+                bytesNoCopy: bufferStorage.pointer,
+                count: writtenBytes,
+                deallocator: .custom { [bufferStorage] _, _ in withExtendedLifetime(bufferStorage) {} }
+            ),
             callbackP99Microseconds: metrics.p99Microseconds,
             callbackMaxMicroseconds: metrics.maxMicroseconds,
             underruns: overflowedBuffers,
@@ -318,31 +314,18 @@ final class CoreAudioRawInputState {
         )
     }
 
-    private func copyInterleaved(buffer: AudioBuffer, frames: Int, destination: UnsafeMutableRawPointer) {
-        guard let source = buffer.mData else {
-            return
-        }
-        let sourceChannels = Int(buffer.mNumberChannels)
-        for frame in 0..<frames {
-            for (outputChannel, inputChannel) in inputChannels.enumerated() {
-                let sourceOffset = ((frame * sourceChannels) + inputChannel) * MemoryLayout<Float>.size
-                let destinationOffset = ((frame * inputChannels.count) + outputChannel) * bytesPerSample
-                writeSample(source.loadUnaligned(fromByteOffset: sourceOffset, as: Float.self), to: destination, at: destinationOffset)
-            }
-        }
-    }
-
-    private func copyPlanar(
-        buffers: UnsafeMutableAudioBufferListPointer,
+    private func copyChannels(
+        buffers: ReadOnlyAudioBufferListPointer,
         frames: Int,
         destination: UnsafeMutableRawPointer
     ) {
-        for frame in 0..<frames {
-            for (outputChannel, inputChannel) in inputChannels.enumerated() where inputChannel < buffers.count {
-                guard let source = buffers[inputChannel].mData else {
-                    continue
-                }
-                let sourceOffset = frame * MemoryLayout<Float>.size
+        for (outputChannel, inputChannel) in inputChannels.enumerated() {
+            guard let location = readOnlyBufferLocation(forStableChannel: inputChannel, in: buffers),
+                  let source = location.buffer.mData else {
+                continue
+            }
+            for frame in 0..<frames {
+                let sourceOffset = ((frame * location.channelCount) + location.channelIndex) * MemoryLayout<Float>.size
                 let destinationOffset = ((frame * inputChannels.count) + outputChannel) * bytesPerSample
                 writeSample(source.loadUnaligned(fromByteOffset: sourceOffset, as: Float.self), to: destination, at: destinationOffset)
             }
@@ -441,10 +424,10 @@ private func throwRecordingAudioStatus(_ status: OSStatus, _ operation: String) 
 enum CoreAudioRawInputRecorder {
     static func run(
         selection: RecordingAudioCaptureSelection,
-        durationSeconds: Int
+        durationSeconds: Int,
+        stop: DispatchSemaphore
     ) throws -> RecordingCapturedAudio {
-        _ = selection
-        _ = durationSeconds
+        _ = (selection, durationSeconds, stop)
         throw RecordingLiveCaptureError.coreAudioUnavailable
     }
 }
@@ -459,4 +442,41 @@ private func checkedRecordingAudioByteCount(frames: Int, channels: Int, bytesPer
         return nil
     }
     return byteCount.partialValue
+}
+
+/// Byte size and callback count of the in-memory audio take: one buffer per callback for the whole duration, plus two.
+func recordingAudioTakeSize(
+    framesPerBuffer: Int,
+    channelCount: Int,
+    bytesPerSample: Int,
+    durationSeconds: Int,
+    sampleRateHertz: Int
+) throws -> (byteCount: Int, callbackCount: Int) {
+    guard let bytesPerBuffer = checkedRecordingAudioByteCount(
+        frames: framesPerBuffer,
+        channels: channelCount,
+        bytesPerSample: bytesPerSample
+    ) else {
+        throw RecordingLiveCaptureError.audioBufferSizingOverflow
+    }
+    let durationProduct = durationSeconds.multipliedReportingOverflow(by: sampleRateHertz)
+    guard !durationProduct.overflow else {
+        throw RecordingLiveCaptureError.audioBufferSizingOverflow
+    }
+    let callbackCount = max(1, durationProduct.partialValue / framesPerBuffer + 2)
+    let capacityProduct = bytesPerBuffer.multipliedReportingOverflow(by: callbackCount)
+    guard !capacityProduct.overflow else {
+        throw RecordingLiveCaptureError.audioBufferSizingOverflow
+    }
+    guard capacityProduct.partialValue <= recordingTakeMemoryBudgetBytes else {
+        throw RecordingLiveCaptureError.takeExceedsMemoryBudget(media: "audio", byteCount: capacityProduct.partialValue)
+    }
+    return (capacityProduct.partialValue, callbackCount)
+}
+
+/// The take is sized from the requested rate, so a device running at another rate would fill it early or leave it short.
+func requireRecordingSampleRate(deviceHertz: Double?, requestedHertz: Int) throws {
+    guard let deviceHertz, deviceHertz.rounded() == Double(requestedHertz) else {
+        throw RecordingLiveCaptureError.audioSampleRateMismatch(deviceHertz: deviceHertz, requestedHertz: requestedHertz)
+    }
 }

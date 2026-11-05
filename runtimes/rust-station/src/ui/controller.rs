@@ -319,13 +319,6 @@ impl StationUIController {
         Ok(())
     }
 
-    pub fn probe_reachability(&mut self) -> Value {
-        let r = check_reachable(&self.state.remote_ip, self.state.reachability_timeout_ms, 1);
-        self.state.reachable = Some(r.ok);
-        self.state.rtt_ms = r.rtt_ms;
-        r.to_json()
-    }
-
     /// Start a reachability probe without blocking the egui update thread.
     pub fn start_reachability_probe(&mut self) -> Value {
         if self.reachability_rx.is_some() {

@@ -289,7 +289,7 @@ impl CallbackState {
     }
 }
 
-pub(super) fn mix_pcm_saturating(output: &mut [u8], input: &[u8], bits_per_sample: u16) {
+pub fn mix_pcm_saturating(output: &mut [u8], input: &[u8], bits_per_sample: u16) {
     if output.len() != input.len() {
         return;
     }

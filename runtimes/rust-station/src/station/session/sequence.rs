@@ -52,6 +52,10 @@ impl ReceiveSequenceGate {
         self.restart_progress = 0;
     }
 
+    pub(super) fn resync_count(&self) -> u64 {
+        self.resyncs
+    }
+
     pub(super) fn take_resyncs(&mut self) -> u64 {
         std::mem::take(&mut self.resyncs)
     }

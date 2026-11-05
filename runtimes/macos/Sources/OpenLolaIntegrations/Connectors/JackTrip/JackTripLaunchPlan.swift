@@ -12,6 +12,10 @@ func buildJackTripPlan(
     let mediaProfile = try ExternalConnectorMediaProfile.build(configuration: configuration)
     try validateJackTripTopology(configuration)
     try validateJackTripVideoPeer(configuration)
+    // Server-style receivers (hub server, RX-only `-s`) accept any client; other receivers need their peer.
+    if JackTripCompatibilityRunner.jackTripPeerRequired(configuration) {
+        try validateReceivePeer(configuration)
+    }
     let auxiliaryProcesses = try jackTripAuxiliaryProcesses(configuration)
     let peerAudioPort = try jackTripRequiredPeerAudioPort(configuration)
     let peer = try validateExternalConnectorProcessArgument(

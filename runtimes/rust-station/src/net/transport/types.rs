@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +31,16 @@ pub struct TransportStats {
     /// Receive errors that carry no datagram, such as a Windows ICMP
     /// port-unreachable surfacing as `ConnectionReset`.
     pub transient_receive_errors: u64,
+}
+
+impl TransportStats {
+    pub(crate) fn merge_received(&mut self, observed: Self) {
+        self.received_datagrams += observed.received_datagrams;
+        self.received_bytes += observed.received_bytes;
+        self.malformed_drops += observed.malformed_drops;
+        self.wrong_peer_drops += observed.wrong_peer_drops;
+        self.wrong_port_drops += observed.wrong_port_drops;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -64,6 +75,39 @@ impl TransportError {
             }
             _ => Self::Io(error.to_string()),
         }
+    }
+}
+
+/// How long every send may keep failing with a transient fault before the
+/// fault is treated as a dead path rather than a passing one.
+const SUSTAINED_SEND_FAULT_LIMIT: Duration = Duration::from_secs(2);
+
+/// A transient fault is a per-datagram drop until it has persisted for
+/// `SUSTAINED_SEND_FAULT_LIMIT` without a single successful send; a path
+/// that stays down (firewall deny, dead route) then fails the session
+/// instead of silently dropping all media.
+#[derive(Debug, Default)]
+pub(crate) struct SendFaultTimer {
+    /// When the current run of consecutive transient send faults began.
+    since: Option<Instant>,
+}
+
+impl SendFaultTimer {
+    pub(crate) fn classify(&mut self, error: TransportError) -> TransportError {
+        let TransportError::Transient(detail) = &error else {
+            return error;
+        };
+        let since = *self.since.get_or_insert_with(Instant::now);
+        if since.elapsed() >= SUSTAINED_SEND_FAULT_LIMIT {
+            return TransportError::Io(format!(
+                "media sends have failed for {SUSTAINED_SEND_FAULT_LIMIT:?}: {detail}"
+            ));
+        }
+        error
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.since = None;
     }
 }
 

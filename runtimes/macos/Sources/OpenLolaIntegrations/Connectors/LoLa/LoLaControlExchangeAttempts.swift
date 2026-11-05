@@ -192,16 +192,12 @@ func receiveLoLaControlMessage(
     fields: [String: String] = [:]
 ) -> LoLaReceivedControlMessage {
     do {
+        let received: ExternalConnectorUdpReceiveResult
         if let deadline {
-            let remainingMicroseconds = UInt64((deadline.remainingSeconds * 1_000_000).rounded(.up))
-            guard remainingMicroseconds > 0,
-                try waitForReadableSocket(
-                    socket: socket, timeoutMicroseconds: remainingMicroseconds)
-            else {
-                throw ExternalConnectorSessionError.receiveTimedOut
-            }
+            received = try receiveLoLaControlDatagram(socket: socket, deadline: deadline)
+        } else {
+            received = try receiveExternalConnectorUdp(socket: socket, bufferSize: 4096)
         }
-        let received = try receiveExternalConnectorUdp(socket: socket, bufferSize: 4096)
         let opaqueDatagram = received.message.hasPrefix("/MESG_") ? nil : LoLaOpaqueControlDatagram.classify(
             payload: received.payload,
             sourceHost: received.senderHost,
@@ -229,6 +225,27 @@ func receiveLoLaControlMessage(
             runtimeError: error
         )
     }
+}
+
+/// Empty datagrams, EINTR and select wake-ups are discarded; only the deadline ends the wait.
+private func receiveLoLaControlDatagram(
+    socket: Int32,
+    deadline: MonotonicDeadline
+) throws -> ExternalConnectorUdpReceiveResult {
+    while deadline.hasTimeRemaining {
+        let remainingMicroseconds = UInt64((deadline.remainingSeconds * 1_000_000).rounded(.up))
+        guard remainingMicroseconds > 0,
+            try waitForReadableSocket(socket: socket, timeoutMicroseconds: remainingMicroseconds)
+        else {
+            continue
+        }
+        do {
+            return try receiveExternalConnectorUdp(socket: socket, bufferSize: 4096)
+        } catch ExternalConnectorSessionError.receiveTimedOut {
+            continue
+        }
+    }
+    throw ExternalConnectorSessionError.receiveTimedOut
 }
 
 struct LoLaControlMessageFailureContext {
@@ -311,31 +328,6 @@ func decodeLoLaReceivedControlDatagram(
         return try LoLaControlDatagramDecoder.decode(rawDatagram)
     }
     return try LoLaCompatibilityControlMessage.parse(received.message)
-}
-
-func parseLoLaControlMessage(
-    _ received: LoLaReceivedControlMessage,
-    sentMessages: [String],
-    receivedMessages: inout [String],
-    bytesTransferred: inout Int,
-    transferredBytes: Int,
-    parsedMessageName: String? = nil,
-    fields: [String: String] = [:]
-) -> LoLaParsedControlMessage {
-    receivedMessages.append(received.message)
-    bytesTransferred += transferredBytes
-    do {
-        return LoLaParsedControlMessage(parsed: try decodeLoLaReceivedControlDatagram(received), failure: nil)
-    } catch {
-        return LoLaParsedControlMessage(parsed: ("", [:]), failure: lolaControlAttemptFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            bytesTransferred: bytesTransferred,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            runtimeError: error
-        ))
-    }
 }
 
 func lolaControlAttemptSuccess(

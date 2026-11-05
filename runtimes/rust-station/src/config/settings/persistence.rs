@@ -147,7 +147,7 @@ fn validate_video(v: &VideoSettings) -> Result<u64, SettingsError> {
             "video bpp must be 8, 16, 24, or 32".into(),
         ));
     }
-    if !(1..=100).contains(&v.jpeg_quality) {
+    if !crate::video::JPEG_QUALITY_RANGE.contains(&v.jpeg_quality) {
         return Err(SettingsError::Validation(
             "video jpeg_quality must be 1..=100".into(),
         ));

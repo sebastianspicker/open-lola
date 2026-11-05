@@ -2,12 +2,12 @@ use super::audio::send_recv_audio_frame;
 use super::audio_receive::AudioReceiveQueue;
 use super::backends::{SessionAudioBackend, SessionCameraBackend};
 use super::capture::CaptureWorker;
-use super::client_cleanup::finalize_client_session;
+use super::client_cleanup::{finalize_client_session, ClientDisconnectGuard};
 use super::client_media::prepare_client_media;
 use super::colors::{load_shipped_colors, session_color_settings};
 use super::control::{
     build_session_control, pump_control, resolve_peer_ipv4, send_control_datagram,
-    send_queued_controls, ClientDisconnectGuard,
+    send_queued_controls,
 };
 use super::lifecycle::{record_cached_transport_stats, record_transport_monitor};
 use super::media::{should_stream_more, SessionMediaTransport};
@@ -241,7 +241,7 @@ fn run_client_stream(
     let packet_size = settings.network.video_packet_size as usize;
     let sid = settings.network.session_id as u32;
     let t0 = now_us();
-    resources.dual = create_client_recorder(settings, options, audio);
+    resources.dual = DualStreamRecorder::for_session(settings, options);
     let mut previews = Vec::new();
     let scheduled = options.interleaved_av
         || options.persistent
@@ -373,37 +373,6 @@ fn send_client_control_extras(
     result.audio_signal_active = Some(true);
     thread::sleep(Duration::from_millis(20));
     Ok(())
-}
-
-fn create_client_recorder(
-    settings: &StationSettings,
-    options: &SessionOptions,
-    _audio: &SessionAudioBackend,
-) -> Option<DualStreamRecorder> {
-    let record_dir = options.record.then(|| options.record_dir.clone()).flatten();
-    let preview_dir = options.preview_dir.clone();
-    if record_dir.is_none() && preview_dir.is_none() {
-        return None;
-    }
-    let mode = if options.record {
-        settings.recording.mode.as_str()
-    } else {
-        "none"
-    };
-    Some(DualStreamRecorder::with_options(
-        record_dir,
-        preview_dir,
-        settings.audio.sample_rate,
-        settings.audio.channels,
-        settings.audio.bits_per_sample,
-        "session",
-        mode,
-        options.record && settings.recording.record_local_audio,
-        options.record && settings.recording.record_remote_audio,
-        options.record && settings.recording.record_local_video,
-        options.record && settings.recording.record_remote_video,
-        &settings.recording.video_format,
-    ))
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -142,7 +142,7 @@ pub(super) fn run_listen_media(
         video_compressed,
         n_frames,
     );
-    let mut recorder = open_recorder(settings, options);
+    let mut recorder = DualStreamRecorder::for_session(settings, options);
     let mut monitor = NetworkMonitor::new();
     let mut v_re = FrameReassembler::strict_video();
     let mut audio_queue = AudioReceiveQueue::new(settings);
@@ -223,36 +223,6 @@ fn record_backend_selection(
     .into();
     result.compression_used = video_compressed;
     result.stream_frames = n_frames;
-}
-
-fn open_recorder(
-    settings: &StationSettings,
-    options: &SessionOptions,
-) -> Option<DualStreamRecorder> {
-    let record_dir = options.record.then(|| options.record_dir.clone()).flatten();
-    let preview_dir = options.preview_dir.clone();
-    if record_dir.is_none() && preview_dir.is_none() {
-        return None;
-    }
-    let mode = if options.record {
-        settings.recording.mode.as_str()
-    } else {
-        "none"
-    };
-    Some(DualStreamRecorder::with_options(
-        record_dir,
-        preview_dir,
-        settings.audio.sample_rate,
-        settings.audio.channels,
-        settings.audio.bits_per_sample,
-        "session",
-        mode,
-        options.record && settings.recording.record_local_audio,
-        options.record && settings.recording.record_remote_audio,
-        options.record && settings.recording.record_local_video,
-        options.record && settings.recording.record_remote_video,
-        &settings.recording.video_format,
-    ))
 }
 
 #[allow(clippy::too_many_arguments)]

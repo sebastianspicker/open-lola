@@ -189,6 +189,7 @@ enum JackTripSocketReceiveLoop {
         state: inout JackTripSocketReceiveLoopState
     ) {
         guard request.peer == "0.0.0.0" || datagram.host == request.peer else {
+            state.rejectedDatagramCount += 1
             return
         }
         guard !isStopControlDatagram(datagram.data) else {

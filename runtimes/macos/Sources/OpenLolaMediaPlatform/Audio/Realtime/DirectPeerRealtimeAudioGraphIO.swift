@@ -15,10 +15,10 @@ enum DirectPeerInputCopyResult: Equatable {
     case destinationBufferTooSmall
 }
 
-struct DirectPeerReadOnlyAudioBufferLocation {
-    var buffer: AudioBuffer
-    var channelIndex: Int
-    var channelCount: Int
+package struct DirectPeerReadOnlyAudioBufferLocation {
+    package var buffer: AudioBuffer
+    package var channelIndex: Int
+    package var channelCount: Int
 }
 
 struct DirectPeerMutableAudioBufferLocation {
@@ -136,8 +136,12 @@ extension DirectPeerRealtimeAudioCallbackState {
     func recordCaptureResult(_ result: SPSCAtomicRingResult) {
         if result == .stored {
             increment(&capturedInputBlocks)
-            capturedPayloadSignal.signal()
-            captureReadinessSignal?.signal()
+            // Each mode has one waiter: the readiness pipe for direct-profile sessions, the semaphore otherwise.
+            if let captureReadinessSignal {
+                captureReadinessSignal.signal()
+            } else {
+                capturedPayloadSignal.signal()
+            }
         } else if result == .invalid {
             increment(&droppedInputBlocks)
         } else if result == .full {

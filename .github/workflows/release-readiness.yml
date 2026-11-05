@@ -52,12 +52,13 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/open-lola-bin"
           case "$(uname -m)" in
-            arm64|aarch64) actionlint_arch=arm64 ;;
-            x86_64) actionlint_arch=amd64 ;;
+            arm64|aarch64) actionlint_arch=arm64; actionlint_sha=aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f ;;
+            x86_64) actionlint_arch=amd64; actionlint_sha=5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644 ;;
             *) echo "unsupported actionlint architecture: $(uname -m)" >&2; exit 1 ;;
           esac
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/actionlint.tar.gz" \
             "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_${actionlint_arch}.tar.gz"
+          echo "$actionlint_sha  $RUNNER_TEMP/actionlint.tar.gz" | shasum -a 256 -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/open-lola-bin" actionlint
           echo "$RUNNER_TEMP/open-lola-bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/open-lola-bin/actionlint" -version | head -n 1 | grep -Fx '1.7.12'

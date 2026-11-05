@@ -274,14 +274,11 @@ func writeRecordingSessionArtifacts(
         }
     }
 
-    var pressure = RecordingSideLaneWriterPressureCollector(queueCapacityChunks: 2)
     let entries = try artifacts.map { artifact in
-        pressure.recordProducedChunk()
         let artifactURL = stagingURL.appendingPathComponent(artifact.relativePath)
         let parent = artifactURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         try artifact.data.write(to: artifactURL)
-        pressure.recordWrittenChunk()
         return RecordingArtifactEntry(
             kind: artifact.kind,
             relativePath: artifact.relativePath,
@@ -304,53 +301,17 @@ func writeRecordingSessionArtifacts(
             includesVerdictMetadata: true,
             entries: entries
         ),
-        writerPressure: pressure.metrics
-    )
-}
-
-private struct RecordingSideLaneWriterPressureCollector {
-    private let queueCapacityChunks: Int
-    private var queuedChunks = 0
-    private var producedChunkCount = 0
-    private var writtenChunkCount = 0
-    private var droppedChunkCount = 0
-    private var maxQueuedChunks = 0
-    private var writerStallCount = 0
-
-    init(queueCapacityChunks: Int) {
-        self.queueCapacityChunks = queueCapacityChunks
-    }
-
-    mutating func recordProducedChunk() {
-        producedChunkCount += 1
-        if queuedChunks < queueCapacityChunks {
-            queuedChunks += 1
-            maxQueuedChunks = max(maxQueuedChunks, queuedChunks)
-        } else {
-            droppedChunkCount += 1
-        }
-    }
-
-    mutating func recordWrittenChunk() {
-        guard queuedChunks > 0 else {
-            writerStallCount += 1
-            return
-        }
-        queuedChunks -= 1
-        writtenChunkCount += 1
-    }
-
-    var metrics: RecordingWriterPressureMetrics {
-        RecordingWriterPressureMetrics(
+        // Files are written one after another once capture ends, so nothing queues, drops or stalls.
+        writerPressure: RecordingWriterPressureMetrics(
             simulatedSlowWriter: false,
-            producedChunkCount: producedChunkCount,
-            writtenChunkCount: writtenChunkCount,
-            droppedChunkCount: droppedChunkCount,
-            gapMarkerCount: droppedChunkCount,
-            maxQueuedChunks: maxQueuedChunks,
-            writerStallCount: writerStallCount
+            producedChunkCount: entries.count,
+            writtenChunkCount: entries.count,
+            droppedChunkCount: 0,
+            gapMarkerCount: 0,
+            maxQueuedChunks: 0,
+            writerStallCount: 0
         )
-    }
+    )
 }
 
 func recordingSessionChecksum(_ data: Data) -> String {

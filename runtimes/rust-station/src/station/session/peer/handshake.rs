@@ -1,14 +1,10 @@
 //! Responder handshake helpers: tolerant QUICKCONN parsing and the
 //! re-acknowledgement of a repeated QUICKCONN once media is flowing.
-use super::super::control::{
-    apply_stream_control, is_stream_control, validate_incoming_control, QuickconnAckCache,
-};
+use super::super::control::{apply_stream_control, pump_control_from, QuickconnAckCache};
 use super::super::{SessionOptions, SessionResult};
 use crate::config::StationSettings;
 use crate::net::Udp;
-use crate::protocol::{
-    decode_mesg, parse_quickconn_fields, MediaSettings, Mesg, ProtocolError, MESG_QUICKCONN,
-};
+use crate::protocol::{parse_quickconn_fields, MediaSettings, Mesg, ProtocolError};
 use crate::station::bounded::push_bounded;
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
@@ -84,7 +80,7 @@ pub(super) fn pump_peer_control(
 }
 
 pub(super) fn pump_peer_control_from(
-    mut receive: impl FnMut() -> std::io::Result<Option<(Vec<u8>, SocketAddr)>>,
+    receive: impl FnMut() -> std::io::Result<Option<(Vec<u8>, SocketAddr)>>,
     socket: &Udp,
     ack: &QuickconnAckCache,
     expected_sender: SocketAddr,
@@ -92,41 +88,12 @@ pub(super) fn pump_peer_control_from(
     options: &SessionOptions,
     shared: &Arc<Mutex<SessionResult>>,
 ) -> Result<bool, SessionError> {
-    for _ in 0..64 {
-        match receive() {
-            Ok(Some((data, sender))) => {
-                if sender != expected_sender {
-                    continue;
-                }
-                let Ok(message) = decode_mesg(&data) else {
-                    continue;
-                };
-                if validate_incoming_control(
-                    &message,
-                    sender,
-                    settings,
-                    Some(expected_sender),
-                    true,
-                )
-                .is_err()
-                {
-                    continue;
-                }
-                if message.name == format!("/{MESG_QUICKCONN}") {
-                    ack.resend(socket, sender, shared);
-                    continue;
-                }
-                if !is_stream_control(&message) {
-                    continue;
-                }
-                let mut result = lock_unpoison(shared);
-                if apply_stream_control(&message, &mut result, options.runtime_control.as_ref()) {
-                    return Ok(true);
-                }
-            }
-            Ok(None) => return Ok(false),
-            Err(error) => return Err(SessionError::Transport(error.to_string())),
+    pump_control_from(receive, expected_sender, settings, true, |message| {
+        let mut result = lock_unpoison(shared);
+        if message.name == "/MESG_QUICKCONN" {
+            ack.resend_into(socket, expected_sender, &mut result);
+            return false;
         }
-    }
-    Ok(false)
+        apply_stream_control(message, &mut result, options.runtime_control.as_ref())
+    })
 }

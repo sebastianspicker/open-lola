@@ -1,4 +1,7 @@
-use super::{MediaKind, MediaTransport, ReceivedDatagram, TransportError, TransportStats};
+use super::types::SendFaultTimer;
+use super::{
+    DatagramPoll, MediaKind, MediaTransport, ReceivedDatagram, TransportError, TransportStats,
+};
 use crate::net::pcap::{
     build_ethernet_ipv4_udp_frame, parse_ethernet_ipv4_udp_frame_borrowed, BorrowedUdpPacket,
     RawMediaPlane,
@@ -15,7 +18,7 @@ trait CapturePlane {
     fn receive_with(
         &self,
         inspect: &mut dyn FnMut(&[u8], SystemTime) -> Option<ReceivedDatagram>,
-    ) -> Result<Option<ReceivedDatagram>, String>;
+    ) -> Result<DatagramPoll, String>;
     fn kernel_drop_snapshot(&self) -> Result<u64, String>;
     fn finalize(self: Box<Self>) -> Result<u64, String>;
 }
@@ -28,8 +31,14 @@ impl CapturePlane for RawMediaPlane {
     fn receive_with(
         &self,
         inspect: &mut dyn FnMut(&[u8], SystemTime) -> Option<ReceivedDatagram>,
-    ) -> Result<Option<ReceivedDatagram>, String> {
-        Self::receive_with(self, |frame, timestamp| inspect(frame, timestamp)).map(Option::flatten)
+    ) -> Result<DatagramPoll, String> {
+        Self::receive_with(self, |frame, timestamp| inspect(frame, timestamp)).map(|polled| {
+            match polled {
+                Some(Some(datagram)) => DatagramPoll::Datagram(datagram),
+                Some(None) => DatagramPoll::Discarded,
+                None => DatagramPoll::Empty,
+            }
+        })
     }
 
     fn kernel_drop_snapshot(&self) -> Result<u64, String> {
@@ -66,6 +75,8 @@ pub struct NpcapMediaTransport {
     audio_queue_depth: usize,
     video_queue_depth: usize,
     stats: TransportStats,
+    /// One fault run per stream, so audio successes cannot hide a video path that always fails.
+    send_faults: [SendFaultTimer; 2],
 }
 
 impl NpcapMediaTransport {
@@ -105,6 +116,7 @@ impl NpcapMediaTransport {
             audio_queue_depth: 1,
             video_queue_depth: 1,
             stats: TransportStats::default(),
+            send_faults: Default::default(),
         })
     }
 
@@ -124,21 +136,13 @@ impl NpcapMediaTransport {
         }
     }
 
-    fn merge_received_stats(&mut self, observed: TransportStats) {
-        self.stats.received_datagrams += observed.received_datagrams;
-        self.stats.received_bytes += observed.received_bytes;
-        self.stats.malformed_drops += observed.malformed_drops;
-        self.stats.wrong_peer_drops += observed.wrong_peer_drops;
-        self.stats.wrong_port_drops += observed.wrong_port_drops;
-    }
-
     fn receive_parsed(
         contract: ReceiveContract,
         packet: BorrowedUdpPacket<'_>,
         _timestamp: SystemTime,
         observed: &mut TransportStats,
     ) -> Option<ReceivedDatagram> {
-        if packet.source_port == 0 || packet.destination_port == 0 {
+        if packet.source_port == 0 || packet.destination_port == 0 || packet.payload.is_empty() {
             observed.malformed_drops += 1;
             return None;
         }
@@ -216,21 +220,38 @@ impl NpcapMediaTransport {
     /// Services one capture packet, yielding immediately to the other stream.
     /// Keeping fragment admission separate from frame freshness prevents a
     /// video burst from being overwritten while the caller polls for audio.
-    pub fn receive_kind(
-        &mut self,
-        kind: MediaKind,
-    ) -> Result<Option<ReceivedDatagram>, TransportError> {
+    pub fn receive_kind(&mut self, kind: MediaKind) -> Result<DatagramPoll, TransportError> {
         if let Some(datagram) = self.pending(kind).pop_front() {
-            return Ok(Some(datagram));
+            return Ok(DatagramPoll::Datagram(datagram));
         }
-        let Some(datagram) = self.receive()? else {
-            return Ok(None);
+        let datagram = match self.poll()? {
+            DatagramPoll::Datagram(datagram) => datagram,
+            other => return Ok(other),
         };
         if datagram.kind == kind {
-            return Ok(Some(datagram));
+            return Ok(DatagramPoll::Datagram(datagram));
         }
         self.retain_latest(datagram);
-        Ok(None)
+        // Yield to the other stream: draining on would overwrite its one-frame queue.
+        Ok(DatagramPoll::Empty)
+    }
+
+    fn poll(&mut self) -> Result<DatagramPoll, TransportError> {
+        let plane = self.plane.as_ref().ok_or(TransportError::Closed)?;
+        let contract = self.receive_contract();
+        let mut observed = TransportStats::default();
+        let mut inspect = |frame: &[u8], timestamp| {
+            let Some(packet) = parse_ethernet_ipv4_udp_frame_borrowed(frame) else {
+                observed.malformed_drops += 1;
+                return None;
+            };
+            Self::receive_parsed(contract, packet, timestamp, &mut observed)
+        };
+        let polled = plane
+            .receive_with(&mut inspect)
+            .map_err(TransportError::Npcap)?;
+        self.stats.merge_received(observed);
+        Ok(polled)
     }
 }
 
@@ -255,28 +276,21 @@ impl MediaTransport for NpcapMediaTransport {
             .as_ref()
             .ok_or(TransportError::Closed)?
             .send(&frame)
-            .map_err(TransportError::Npcap)?;
+            .map_err(|error| {
+                // A pcap failure carries no OS code; the timer ends a path that stays down.
+                self.send_faults[kind as usize].classify(TransportError::Transient(error))
+            })?;
+        self.send_faults[kind as usize].clear();
         self.stats.sent_datagrams += 1;
         self.stats.sent_bytes += payload.len() as u64;
         Ok(())
     }
 
     fn receive(&mut self) -> Result<Option<ReceivedDatagram>, TransportError> {
-        let plane = self.plane.as_ref().ok_or(TransportError::Closed)?;
-        let contract = self.receive_contract();
-        let mut observed = TransportStats::default();
-        let mut inspect = |frame: &[u8], timestamp| {
-            let Some(packet) = parse_ethernet_ipv4_udp_frame_borrowed(frame) else {
-                observed.malformed_drops += 1;
-                return None;
-            };
-            Self::receive_parsed(contract, packet, timestamp, &mut observed)
-        };
-        let received = plane
-            .receive_with(&mut inspect)
-            .map_err(TransportError::Npcap)?;
-        self.merge_received_stats(observed);
-        Ok(received)
+        Ok(match self.poll()? {
+            DatagramPoll::Datagram(datagram) => Some(datagram),
+            DatagramPoll::Discarded | DatagramPoll::Empty => None,
+        })
     }
 
     fn stats(&self) -> TransportStats {

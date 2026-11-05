@@ -300,6 +300,15 @@ private func runJackTripAudioSession(
         processRunner: any ExternalConnectorProcessRunning
     ) -> ExternalConnectorSessionReport {
         let jackTripMedia: JackTripCompatibilityMediaReport
+        if let identityError = jackTripAuxiliaryVideoIdentityError(plan) {
+            return failedJackTripAudioSessionReport(
+                configuration: configuration,
+                capturedAt: capturedAt,
+                plan: plan,
+                auxiliaryProcesses: [],
+                runtimeError: identityError
+            )
+        }
         // Auxiliary (video) processes and native audio overlap in time; both are joined before reporting.
         let auxiliaryBox = ExternalAuxiliaryProcessResultBox()
         let auxiliaryGroup = DispatchGroup()
@@ -347,6 +356,20 @@ context: context,
 jackTripMedia: jackTripMedia,
 runtimeError: runtimeError
 )
+}
+
+// A Python `uv` earlier on PATH must fail the run before the audio session starts, not after it.
+private func jackTripAuxiliaryVideoIdentityError(_ plan: ExternalConnectorLaunchPlan) -> String? {
+    for auxiliary in plan.auxiliaryProcesses {
+        let identity = detectedExternalConnectorExecutableIdentity(
+            runExternalConnectorExecutableProbe(executable: auxiliary.executable, arguments: ["-h"])
+        )
+        if identity != .ultraGrid {
+            return "auxiliary video executable \(auxiliary.executable) is not UltraGrid uv "
+                + "(detected \(identity.rawValue)); pass the absolute UltraGrid uv path with --video-executable"
+        }
+    }
+    return nil
 }
 
 private func failedJackTripAudioSessionReport(

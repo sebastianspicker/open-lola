@@ -3,6 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+caller_dir="$PWD"
 cd "$repo_root"
 
 # shellcheck disable=SC1091
@@ -206,6 +207,16 @@ if [[ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]]; then
 fi
 
 output_parent="$1"
+# The cd above moved us; resolve a relative path against the caller's directory.
+[[ -n "$output_parent" ]] || fail "output parent must not be empty"
+[[ "$output_parent" == /* ]] || output_parent="$caller_dir/$output_parent"
+
+# Check lexically before mkdir so a rejected path creates nothing inside the checkout.
+case "$output_parent/" in
+  "$repo_root/" | "$repo_root"/*)
+    fail "output parent must be outside the repository checkout"
+    ;;
+esac
 mkdir -p "$output_parent"
 output_parent="$(cd "$output_parent" && pwd -P)"
 

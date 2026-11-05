@@ -60,8 +60,8 @@ func enqueueLoLaLiveAudioIfNeeded(
     guard datagram.stream == .audio, let audioBridge else {
         return
     }
-    let decoded = try LoLaCompatibilityMediaCodec.decode(datagram.payload)
-    guard let body = decoded.normalFragment?.body else {
+    // A datagram that is not a valid audio quantum is dropped, not played and not fatal.
+    guard let body = try? LoLaCompatibilityMediaCodec.decodeAudioDatagram(datagram.payload) else {
         return
     }
     try audioBridge.enqueueLoLaPlaybackPayload(
@@ -87,11 +87,9 @@ func loLaAudioReceiveFreshnessNote(_ snapshot: LoLaAudioReceiveFreshnessSnapshot
         return ""
     }
     return "Received \(snapshot.receivedDatagrams) media datagram(s) and retained "
-        + "\(snapshot.retainedEvidenceDatagrams) as report evidence. Coalesced "
-        + "\(snapshot.coalescedStaleAudioDatagrams) stale received audio datagram(s) "
-        + "before playout, rejected \(snapshot.rejectedAudioSourceDatagrams) audio datagram(s) "
-        + "from a non-peer source, and rejected \(snapshot.playoutRejectedDatagrams) datagram(s) "
-        + "at playout admission. "
+        + "\(snapshot.retainedEvidenceDatagrams) as report evidence. Rejected "
+        + "\(snapshot.rejectedSourceDatagrams) datagram(s) from a non-peer source and rejected "
+        + "\(snapshot.playoutRejectedDatagrams) datagram(s) at playout admission. "
 }
 
 func requireLoLaBidirectionalTransmitReport(

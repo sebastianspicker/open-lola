@@ -5,6 +5,40 @@ entries describe the state of the repository.
 
 ## Unreleased
 
+- Connector receive: LoLa and JackTrip receive roles now require `--peer` and
+  refuse to start without it, so other hosts on the network cannot inject
+  audio or video. JackTrip server-style receivers (hub server, RX-only) still accept any client. Datagrams
+  from other sources are counted in the report.
+- macOS network receive: oversize datagrams are dropped and counted instead of
+  being truncated and accepted. Empty datagrams, EINTR and send-queue pressure
+  (ENOBUFS) no longer end a LoLa handshake or session. LoLa audio datagrams
+  follow one rule everywhere: a single 1066-byte fragment.
+- macOS recording: channels are mapped correctly on devices that deliver
+  several buffers. A device whose sample rate differs from `--sample-rate` is
+  rejected. SIGINT or SIGTERM ends a take early and writes it as `partial`.
+  Takes that would not fit the 4 GiB in-memory budget are rejected up front,
+  and video keeps every frame of the take instead of the last 120.
+- External connectors: a process group is killed before its output is read, so
+  a background child cannot hang the run. Executable probes time out after 5 s.
+  Spawned processes get `/dev/null` as input and inherit no other descriptors.
+  The auxiliary video `uv` is checked to be UltraGrid before the session starts.
+- Rust recording: a session drains its whole recording queue at shutdown.
+  WAV headers are updated about once a second and synced at the end. Audio has
+  its own queue quota, so video encodes cannot crowd it out. One bad video
+  frame no longer stops video recording. Audio continues in `_02`, `_03`
+  segments past the 4 GiB WAV limit. `mode` and `video_format` are trimmed
+  the same way everywhere.
+- Rust network: transient send errors on control and Npcap paths count as lost
+  datagrams instead of ending the session. Npcap rejects empty payloads like
+  UDP does. Reorder counts reset after a sender restart. MAC addresses must be
+  plain hex with one separator kind.
+- Rust CLI: `convert` rejects an unknown `--bayer` pattern and a quality outside
+  1–100 (exit 2); JPEG quality 1–100 is used as given.
+- Tools: the PMR proof-bundle check prints `VERDICT: PARTIAL` when sanitizer
+  runs were blocked. Path arguments are resolved from the caller's directory.
+  `make` keeps uv's environment outside the checkout, and CI checks the
+  actionlint download against its published SHA-256.
+
 - Core Audio: each IOProc registration owns its own callback storage. A failed
   stop, unregister, or callback drain can no longer leave callbacks pointing at
   a freed graph or scratch buffers. Startup failures keep their registration

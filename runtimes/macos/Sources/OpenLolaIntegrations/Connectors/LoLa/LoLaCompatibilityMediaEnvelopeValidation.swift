@@ -44,10 +44,7 @@ enum LoLaCompatibilityMediaEnvelopeValidation {
             try validateStreamPort(stream, wireFrame: wireFrame, configuration: configuration)
             switch stream {
             case .audio:
-                guard let fragment = mediaPacket.normalFragment else {
-                    throw LoLaCompatibilityMediaCodecError.invalidFragmentMagic
-                }
-                try validateAudioFragment(fragment, expectedPayloadByteCount: expectedAudioPayloadByteCount)
+                try validateAudioDatagram(wireFrame.payload, expectedPayloadByteCount: expectedAudioPayloadByteCount)
                 summary.audioDatagrams += 1
             case .video:
                 try validateVideoPacket(
@@ -130,37 +127,11 @@ enum LoLaCompatibilityMediaEnvelopeValidation {
         }
     }
 
-    private static func validateAudioFragment(
-        _ fragment: LoLaCompatibilityNormalFragment,
+    private static func validateAudioDatagram(
+        _ payload: Data,
         expectedPayloadByteCount: Int
     ) throws {
-        guard fragment.header.fragmentCount == 1 else {
-            throw LoLaCompatibilityMediaCodecError.invalidFragmentCount(fragment.header.fragmentCount)
-        }
-        guard fragment.header.fragmentIndex == 0 else {
-            throw LoLaCompatibilityMediaCodecError.invalidFragmentIndex(fragment.header.fragmentIndex)
-        }
-        guard fragment.header.originalOffset == 0 else {
-            throw LoLaCompatibilityMediaCodecError.fragmentOffsetMismatch(
-                expected: 0,
-                actual: fragment.header.originalOffset
-            )
-        }
-        guard fragment.header.finalFlag else {
-            throw LoLaCompatibilityMediaCodecError.invalidFinalFlag(
-                fragmentIndex: 0,
-                expected: true,
-                actual: false
-            )
-        }
-        let body = try LoLaCompatibilityMediaCodec.decodeSerializedBody(fragment.fragmentBytes)
-        let expectedFrameID = body.sequence &+ 1
-        guard expectedFrameID == fragment.header.frameID else {
-            throw LoLaCompatibilityMediaCodecError.sequenceMismatch(
-                expected: expectedFrameID,
-                actual: fragment.header.frameID
-            )
-        }
+        let body = try LoLaCompatibilityMediaCodec.decodeAudioDatagram(payload)
         try LoLaCompatibilityMediaCodec.validateAudioPayloadByteCount(
             body.payloadLength,
             channels: expectedPayloadByteCount / LoLaCompatibilityMediaModel.defaultAudioPayloadBytesPerChannel

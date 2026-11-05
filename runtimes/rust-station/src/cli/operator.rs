@@ -7,7 +7,7 @@ use super::route;
 use super::{CliAudioBackend, CliVideoBackend};
 use crate::config::{default_settings, load_settings, StationSettings};
 use crate::station::{
-    apply_profile_to_settings, load_session_input, run_session, SessionConfig, SessionHandle,
+    apply_profile_to_settings, load_session_profile, run_session, SessionConfig, SessionHandle,
     SessionOptions, SessionResult, SessionRuntime, SessionRuntimeControl,
 };
 use clap::{Args, ValueEnum};
@@ -291,7 +291,7 @@ fn load_operator_settings(
         None => Ok(default_settings()),
     }?;
     if let Some(path) = session_path {
-        let profile = load_session_input(path).map_err(|error| error.to_string())?;
+        let profile = load_session_profile(path).map_err(|error| error.to_string())?;
         apply_profile_to_settings(&mut settings, &profile);
     }
     Ok(settings)
@@ -411,7 +411,10 @@ fn run_continuous(
             ..Default::default()
         };
     };
-    if !duration.is_finite() || duration <= 0.0 {
+    let span = Duration::try_from_secs_f64(duration)
+        .ok()
+        .filter(|span| duration > 0.0 && Instant::now().checked_add(*span).is_some());
+    let Some(span) = span else {
         return SessionResult {
             error: format!("duration must be finite and greater than zero, got {duration}"),
             failure: Some(crate::station::SessionError::Configuration(
@@ -419,7 +422,7 @@ fn run_continuous(
             )),
             ..Default::default()
         };
-    }
+    };
     let runtime = SessionRuntime::new();
     let handle = match runtime.start(SessionConfig::new(settings, timeout, options)) {
         Ok(handle) => handle,
@@ -431,7 +434,7 @@ fn run_continuous(
             }
         }
     };
-    wait_for_end_or_interrupt(&handle, Duration::from_secs_f64(duration));
+    wait_for_end_or_interrupt(&handle, span);
     handle.stop();
     let snapshot = handle.wait();
     snapshot.result.unwrap_or_else(|| SessionResult {

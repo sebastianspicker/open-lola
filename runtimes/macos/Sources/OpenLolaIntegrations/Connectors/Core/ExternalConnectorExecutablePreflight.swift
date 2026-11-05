@@ -319,7 +319,8 @@ func runExternalConnectorExecutableProbe(
     arguments: [String]
 ) -> ExternalConnectorProcessResult {
     runExternalConnectorProcess(
-        ExternalConnectorProcessRunConfiguration(executable: executable, arguments: arguments)
+        // A candidate that waits for input or sleeps must not hang the preflight.
+        ExternalConnectorProcessRunConfiguration(executable: executable, arguments: arguments, durationSeconds: 5)
     )
 }
 

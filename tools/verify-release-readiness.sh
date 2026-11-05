@@ -243,12 +243,11 @@ run_native_app_launch_gate() {
 # Reject synthetic metrics or manual-input placeholders from production Swift sources.
 assert_no_production_evidence_placeholders() {
   local matches
+  [[ -d runtimes/macos/Sources ]] || fail "production source directory is missing: runtimes/macos/Sources"
   matches="$(
     find runtimes/macos/Sources \
       -type f \
       -name '*.swift' \
-      ! -path 'third_party/opus/*' \
-      ! -path 'third_party/jpeg-xs/*' \
       -exec grep -HniE 'SyntheticPlaceholderMetrics|todo\(human\)' {} + || true
   )"
   if [[ -n "$matches" ]]; then

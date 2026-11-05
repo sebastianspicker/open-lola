@@ -340,20 +340,29 @@ func runUdpPcmLooperLoop<Datagram>(
     let deadline = try routeDeadlineNanoseconds(durationSeconds: request.durationSeconds)
     var echoed = 0
     var errors = 0
+    var consecutiveErrors = 0
     while DispatchTime.now().uptimeNanoseconds < deadline && echoed < request.expectedPackets {
         do {
             guard let received = try io.receive(request.socket, request.expectedByteCount) else {
+                consecutiveErrors = 0
                 try waitForReadableSocket(socket: request.socket, timeoutMicroseconds: 1_000)
                 continue
             }
+            consecutiveErrors = 0
             if try io.echo(received, request.socket, request.expectedByteCount, &debug) {
                 echoed += 1
             }
         } catch UdpPcmRouteProbeError.receiveFailed(let error)
             where error == EAGAIN || error == EWOULDBLOCK {
+            consecutiveErrors = 0
             try waitForReadableSocket(socket: request.socket, timeoutMicroseconds: 1_000)
         } catch {
             errors += 1
+            consecutiveErrors += 1
+            // A persistent error (for example a closed socket) would otherwise spin until the deadline.
+            if consecutiveErrors >= 100 {
+                break
+            }
         }
     }
     return UdpPcmLoopbackLooperResult(packetsEchoed: echoed, receiveErrors: errors)

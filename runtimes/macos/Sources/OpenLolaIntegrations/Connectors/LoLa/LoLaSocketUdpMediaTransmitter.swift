@@ -276,13 +276,23 @@ func sendLoLaUdpMediaPayload(_ payload: Data, socket: Int32, peer: String, port:
                 }
             }
         }
-        if sent < 0, errno == EAGAIN || errno == EWOULDBLOCK {
-            return .wouldBlock
+        let sendErrno = errno
+        do {
+            // Queue pressure (ENOBUFS) and path errors drop this datagram instead of ending the session.
+            switch try udpDatagramSendResult(
+                sentByteCount: sent,
+                expectedByteCount: rawBuffer.count,
+                savedErrno: sendErrno,
+                nonBlocking: true
+            ) {
+            case .sent:
+                return .sent(sent)
+            case .wouldBlock, .dropped:
+                return .wouldBlock
+            }
+        } catch {
+            throw ExternalConnectorSessionError.socketFailed("udp media sendto \(peer):\(port) errno \(sendErrno)")
         }
-        guard sent == rawBuffer.count else {
-            throw ExternalConnectorSessionError.socketFailed("udp media sendto \(peer):\(port) errno \(errno)")
-        }
-        return .sent(sent)
     }
 }
 

@@ -97,14 +97,8 @@ impl StrictPortAudio {
     }
 
     /// Waits for one complete callback capture block until `timeout` expires.
-    pub fn read_pcm_timeout(&mut self, timeout: Duration) -> PortAudioResult<Vec<u8>> {
-        let mut pcm = Vec::with_capacity(self.expected_pcm_bytes());
-        self.read_pcm_timeout_into(timeout, &mut pcm)?;
-        Ok(pcm)
-    }
-
-    /// Caller-buffered form of `read_pcm_timeout`. Waiting stays on the
-    /// session thread; the PortAudio callback remains lock-free and bounded.
+    /// Waiting stays on the session thread; the PortAudio callback remains
+    /// lock-free and bounded.
     pub fn read_pcm_timeout_into(
         &mut self,
         timeout: Duration,

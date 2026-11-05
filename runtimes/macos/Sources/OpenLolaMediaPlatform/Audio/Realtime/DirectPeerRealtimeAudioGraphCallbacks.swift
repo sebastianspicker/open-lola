@@ -24,14 +24,14 @@ func validateChannelMap(
     }
 }
 
-struct ReadOnlyAudioBufferListPointer {
+package struct ReadOnlyAudioBufferListPointer {
     private let pointer: UnsafePointer<AudioBufferList>
 
-    init(_ pointer: UnsafePointer<AudioBufferList>) {
+    package init(_ pointer: UnsafePointer<AudioBufferList>) {
         self.pointer = pointer
     }
 
-    var count: Int {
+    package var count: Int {
         Int(pointer.pointee.mNumberBuffers)
     }
 
@@ -39,7 +39,7 @@ struct ReadOnlyAudioBufferListPointer {
         count == 0
     }
 
-    subscript(index: Int) -> AudioBuffer? {
+    package subscript(index: Int) -> AudioBuffer? {
         guard index >= 0 && index < count else {
             return nil
         }

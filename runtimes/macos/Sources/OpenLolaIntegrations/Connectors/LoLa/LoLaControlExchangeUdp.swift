@@ -159,7 +159,7 @@ func receiveExternalConnectorUdp(
     }
     guard received > 0 else {
         let receiveErrno = errno
-        if received == 0 || receiveErrno == EAGAIN || receiveErrno == EWOULDBLOCK {
+        if received == 0 || receiveErrno == EAGAIN || receiveErrno == EWOULDBLOCK || receiveErrno == EINTR {
             throw ExternalConnectorSessionError.receiveTimedOut
         }
         throw ExternalConnectorSessionError.socketFailed("recvfrom errno \(receiveErrno)")

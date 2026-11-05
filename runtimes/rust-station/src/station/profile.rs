@@ -489,12 +489,6 @@ pub fn load_session_profile(path: impl AsRef<Path>) -> Result<SessionProfile, Pr
     load_json_session_profile(p)
 }
 
-/// Fallible session input loader. `.ssn` uses the strict Open-Lola/LastSsn path;
-/// every other extension is an Open-Lola JSON profile.
-pub fn load_session_input(path: impl AsRef<Path>) -> Result<SessionProfile, ProfileError> {
-    load_session_profile(path)
-}
-
 fn load_json_session_profile(path: &Path) -> Result<SessionProfile, ProfileError> {
     if !path.is_file() {
         return Err(ProfileError::NotFound(path.display().to_string()));

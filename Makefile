@@ -7,6 +7,9 @@ DEVELOPER_DIR ?= $(or $(firstword $(wildcard /Applications/Xcode-26.6.0.app/Cont
 # convenience, so set a per-checkout path when several checkouts build at once.
 OPEN_LOLA_SWIFT_BUILD_PATH ?= $(or $(SWIFT_BUILD_PATH),/private/tmp/open-lola-swiftpm-build)
 $(if $(SWIFT_BUILD_PATH),$(warning SWIFT_BUILD_PATH is deprecated; use OPEN_LOLA_SWIFT_BUILD_PATH))
+# Keep uv's environment out of the checkout: the release-hygiene scan rejects a repo-local .venv.
+UV_PROJECT_ENVIRONMENT ?= $(OPEN_LOLA_SWIFT_BUILD_PATH)-uv
+export UV_PROJECT_ENVIRONMENT
 PYTHON_RUN := $(UV) run --locked --extra dev
 
 .PHONY: verify-full architecture architecture-self-test code-quality code-quality-self-test test-python test-rust lint shellcheck swift-lint web-lint workflow-lint verify swift-build swift-test rust-fmt rust-clippy rust-test rust-cli-test python-ruff python-mypy python-tool-tests python rust all

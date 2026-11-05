@@ -1,6 +1,6 @@
 //! Dual local/remote stream recorder (`_Local` / `_Remote` file suffixes).
 
-use crate::audio::WavStreamWriter;
+use crate::audio::{WavError, WavStreamWriter};
 use crate::video::{decode_jpeg, encode_frame_jpeg};
 use image::{ColorType, ImageFormat};
 use serde_json::{json, Value};
@@ -13,6 +13,9 @@ use std::path::{Path, PathBuf};
 pub struct DualRecordResult {
     pub local_audio_path: Option<PathBuf>,
     pub remote_audio_path: Option<PathBuf>,
+    /// Follow-on WAV files (`_02`, `_03`, ...) started at the 4 GiB RIFF limit.
+    pub local_audio_segments: Vec<PathBuf>,
+    pub remote_audio_segments: Vec<PathBuf>,
     pub local_video_paths: Vec<PathBuf>,
     pub remote_video_paths: Vec<PathBuf>,
     pub local_frames: u32,
@@ -36,6 +39,8 @@ impl DualRecordResult {
         json!({
             "local_audio_path": self.local_audio_path.as_ref().map(|p| p.display().to_string()),
             "remote_audio_path": self.remote_audio_path.as_ref().map(|p| p.display().to_string()),
+            "local_audio_segments": self.local_audio_segments.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+            "remote_audio_segments": self.remote_audio_segments.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
             "local_video_paths": self.local_video_paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
             "remote_video_paths": self.remote_video_paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
             "local_frames": self.local_frames,
@@ -55,6 +60,13 @@ impl DualRecordResult {
         if let Some(p) = &self.remote_audio_path {
             out.push(p.display().to_string());
         }
+        for p in self
+            .local_audio_segments
+            .iter()
+            .chain(&self.remote_audio_segments)
+        {
+            out.push(p.display().to_string());
+        }
         for p in &self.local_video_paths {
             out.push(p.display().to_string());
         }
@@ -71,10 +83,12 @@ pub const RECENT_VIDEO_PATH_WINDOW: usize = 128;
 struct AudioOutput {
     path: PathBuf,
     writer: Option<WavStreamWriter>,
+    /// Finished segment files, oldest first.
+    completed: Vec<PathBuf>,
+    completed_bytes: u64,
     written_bytes: usize,
     failed: bool,
     finalization_attempted: bool,
-    finalized: bool,
 }
 
 impl AudioOutput {
@@ -82,10 +96,11 @@ impl AudioOutput {
         Self {
             path,
             writer: None,
+            completed: Vec::new(),
+            completed_bytes: 0,
             written_bytes: 0,
             failed: false,
             finalization_attempted: false,
-            finalized: false,
         }
     }
 
@@ -95,7 +110,7 @@ impl AudioOutput {
         channels: u16,
         sample_rate: u32,
         bits_per_sample: u16,
-    ) -> Result<(), crate::audio::WavError> {
+    ) -> Result<(), WavError> {
         if self.failed {
             return Ok(());
         }
@@ -109,45 +124,58 @@ impl AudioOutput {
         channels: u16,
         sample_rate: u32,
         bits_per_sample: u16,
-    ) -> Result<(), crate::audio::WavError> {
-        if self.writer.is_none() {
-            self.writer = Some(WavStreamWriter::create(
-                &self.path,
-                channels,
-                sample_rate,
-                bits_per_sample,
-            )?);
+    ) -> Result<(), WavError> {
+        let mut result = Err(WavError::DataTooLarge);
+        for _ in 0..2 {
+            if self.writer.is_none() {
+                self.writer = Some(WavStreamWriter::create(
+                    &self.path,
+                    channels,
+                    sample_rate,
+                    bits_per_sample,
+                )?);
+            }
+            let writer = self.writer.as_mut().expect("writer was created");
+            result = writer.append(pcm);
+            if !matches!(result, Err(WavError::DataTooLarge)) || writer.data_len() == 0 {
+                break;
+            }
+            // A RIFF file cannot exceed 4 GiB, so long sessions continue in a numbered segment.
+            self.close_segment()?;
+            self.path = segment_path(&self.completed[0], self.completed.len() + 1);
         }
-        let result = self
-            .writer
-            .as_mut()
-            .expect("writer was created")
-            .append(pcm);
-        self.written_bytes = self
-            .writer
-            .as_ref()
-            .expect("writer was created")
-            .data_len()
-            .min(usize::MAX as u64) as usize;
+        let current = self.writer.as_ref().map_or(0, WavStreamWriter::data_len);
+        self.written_bytes = (self.completed_bytes + current).min(usize::MAX as u64) as usize;
         result
+    }
+
+    fn close_segment(&mut self) -> Result<(), WavError> {
+        let Some(writer) = self.writer.take() else {
+            return Ok(());
+        };
+        let data_len = writer.data_len();
+        writer.finish()?;
+        self.completed_bytes += data_len;
+        self.completed.push(self.path.clone());
+        Ok(())
     }
 
     fn bytes(&self) -> usize {
         self.written_bytes
     }
 
-    fn finalize(&mut self) -> Result<Option<PathBuf>, crate::audio::WavError> {
+    fn finalize(&mut self) -> Result<(), WavError> {
         if self.finalization_attempted {
-            return Ok(self.finalized.then(|| self.path.clone()));
+            return Ok(());
         }
-        let Some(writer) = self.writer.take() else {
-            return Ok(None);
-        };
         self.finalization_attempted = true;
-        writer.finish()?;
-        self.finalized = true;
-        Ok(Some(self.path.clone()))
+        self.close_segment()
     }
+}
+
+fn segment_path(first: &Path, segment: usize) -> PathBuf {
+    let stem = first.file_stem().unwrap_or_default().to_string_lossy();
+    first.with_file_name(format!("{stem}_{segment:02}.wav"))
 }
 
 /// Record local and remote streams to `_Local` / `_Remote` files.
@@ -169,6 +197,7 @@ pub struct DualStreamRecorder {
     remote_video_paths_omitted: u32,
     local_i: u32,
     remote_i: u32,
+    video_write_failures: u32,
     closed: bool,
     warnings: Vec<String>,
 }
@@ -196,7 +225,7 @@ impl DualStreamRecorder {
                 out_dir.display()
             ));
         }
-        let mode_l = mode.to_ascii_lowercase();
+        let mode_l = mode.trim().to_ascii_lowercase();
         let record_audio = mode_l == "av" || mode_l == "audio";
         let record_video = mode_l == "av" || mode_l == "video";
         if record_video {
@@ -223,7 +252,7 @@ impl DualStreamRecorder {
             record_video,
             record_local_video,
             record_remote_video,
-            video_format: video_format.to_ascii_lowercase(),
+            video_format: video_format.trim().to_ascii_lowercase(),
             local_audio,
             remote_audio,
             local_video: VecDeque::with_capacity(RECENT_VIDEO_PATH_WINDOW),
@@ -232,6 +261,7 @@ impl DualStreamRecorder {
             remote_video_paths_omitted: 0,
             local_i: 0,
             remote_i: 0,
+            video_write_failures: 0,
             closed: false,
             warnings,
         }
@@ -291,11 +321,9 @@ impl DualStreamRecorder {
             return None;
         }
         let (subdir, idx) = if remote {
-            self.remote_i += 1;
-            ("remote", self.remote_i)
+            ("remote", self.remote_i + 1)
         } else {
-            self.local_i += 1;
-            ("local", self.local_i)
+            ("local", self.local_i + 1)
         };
         let extension = match self.video_format.as_str() {
             "raw" | "bin" => "bin",
@@ -310,12 +338,14 @@ impl DualStreamRecorder {
         match write_video_file(&path, pixels, width, height, extension) {
             Ok(()) => {
                 if remote {
+                    self.remote_i = idx;
                     retain_recent_path(
                         &mut self.remote_video,
                         &mut self.remote_video_paths_omitted,
                         path.clone(),
                     );
                 } else {
+                    self.local_i = idx;
                     retain_recent_path(
                         &mut self.local_video,
                         &mut self.local_video_paths_omitted,
@@ -325,13 +355,12 @@ impl DualStreamRecorder {
                 Some(path)
             }
             Err(error) => {
-                if remote {
-                    self.record_remote_video = false;
-                } else {
-                    self.record_local_video = false;
+                // One bad frame (e.g. a corrupt peer JPEG) must not end video recording.
+                self.video_write_failures += 1;
+                if self.video_write_failures == 1 {
+                    self.warnings
+                        .push(format!("write video frame {}: {error}", path.display()));
                 }
-                self.warnings
-                    .push(format!("write video frame {}: {error}", path.display()));
                 None
             }
         }
@@ -347,6 +376,12 @@ impl DualStreamRecorder {
 
     fn finalize_checked(&mut self) -> DualRecordFinalize {
         self.closed = true;
+        if self.video_write_failures > 1 {
+            self.warnings.push(format!(
+                "recording incomplete: {} video frames failed to write",
+                self.video_write_failures
+            ));
+        }
         let mut result = DualRecordResult {
             local_frames: self.local_i,
             remote_frames: self.remote_i,
@@ -362,12 +397,14 @@ impl DualStreamRecorder {
             self.local_audio.as_mut(),
             "local",
             &mut result.local_audio_path,
+            &mut result.local_audio_segments,
             &mut self.warnings,
         );
         finalize_audio_output(
             self.remote_audio.as_mut(),
             "remote",
             &mut result.remote_audio_path,
+            &mut result.remote_audio_segments,
             &mut self.warnings,
         );
         DualRecordFinalize {
@@ -390,18 +427,20 @@ fn finalize_audio_output(
     output: Option<&mut AudioOutput>,
     side: &str,
     destination: &mut Option<PathBuf>,
+    segments: &mut Vec<PathBuf>,
     warnings: &mut Vec<String>,
 ) {
     let Some(output) = output else {
         return;
     };
-    match output.finalize() {
-        Ok(path) => *destination = path,
-        Err(error) => warnings.push(format!(
+    if let Err(error) = output.finalize() {
+        warnings.push(format!(
             "finalize {side} WAV {}: {error}",
             output.path.display()
-        )),
+        ));
     }
+    *destination = output.completed.first().cloned();
+    *segments = output.completed.iter().skip(1).cloned().collect();
 }
 
 impl Drop for DualStreamRecorder {
@@ -420,6 +459,21 @@ fn write_video_file(
     extension: &str,
 ) -> Result<(), String> {
     let mut file = fs::File::create_new(path).map_err(|error| error.to_string())?;
+    let written = write_video_payload(&mut file, pixels, width, height, extension);
+    if written.is_err() {
+        drop(file);
+        let _ = fs::remove_file(path);
+    }
+    written
+}
+
+fn write_video_payload(
+    file: &mut fs::File,
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    extension: &str,
+) -> Result<(), String> {
     if extension == "bin" {
         return file.write_all(pixels).map_err(|error| error.to_string());
     }
@@ -463,24 +517,14 @@ fn write_video_file(
                     .map_err(|error| error.to_string())?,
             )
             .map_err(|error| error.to_string()),
-        "png" => image::write_buffer_with_format(
-            &mut file,
-            raw,
-            width,
-            height,
-            color_type,
-            ImageFormat::Png,
-        )
-        .map_err(|error| error.to_string()),
-        "bmp" => image::write_buffer_with_format(
-            &mut file,
-            raw,
-            width,
-            height,
-            color_type,
-            ImageFormat::Bmp,
-        )
-        .map_err(|error| error.to_string()),
+        "png" => {
+            image::write_buffer_with_format(file, raw, width, height, color_type, ImageFormat::Png)
+                .map_err(|error| error.to_string())
+        }
+        "bmp" => {
+            image::write_buffer_with_format(file, raw, width, height, color_type, ImageFormat::Bmp)
+                .map_err(|error| error.to_string())
+        }
         _ => Err(format!(
             "unsupported video recording extension `{extension}`"
         )),

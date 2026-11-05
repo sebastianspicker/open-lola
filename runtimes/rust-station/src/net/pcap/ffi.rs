@@ -1,5 +1,4 @@
 use libloading::Library;
-use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::{Mutex, OnceLock};
@@ -67,23 +66,6 @@ struct PcapStat {
     interface_dropped: u32,
     #[cfg(target_os = "windows")]
     captured: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct PcapProbe {
-    pub available: bool,
-    pub library_path: Option<PathBuf>,
-    pub device: Option<String>,
-    pub reason: String,
-    /// Only "pcap" when a live handle can be / was opened; otherwise "udp".
-    pub transport: String,
-    pub loaded: bool,
-    pub device_count: Option<usize>,
-}
-impl PcapProbe {
-    pub fn to_json(&self) -> Value {
-        json!({ "available": self.available, "library_path": self.library_path.as_ref().map(|p| p.display().to_string()), "device": self.device, "reason": self.reason, "transport": self.transport, "loaded": self.loaded, "device_count": self.device_count })
-    }
 }
 
 fn search_dirs() -> Vec<PathBuf> {
@@ -395,46 +377,5 @@ impl PcapLibrary {
             return Err(self.error(handle, "pcap_stats failed"));
         }
         Ok(u64::from(stats.dropped) + u64::from(stats.interface_dropped))
-    }
-}
-
-/// Probe: available when DLL loads + symbols bind + findalldevs works.
-/// transport stays "udp" until a live plane is opened (no stub pcap success).
-pub fn probe_pcap(device: Option<&str>) -> PcapProbe {
-    let _g = pcap_lock().lock().unwrap_or_else(|e| e.into_inner());
-    match load_pcap(None) {
-        Ok(lib) => match lib.findalldevs() {
-            Ok(devs) => PcapProbe {
-                available: true,
-                library_path: Some(lib.path().to_path_buf()),
-                device: device.map(str::to_owned).or_else(|| devs.first().cloned()),
-                reason: format!(
-                    "loaded {}; {} device(s) via pcap_findalldevs",
-                    lib.path().display(),
-                    devs.len()
-                ),
-                transport: "udp".into(),
-                loaded: true,
-                device_count: Some(devs.len()),
-            },
-            Err(e) => PcapProbe {
-                available: true,
-                library_path: Some(lib.path().to_path_buf()),
-                device: device.map(str::to_owned),
-                reason: format!("loaded {}; findalldevs: {e}", lib.path().display()),
-                transport: "udp".into(),
-                loaded: true,
-                device_count: None,
-            },
-        },
-        Err(e) => PcapProbe {
-            available: false,
-            library_path: None,
-            device: device.map(str::to_owned),
-            reason: e,
-            transport: "udp".into(),
-            loaded: false,
-            device_count: None,
-        },
     }
 }

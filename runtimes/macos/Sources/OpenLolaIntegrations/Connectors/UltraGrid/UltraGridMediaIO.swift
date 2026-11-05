@@ -294,11 +294,6 @@ struct UltraGridSocketReceiveAvailableRequest {
 let ultraGridSocketPerStreamDrainPacketLimit = 32
 let ultraGridSocketConcurrentReceiveEvidenceLimit = 256
 
-func ultraGridSocketReceiveEvidencePacketLimit(receivedCount: Int) -> Int {
-    _ = receivedCount
-    return ultraGridSocketPerStreamDrainPacketLimit
-}
-
 struct UltraGridSocketReceiveEvidenceLedger {
     let evidenceLimit: Int
     private let observer: UltraGridIncrementalReceiveObserver?

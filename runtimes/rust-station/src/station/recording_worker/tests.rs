@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use super::preview::write_preview_file;
 use super::*;
 #[test]
 fn finalization_drains_audio_and_reports_admission_failures() {
@@ -44,6 +46,7 @@ fn full_queue_refuses_video_before_materializing_payload() {
         dropped: 0,
         startup_error: None,
         pending: Arc::new(AtomicUsize::new(QUEUE_CAPACITY)),
+        audio_pending: Default::default(),
         cancelled: Arc::new(AtomicBool::new(false)),
         known_paths: Default::default(),
         admission: RecordAdmission {
@@ -72,6 +75,7 @@ fn preview_only_admits_only_preview_jobs() {
         dropped: 0,
         startup_error: None,
         pending: Arc::new(AtomicUsize::new(0)),
+        audio_pending: Default::default(),
         cancelled: Arc::new(AtomicBool::new(false)),
         known_paths: Default::default(),
         admission: RecordAdmission::new("none", true, true, true, true, true),
@@ -103,6 +107,7 @@ fn stalled_worker_does_not_make_finalization_unbounded() {
         dropped: 0,
         startup_error: None,
         pending: Arc::new(AtomicUsize::new(0)),
+        audio_pending: Default::default(),
         cancelled,
         known_paths: Default::default(),
         admission: RecordAdmission {
@@ -115,8 +120,11 @@ fn stalled_worker_does_not_make_finalization_unbounded() {
     };
     let started = Instant::now();
     let result = recorder.finish();
-    assert!(started.elapsed() < Duration::from_secs(2));
-    assert!(result.warnings.iter().any(|value| value.contains("500 ms")));
+    assert!(started.elapsed() < FINALIZE_BASE + Duration::from_secs(2));
+    assert!(result
+        .warnings
+        .iter()
+        .any(|value| value.contains("finalization exceeded")));
 }
 
 #[test]

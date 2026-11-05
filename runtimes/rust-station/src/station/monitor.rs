@@ -182,6 +182,15 @@ impl NetworkMonitor {
         self.refresh_fps();
     }
 
+    /// Forgets the last sequence after a confirmed sender restart so the new
+    /// numbering is not counted as reordering.
+    pub fn note_sequence_restart(&mut self, kind: MediaKind) {
+        match kind {
+            MediaKind::Audio => self.last_audio_seq = None,
+            MediaKind::Video => self.last_video_seq = None,
+        }
+    }
+
     fn note_sequence(
         previous: &mut Option<u32>,
         candidate: u32,

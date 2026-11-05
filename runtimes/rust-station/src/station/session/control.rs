@@ -1,18 +1,18 @@
 use super::{SessionOptions, SessionResult, SessionRuntimeControl};
 use crate::config::{ControlDialect, StationSettings};
 use crate::net::{
-    parse_mac_address, resolve_direct_lan_mac_via_ip_helper, resolve_mac_via_ip_helper, Udp,
+    parse_mac_address, resolve_direct_lan_mac_via_ip_helper, resolve_mac_via_ip_helper,
+    TransportError, Udp,
 };
 use crate::protocol::{
     build_control_datagram, build_osc15_control_datagram, unescape_txt_field,
-    MediaSettings as ProtocolMediaSettings, MESG_CHAT, MESG_DISCONNECT, MESG_REJECT,
-    MESG_STOP_AUDIO_SIGNAL,
+    MediaSettings as ProtocolMediaSettings, MESG_CHAT, MESG_REJECT,
 };
 use crate::station::bounded::push_bounded;
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 pub(super) const STATUS_REPLY_KINDS: &[&str] = &["/MESG_CHECKLOLASTATUS_ACK"];
@@ -48,25 +48,9 @@ impl QuickconnAckCache {
         true
     }
 
-    /// Re-sends the cached acknowledgement and records it in the shared result.
+    /// Re-sends the cached acknowledgement and records it in the session result.
     /// A failed re-send is not a session failure: the initiator repeats its
     /// request and the next attempt answers it.
-    pub(crate) fn resend(
-        &self,
-        socket: &Udp,
-        peer: SocketAddr,
-        shared: &Arc<Mutex<SessionResult>>,
-    ) {
-        if !self.claim_resend() || send_control_datagram(socket, &self.bytes, peer).is_err() {
-            return;
-        }
-        push_bounded(
-            &mut lock_unpoison(shared).messages_sent,
-            "/MESG_QUICKCONN_ACK".into(),
-        );
-    }
-
-    /// `resend` for callers that hold the session result directly.
     pub(crate) fn resend_into(&self, socket: &Udp, peer: SocketAddr, result: &mut SessionResult) {
         if !self.claim_resend() || send_control_datagram(socket, &self.bytes, peer).is_err() {
             return;
@@ -75,58 +59,6 @@ impl QuickconnAckCache {
     }
 }
 pub(super) const QUICKCONN_REPLY_KINDS: &[&str] = &["/MESG_QUICKCONN_ACK", "/MESG_REJECT"];
-
-/// Best-effort protocol cleanup for every successfully negotiated client session.
-///
-/// The normal path still reports checked sends. If a media/backend/recording
-/// operation returns early, this guard keeps the peer from waiting indefinitely.
-pub(super) struct ClientDisconnectGuard<'a> {
-    socket: &'a Udp,
-    peer: SocketAddr,
-    stop_audio: Vec<u8>,
-    disconnect: Vec<u8>,
-    armed: bool,
-}
-
-impl<'a> ClientDisconnectGuard<'a> {
-    pub(super) fn new(
-        socket: &'a Udp,
-        peer: SocketAddr,
-        settings: &StationSettings,
-    ) -> Result<Self, SessionError> {
-        let encode = |kind| {
-            build_session_control(
-                settings,
-                kind,
-                &settings.network.local_ip,
-                &settings.network.remote_ip,
-                "",
-                None,
-            )
-            .map_err(|error| SessionError::ControlHandshake(error.to_string()))
-        };
-        Ok(Self {
-            socket,
-            peer,
-            stop_audio: encode(MESG_STOP_AUDIO_SIGNAL)?,
-            disconnect: encode(MESG_DISCONNECT)?,
-            armed: true,
-        })
-    }
-
-    pub(super) fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for ClientDisconnectGuard<'_> {
-    fn drop(&mut self) {
-        if self.armed {
-            let _ = send_control_datagram(self.socket, &self.stop_audio, self.peer);
-            let _ = send_control_datagram(self.socket, &self.disconnect, self.peer);
-        }
-    }
-}
 
 pub(super) fn send_queued_controls(
     socket: &Udp,
@@ -151,7 +83,13 @@ pub(super) fn send_queued_controls(
             }
             Err(error) => return Err(error),
         };
-        send_control_datagram(socket, &encoded, peer)?;
+        if !send_control_datagram_or_drop(socket, &encoded, peer)? {
+            push_bounded(
+                &mut result.skipped_controls,
+                "queued control skipped: send dropped".into(),
+            );
+            continue;
+        }
         push_bounded(
             &mut result.messages_sent,
             command
@@ -235,6 +173,26 @@ pub(super) fn send_control_datagram(
         ));
     }
     Ok(())
+}
+
+/// Returns `Ok(false)` when the datagram was dropped for a transient reason
+/// (`WouldBlock` or a transient OS fault) rather than failing the session.
+pub(super) fn send_control_datagram_or_drop(
+    socket: &Udp,
+    encoded: &[u8],
+    peer: SocketAddr,
+) -> Result<bool, SessionError> {
+    match socket
+        .send_to(encoded, peer)
+        .map_err(TransportError::from_io)
+    {
+        Ok(sent) if sent == encoded.len() => Ok(true),
+        Ok(_) => Err(SessionError::Transport(
+            "partial control datagram send".into(),
+        )),
+        Err(TransportError::WouldBlock | TransportError::Transient(_)) => Ok(false),
+        Err(error) => Err(SessionError::Transport(error.to_string())),
+    }
 }
 
 pub(super) fn protocol_media_settings(settings: &StationSettings) -> ProtocolMediaSettings {
@@ -366,9 +324,47 @@ pub(super) fn resolve_local_session_mac(
     Ok(resolved)
 }
 
-/// Wait for a validated control reply in short, cancellable polls bounded by
-/// one caller-owned deadline. This deliberately preserves the existing
-/// SR/BPS/CH-only QUICKCONN matching performed after the reply is decoded.
+/// Polls `socket` in short cancellable steps until `accept` takes a datagram.
+/// `Ok(None)` means the caller-owned deadline elapsed first.
+pub(super) fn recv_control_until<T>(
+    socket: &Udp,
+    deadline: Instant,
+    runtime_control: Option<&SessionRuntimeControl>,
+    cancelled: &str,
+    mut accept: impl FnMut(&[u8], SocketAddr) -> Option<T>,
+) -> Result<Option<T>, SessionError> {
+    const POLL: Duration = Duration::from_millis(10);
+    loop {
+        if runtime_control.is_some_and(SessionRuntimeControl::is_cancelled) {
+            return Err(SessionError::PeerDisconnect(cancelled.into()));
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return Ok(None);
+        }
+        socket
+            .set_timeout((deadline - now).min(POLL).as_secs_f64())
+            .map_err(|error| SessionError::Transport(error.to_string()))?;
+        match socket.recv_vec() {
+            Ok((data, sender)) => {
+                if let Some(accepted) = accept(&data, sender) {
+                    return Ok(Some(accepted));
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(SessionError::Transport(error.to_string())),
+        }
+    }
+}
+
+/// Wait for a validated control reply. This deliberately preserves the
+/// existing SR/BPS/CH-only QUICKCONN matching performed after the reply is decoded.
 pub(super) fn recv_valid_control_until(
     socket: &Udp,
     expected_sender: SocketAddr,
@@ -377,59 +373,30 @@ pub(super) fn recv_valid_control_until(
     runtime_control: Option<&SessionRuntimeControl>,
     accepted_kinds: &[&str],
 ) -> Result<crate::protocol::Mesg, SessionError> {
-    const POLL: Duration = Duration::from_millis(10);
     let mut discarded = 0_u64;
-    loop {
-        if runtime_control.is_some_and(SessionRuntimeControl::is_cancelled) {
-            return Err(SessionError::PeerDisconnect(
-                "session cancelled while waiting for control reply".into(),
-            ));
-        }
-        let now = Instant::now();
-        if now >= deadline {
-            return Err(SessionError::Timeout(format!(
-                "control reply deadline elapsed after discarding {discarded} invalid control datagrams"
-            )));
-        }
-        let poll = (deadline - now).min(POLL).as_secs_f64();
-        socket
-            .set_timeout(poll)
-            .map_err(|error| SessionError::Transport(error.to_string()))?;
-        match socket.recv_vec() {
-            Ok((data, sender)) if sender == expected_sender => {
-                let Ok(message) = crate::protocol::decode_mesg(&data) else {
-                    discarded += 1;
-                    continue;
-                };
-                if validate_incoming_control(
-                    &message,
-                    sender,
-                    settings,
-                    Some(expected_sender),
-                    false,
-                )
-                .is_err()
-                    || !accepted_kinds.contains(&message.name.as_str())
-                {
-                    discarded += 1;
-                    continue;
-                }
-                return Ok(message);
+    recv_control_until(
+        socket,
+        deadline,
+        runtime_control,
+        "session cancelled while waiting for control reply",
+        |data, sender| {
+            if sender != expected_sender {
+                return None;
             }
-            Ok(_) => continue,
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock
-                        | std::io::ErrorKind::TimedOut
-                        | std::io::ErrorKind::Interrupted
-                ) =>
-            {
-                continue
-            }
-            Err(error) => return Err(SessionError::Transport(error.to_string())),
-        }
-    }
+            let message = crate::protocol::decode_mesg(data).ok().filter(|message| {
+                validate_incoming_control(message, sender, settings, Some(expected_sender), false)
+                    .is_ok()
+                    && accepted_kinds.contains(&message.name.as_str())
+            });
+            discarded += u64::from(message.is_none());
+            message
+        },
+    )?
+    .ok_or_else(|| {
+        SessionError::Timeout(format!(
+            "control reply deadline elapsed after discarding {discarded} invalid control datagrams"
+        ))
+    })
 }
 
 pub(super) fn is_stream_control(message: &crate::protocol::Mesg) -> bool {
@@ -514,19 +481,19 @@ pub(super) fn apply_stream_control(
     false
 }
 
-/// Services inbound stream controls. A repeated `/MESG_QUICKCONN` from the
-/// pinned peer means the initiator never saw the acknowledgement; it is
-/// answered again from `quickconn_ack` when the responder holds one.
-pub(super) fn pump_control(
-    socket: &Udp,
+/// Drains up to 64 pending control datagrams from the pinned peer. Stream
+/// controls go to `handle`, which returns whether the peer disconnected; a
+/// repeated `/MESG_QUICKCONN` (the initiator never saw the acknowledgement)
+/// is passed to it too so the caller can answer it again.
+pub(super) fn pump_control_from(
+    mut receive: impl FnMut() -> std::io::Result<Option<(Vec<u8>, SocketAddr)>>,
     expected_sender: SocketAddr,
     settings: &StationSettings,
-    result: &mut SessionResult,
-    runtime_control: Option<&SessionRuntimeControl>,
-    quickconn_ack: Option<&QuickconnAckCache>,
+    pin_sender_ip: bool,
+    mut handle: impl FnMut(&crate::protocol::Mesg) -> bool,
 ) -> Result<bool, SessionError> {
     for _ in 0..64 {
-        match socket.try_recv_vec() {
+        match receive() {
             Ok(Some((data, sender))) => {
                 if sender != expected_sender {
                     continue;
@@ -539,22 +506,15 @@ pub(super) fn pump_control(
                     sender,
                     settings,
                     Some(expected_sender),
-                    false,
+                    pin_sender_ip,
                 )
                 .is_err()
                 {
                     continue;
                 }
-                if message.name == "/MESG_QUICKCONN" {
-                    if let Some(ack) = quickconn_ack {
-                        ack.resend_into(socket, sender, result);
-                    }
-                    continue;
-                }
-                if !is_stream_control(&message) {
-                    continue;
-                }
-                if apply_stream_control(&message, result, runtime_control) {
+                if (message.name == "/MESG_QUICKCONN" || is_stream_control(&message))
+                    && handle(&message)
+                {
                     return Ok(true);
                 }
             }
@@ -563,6 +523,33 @@ pub(super) fn pump_control(
         }
     }
     Ok(false)
+}
+
+/// Services inbound stream controls, answering a repeated QUICKCONN from
+/// `quickconn_ack` when the responder holds one.
+pub(super) fn pump_control(
+    socket: &Udp,
+    expected_sender: SocketAddr,
+    settings: &StationSettings,
+    result: &mut SessionResult,
+    runtime_control: Option<&SessionRuntimeControl>,
+    quickconn_ack: Option<&QuickconnAckCache>,
+) -> Result<bool, SessionError> {
+    pump_control_from(
+        || socket.try_recv_vec(),
+        expected_sender,
+        settings,
+        false,
+        |message| {
+            if message.name == "/MESG_QUICKCONN" {
+                if let Some(ack) = quickconn_ack {
+                    ack.resend_into(socket, expected_sender, result);
+                }
+                return false;
+            }
+            apply_stream_control(message, result, runtime_control)
+        },
+    )
 }
 
 #[cfg(test)]

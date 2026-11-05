@@ -161,15 +161,11 @@ impl SessionMediaTransport {
             },
             Self::Udp(transport) => transport
                 .receive_kind(kind)
-                .map(|poll| match poll {
-                    DatagramPoll::Datagram(datagram) => ReceiveOutcome::Datagram(datagram),
-                    DatagramPoll::Discarded => ReceiveOutcome::Discarded,
-                    DatagramPoll::Empty => ReceiveOutcome::Empty,
-                })
+                .map(receive_outcome)
                 .map_err(transport_session_error),
             Self::Npcap(transport) => transport
                 .receive_kind(kind)
-                .map(|datagram| datagram.map_or(ReceiveOutcome::Empty, ReceiveOutcome::Datagram))
+                .map(receive_outcome)
                 .map_err(transport_session_error),
         }
     }
@@ -200,6 +196,14 @@ impl SessionMediaTransport {
                 .shutdown()
                 .map_err(|error| SessionError::Cleanup(error.to_string())),
         }
+    }
+}
+
+fn receive_outcome(poll: DatagramPoll) -> ReceiveOutcome {
+    match poll {
+        DatagramPoll::Datagram(datagram) => ReceiveOutcome::Datagram(datagram),
+        DatagramPoll::Discarded => ReceiveOutcome::Discarded,
+        DatagramPoll::Empty => ReceiveOutcome::Empty,
     }
 }
 
@@ -244,6 +248,10 @@ impl<T> ReceivePrefillQueue<T> {
                 true
             }
         }
+    }
+
+    pub(super) fn resync_count(&self) -> u64 {
+        self.sequence.resync_count()
     }
 
     #[cfg(test)]

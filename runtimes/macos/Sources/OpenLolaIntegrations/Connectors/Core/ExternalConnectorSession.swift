@@ -33,6 +33,7 @@ public enum ExternalConnectorSessionError: Error, Equatable, Sendable {
     case rawLinkRequiresLoLaConnector
     case lolaRequiresPeerForTx
     case connectorRequiresPeerForTx(ExternalConnectorKind)
+    case connectorRequiresPeerForRx(ExternalConnectorKind)
     case externalConnectorRequiresExecutable(ExternalConnectorKind)
     case invalidLoLaSessionID(String)
     case dryRunCannotPass

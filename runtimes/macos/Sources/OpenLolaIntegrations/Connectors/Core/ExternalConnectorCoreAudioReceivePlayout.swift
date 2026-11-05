@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import OpenLolaEvidenceModels
 import OpenLolaMediaPlatform
 
 /// Owns the common output-only Core Audio graph used by connector receive playouts.
@@ -36,7 +37,11 @@ final class ExternalConnectorCoreAudioReceivePlayout: @unchecked Sendable {
                 input: Array(0..<configuration.channels),
                 output: Array(0..<configuration.channels)
             ),
-            buffering: .init(ringCapacityBlocks: 2)
+            // Network bursts need ring headroom and a jitter target, as DirectPeer's small profile gives.
+            buffering: .init(
+                ringCapacityBlocks: 8,
+                rxBufferPolicy: try .small(framesPerPacket: configuration.framesPerPacket, sampleRateHertz: outputRate)
+            )
         )
         _ = try DirectPeerRealtimeAudioGraph.preflight(
             configuration: graphConfiguration,

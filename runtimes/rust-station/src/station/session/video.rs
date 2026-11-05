@@ -343,12 +343,15 @@ fn accept_video(
         monitor.note_drop(1);
         return;
     };
-    // Only validated media advances freshness. A malformed frame with a
-    // distant sequence must not suppress the following valid frames.
+    // Only validated media advances freshness; a bad distant sequence must not block valid frames.
+    let resyncs = queue.queue.resync_count();
     if !queue.queue.admit_sequence(frame.sequence()) {
         result.video_out_of_order_drops += 1;
         monitor.note_drop(1);
         return;
+    }
+    if queue.queue.resync_count() != resyncs {
+        monitor.note_sequence_restart(MediaKind::Video);
     }
     result.video_frames_received += 1;
     result.media_frames_received += 1;

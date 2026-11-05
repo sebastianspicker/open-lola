@@ -44,23 +44,21 @@ struct IpAdapterInfoPrefix {
 #[cfg(target_os = "windows")]
 type GetAdaptersInfo = unsafe extern "system" fn(*mut IpAdapterInfoPrefix, *mut u32) -> u32;
 
-pub const ETHERTYPE_IPV4: u16 = 0x0800;
-pub const ETHERTYPE_VLAN: u16 = 0x8100;
-pub const IP_PROTOCOL_UDP: u8 = 17;
-pub const MAX_UDP_PAYLOAD: usize = 65_507;
+const ETHERTYPE_IPV4: u16 = 0x0800;
+const ETHERTYPE_VLAN: u16 = 0x8100;
+const IP_PROTOCOL_UDP: u8 = 17;
+const MAX_UDP_PAYLOAD: usize = 65_507;
 
 pub fn parse_mac_address(value: &str) -> Result<[u8; 6], String> {
-    let parts: Vec<_> = value
-        .replace('-', ":")
-        .split(':')
-        .map(str::to_owned)
-        .collect();
+    // One separator kind per address; `from_str_radix` alone would accept `+1`.
+    let separator = if value.contains(':') { ':' } else { '-' };
+    let parts: Vec<_> = value.split(separator).collect();
     if parts.len() != 6 {
         return Err(format!("invalid MAC address: {value}"));
     }
     let mut result = [0; 6];
     for (index, part) in parts.iter().enumerate() {
-        if part.len() != 2 {
+        if part.len() != 2 || !part.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(format!("invalid MAC address: {value}"));
         }
         result[index] =
@@ -105,19 +103,6 @@ pub fn resolve_mac_via_ip_helper(
         ));
     }
     Ok(mac[..6].try_into().expect("checked MAC length"))
-}
-
-/// Resolves the physical address of the Windows adapter that owns `local_ip`.
-///
-/// When an Npcap device name is supplied, its adapter GUID must also match the
-/// IP Helper adapter name. This prevents a valid local IP on one interface from
-/// being paired with a different capture device.
-#[cfg(target_os = "windows")]
-pub fn resolve_local_mac_via_ip_helper(
-    local_ip: Ipv4Addr,
-    npcap_device: Option<&str>,
-) -> Result<[u8; 6], String> {
-    resolve_local_adapter(local_ip, npcap_device).map(|(mac, _)| mac)
 }
 
 /// Resolves the selected adapter and rejects peers outside its IPv4 subnet.
@@ -246,14 +231,6 @@ pub fn resolve_mac_via_ip_helper(
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn resolve_local_mac_via_ip_helper(
-    _local_ip: Ipv4Addr,
-    _npcap_device: Option<&str>,
-) -> Result<[u8; 6], String> {
-    Err("Windows IP Helper local-adapter resolution is unavailable on this platform".into())
-}
-
-#[cfg(not(target_os = "windows"))]
 pub fn resolve_direct_lan_mac_via_ip_helper(
     _local_ip: Ipv4Addr,
     _peer_ip: Ipv4Addr,
@@ -262,46 +239,16 @@ pub fn resolve_direct_lan_mac_via_ip_helper(
     Err("Windows IP Helper direct-LAN validation is unavailable on this platform".into())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedUdpPacket {
-    /// Ethernet source retained for receive-side L2 peer pinning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BorrowedUdpPacket<'a> {
     pub source_mac: [u8; 6],
-    /// Ethernet destination retained for receive-side L2 peer pinning.
     pub destination_mac: [u8; 6],
-    /// IEEE 802.1Q VLAN identifier, excluding priority and drop-eligible bits.
     pub vlan_tag: Option<u16>,
     pub source_ip: Ipv4Addr,
     pub destination_ip: Ipv4Addr,
     pub source_port: u16,
     pub destination_port: u16,
-    pub payload: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BorrowedUdpPacket<'a> {
-    pub(crate) source_mac: [u8; 6],
-    pub(crate) destination_mac: [u8; 6],
-    pub(crate) vlan_tag: Option<u16>,
-    pub(crate) source_ip: Ipv4Addr,
-    pub(crate) destination_ip: Ipv4Addr,
-    pub(crate) source_port: u16,
-    pub(crate) destination_port: u16,
-    pub(crate) payload: &'a [u8],
-}
-
-impl BorrowedUdpPacket<'_> {
-    fn to_owned(self) -> ParsedUdpPacket {
-        ParsedUdpPacket {
-            source_mac: self.source_mac,
-            destination_mac: self.destination_mac,
-            vlan_tag: self.vlan_tag,
-            source_ip: self.source_ip,
-            destination_ip: self.destination_ip,
-            source_port: self.source_port,
-            destination_port: self.destination_port,
-            payload: self.payload.to_vec(),
-        }
-    }
+    pub payload: &'a [u8],
 }
 
 #[derive(Debug)]
@@ -337,7 +284,7 @@ pub(super) fn fold16(data: &[u8]) -> u16 {
     total as u16
 }
 
-pub fn internet_checksum(data: &[u8]) -> u16 {
+fn internet_checksum(data: &[u8]) -> u16 {
     !fold16(data)
 }
 
@@ -408,13 +355,7 @@ pub fn build_ethernet_ipv4_udp_frame(
     Ok(frame)
 }
 
-pub fn parse_ethernet_ipv4_udp_frame(frame: &[u8]) -> Option<ParsedUdpPacket> {
-    parse_ethernet_ipv4_udp_frame_borrowed(frame).map(BorrowedUdpPacket::to_owned)
-}
-
-pub(crate) fn parse_ethernet_ipv4_udp_frame_borrowed(
-    frame: &[u8],
-) -> Option<BorrowedUdpPacket<'_>> {
+pub fn parse_ethernet_ipv4_udp_frame_borrowed(frame: &[u8]) -> Option<BorrowedUdpPacket<'_>> {
     let ethernet = parse_ethernet_header(frame)?;
     let ip = parse_ipv4_udp_header(frame, ethernet.ip_start)?;
     let udp_start = ip.start + ip.header_length;
@@ -585,14 +526,12 @@ mod tests {
         let valid = frame(Some(42));
         let borrowed = parse_ethernet_ipv4_udp_frame_borrowed(&valid).unwrap();
         assert_eq!(borrowed.payload, &[1, 2, 3]);
-        let parsed = parse_ethernet_ipv4_udp_frame(&valid).unwrap();
-        assert_eq!(parsed.vlan_tag, Some(42));
-        assert_eq!(parsed.payload, vec![1, 2, 3]);
+        assert_eq!(borrowed.vlan_tag, Some(42));
 
-        assert!(parse_ethernet_ipv4_udp_frame(&valid[..17]).is_none());
+        assert!(parse_ethernet_ipv4_udp_frame_borrowed(&valid[..17]).is_none());
         let mut invalid_checksum = valid;
         let ip_start = 18;
         invalid_checksum[ip_start + 10] ^= 1;
-        assert!(parse_ethernet_ipv4_udp_frame(&invalid_checksum).is_none());
+        assert!(parse_ethernet_ipv4_udp_frame_borrowed(&invalid_checksum).is_none());
     }
 }

@@ -319,29 +319,6 @@ impl StationUIController {
         self.start_live(timeout, 1, extras, true)
     }
 
-    /// Stop live session if running; otherwise mark disconnected.
-    pub fn stop_live(&mut self, timeout: f64) -> Value {
-        if self.live.is_running() {
-            let report = self.live.stop(timeout);
-            self.state.status = "disconnected".into();
-            self.state.continuous_live = false;
-            self.state.settings_locked = false;
-            self.set_active_tab_connected(false);
-            self.state.last_result = Some(report.clone());
-            if let Some(monitor) = report
-                .get("network_monitor")
-                .and_then(|value| value.as_object())
-            {
-                self.state.network_monitor = monitor
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-            }
-            return report;
-        }
-        self.disconnect()
-    }
-
     /// Stop a live session and wait at most `timeout` so the disconnect is sent and
     /// recordings are finalized. Returns true when the session ended in time.
     pub fn stop_and_wait(&mut self, timeout: std::time::Duration) -> bool {
@@ -403,20 +380,5 @@ impl StationUIController {
 
     pub fn settings_are_locked(&self) -> bool {
         self.check_in_progress || self.state.settings_locked || self.live.is_running()
-    }
-
-    pub fn disconnect(&mut self) -> Value {
-        if self.live.is_running() {
-            return self.stop_live(5.0);
-        }
-        self.state.status = "disconnected".into();
-        self.state.continuous_live = false;
-        self.state.settings_locked = false;
-        self.set_active_tab_connected(false);
-        json!({
-            "ok": true,
-            "status": "disconnected",
-            "last_result": self.state.last_result,
-        })
     }
 }

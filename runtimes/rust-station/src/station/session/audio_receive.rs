@@ -68,6 +68,10 @@ impl AudioReceiveQueue {
         }
     }
 
+    pub(super) fn resync_count(&self) -> u64 {
+        self.sequence.resync_count()
+    }
+
     pub(super) fn take_resyncs(&mut self) -> u64 {
         self.sequence.take_resyncs()
     }

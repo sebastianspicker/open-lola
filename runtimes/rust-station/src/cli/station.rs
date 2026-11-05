@@ -1,7 +1,7 @@
 //! Station configuration precedence: settings, imported session, CLI overrides.
 
 use crate::config::{default_settings, load_settings, save_settings, StationSettings};
-use crate::station::{apply_profile_to_settings, load_session_input};
+use crate::station::{apply_profile_to_settings, load_session_profile};
 use std::path::Path;
 
 /// Tell the operator a missing `--settings` file was created rather than loaded.
@@ -27,7 +27,7 @@ pub(super) fn load_station_settings(
         None => default_settings(),
     };
     if let Some(path) = session_path {
-        let profile = load_session_input(path).map_err(|error| error.to_string())?;
+        let profile = load_session_profile(path).map_err(|error| error.to_string())?;
         apply_profile_to_settings(&mut settings, &profile);
     }
     Ok(settings)

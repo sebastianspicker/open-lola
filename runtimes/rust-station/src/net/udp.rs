@@ -37,16 +37,6 @@ struct ReceiveState {
 }
 
 impl Udp {
-    pub fn new() -> io::Result<Self> {
-        // Use an ephemeral port while retaining bounded kernel buffers.
-        let sock = bounded_udp_socket("0.0.0.0:0")?;
-        Ok(Self {
-            sock,
-            receive_state: Mutex::new(ReceiveState::new()),
-            transient_receive_errors: AtomicU64::new(0),
-        })
-    }
-
     pub fn bind(host: &str, port: u16) -> io::Result<Self> {
         let addr = format!("{host}:{port}");
         let sock = bounded_udp_socket(&addr)?;

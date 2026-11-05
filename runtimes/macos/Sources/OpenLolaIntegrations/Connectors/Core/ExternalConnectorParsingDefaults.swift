@@ -269,6 +269,14 @@ func validateTransmitPeer(_ configuration: ExternalConnectorSessionConfiguration
     throw ExternalConnectorSessionError.connectorRequiresPeerForTx(configuration.connector)
 }
 
+/// Live media receive trusts only the configured peer, so a missing or wildcard peer fails closed.
+func validateReceivePeer(_ configuration: ExternalConnectorSessionConfiguration) throws {
+    guard configuration.role.receives, configuration.peer.isEmpty || configuration.peer == "0.0.0.0" else {
+        return
+    }
+    throw ExternalConnectorSessionError.connectorRequiresPeerForRx(configuration.connector)
+}
+
 enum ExternalConnectorProcessArgumentClass {
     case peerHost
     case jackTripAudioDevice

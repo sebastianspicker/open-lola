@@ -223,32 +223,6 @@ extension DirectPeerRealtimeAudioCallbackState {
         return true
     }
 
-    func readOnlyBufferLocation(
-        forStableChannel stableChannel: Int,
-        in buffers: ReadOnlyAudioBufferListPointer
-    ) -> DirectPeerReadOnlyAudioBufferLocation? {
-        var baseChannel = 0
-        for bufferIndex in 0..<buffers.count {
-            guard let buffer = buffers[bufferIndex] else {
-                continue
-            }
-            let channelCount = Int(buffer.mNumberChannels)
-            guard channelCount > 0 else {
-                continue
-            }
-            let upperBound = baseChannel + channelCount
-            if stableChannel < upperBound {
-                return DirectPeerReadOnlyAudioBufferLocation(
-                    buffer: buffer,
-                    channelIndex: stableChannel - baseChannel,
-                    channelCount: channelCount
-                )
-            }
-            baseChannel = upperBound
-        }
-        return nil
-    }
-
     func mutableBufferLocation(
         forStableChannel stableChannel: Int,
         in buffers: UnsafeMutableAudioBufferListPointer
@@ -288,4 +262,31 @@ extension DirectPeerRealtimeAudioCallbackState {
         return total
     }
 
+}
+
+/// Maps a device-wide channel number to its buffer and the channel inside it, across split buffers.
+package func readOnlyBufferLocation(
+    forStableChannel stableChannel: Int,
+    in buffers: ReadOnlyAudioBufferListPointer
+) -> DirectPeerReadOnlyAudioBufferLocation? {
+    var baseChannel = 0
+    for bufferIndex in 0..<buffers.count {
+        guard let buffer = buffers[bufferIndex] else {
+            continue
+        }
+        let channelCount = Int(buffer.mNumberChannels)
+        guard channelCount > 0 else {
+            continue
+        }
+        let upperBound = baseChannel + channelCount
+        if stableChannel < upperBound {
+            return DirectPeerReadOnlyAudioBufferLocation(
+                buffer: buffer,
+                channelIndex: stableChannel - baseChannel,
+                channelCount: channelCount
+            )
+        }
+        baseChannel = upperBound
+    }
+    return nil
 }

@@ -60,17 +60,31 @@ public struct RecordingCapturedMedia: Equatable, Sendable {
     public var audioBlockers: [String]
     public var video: RecordingCapturedVideo?
     public var videoBlockers: [String]
+    public var startedAt: Date?
+    public var endedAt: Date?
+    /// The signal that ended capture before the requested duration; nil when it ran to the end.
+    public var stopSignalName: String?
 
     public init(
         audio: RecordingCapturedAudio? = nil,
         audioBlockers: [String] = [],
         video: RecordingCapturedVideo? = nil,
-        videoBlockers: [String] = []
+        videoBlockers: [String] = [],
+        startedAt: Date? = nil,
+        endedAt: Date? = nil,
+        stopSignalName: String? = nil
     ) {
         self.audio = audio
         self.audioBlockers = audioBlockers
         self.video = video
         self.videoBlockers = videoBlockers
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.stopSignalName = stopSignalName
+    }
+
+    var stoppedEarlyNote: String? {
+        stopSignalName.map { "capture stopped early by \($0); the take is incomplete" }
     }
 }
 
@@ -203,14 +217,19 @@ data: Data((
         guard let entry = manifest.entries.first(where: { $0.kind == .audioPcm }) else {
             return RecordingAudioArtifactMetrics(state: .unavailable, blockers: ["audio artifact write failed"])
         }
+        let incomplete = [
+            audio.underruns > 0 ? "\(audio.underruns) audio callbacks were dropped because the take buffer was full" : nil,
+            capturedMedia.stoppedEarlyNote
+        ].compactMap { $0 }
+        let mismatch = audio.frameCountMismatches > 0
+            ? ["\(audio.frameCountMismatches) audio callbacks delivered a different number of frames than requested"]
+            : []
         return RecordingAudioArtifactMetrics(
-            state: .recorded,
+            state: incomplete.isEmpty ? .recorded : .partial,
             relativePath: entry.relativePath,
             byteCount: entry.byteCount,
             checksum: entry.checksum,
-            blockers: audio.frameCountMismatches > 0
-                ? ["\(audio.frameCountMismatches) audio callbacks delivered a different number of frames than requested"]
-                : []
+            blockers: mismatch + incomplete
         )
     }
 
@@ -234,8 +253,9 @@ data: Data((
               let index = manifest.entries.first(where: { $0.kind == .videoFrameIndex }) else {
             return RecordingVideoArtifactMetrics(state: .unavailable, blockers: ["video artifact write failed"])
         }
+        let incomplete = [video.truncationNote, capturedMedia.stoppedEarlyNote].compactMap { $0 }
         return RecordingVideoArtifactMetrics(
-            state: .recorded,
+            state: incomplete.isEmpty ? .recorded : .partial,
             files: RecordingVideoArtifactFiles(
                 rawFramesRelativePath: raw.relativePath,
                 frameIndexRelativePath: index.relativePath,
@@ -245,7 +265,7 @@ data: Data((
                 frameIndexChecksum: index.checksum,
                 framesWritten: video.frameIndex.count
             ),
-            blockers: video.truncationNote.map { [$0] } ?? []
+            blockers: incomplete
         )
     }
 }

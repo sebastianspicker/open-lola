@@ -23,6 +23,8 @@ mod diagnostic;
 mod ffi;
 mod strict;
 
+#[doc(hidden)]
+pub use callback::mix_pcm_saturating;
 pub use callback::PortAudioCallbackStats;
 pub use devices::{load_portaudio, probe_portaudio};
 pub use devices::{

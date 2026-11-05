@@ -1,14 +1,10 @@
+use super::types::SendFaultTimer;
 use super::{
     DatagramPoll, MediaKind, MediaTransport, ReceivedDatagram, TransportError, TransportStats,
 };
 use crate::net::udp::Udp;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::time::{Duration, Instant};
-
-/// How long every send may keep failing with a transient fault before the
-/// fault is treated as a dead path rather than a passing one.
-const SUSTAINED_SEND_FAULT_LIMIT: Duration = Duration::from_secs(2);
 
 pub struct UdpMediaTransport {
     audio: Udp,
@@ -18,8 +14,7 @@ pub struct UdpMediaTransport {
     video_port: u16,
     stats: TransportStats,
     shutdown: bool,
-    /// When the current run of consecutive transient send faults began.
-    send_faults_since: Option<Instant>,
+    send_faults: SendFaultTimer,
 }
 
 impl UdpMediaTransport {
@@ -63,63 +58,8 @@ impl UdpMediaTransport {
             video_port,
             stats: TransportStats::default(),
             shutdown: false,
-            send_faults_since: None,
+            send_faults: SendFaultTimer::default(),
         })
-    }
-
-    pub fn bind_fixed(
-        bind_ip: &str,
-        peer_ip: IpAddr,
-        audio_port: u16,
-        video_port: u16,
-        timeout_seconds: f64,
-    ) -> Result<Self, String> {
-        if audio_port == 0 || video_port == 0 || audio_port == video_port {
-            return Err("audio/video ports must be distinct and nonzero".into());
-        }
-        let audio = Udp::bind(bind_ip, audio_port).map_err(|error| error.to_string())?;
-        let video = Udp::bind(bind_ip, video_port).map_err(|error| error.to_string())?;
-        audio
-            .set_timeout(timeout_seconds)
-            .map_err(|error| error.to_string())?;
-        video
-            .set_timeout(timeout_seconds)
-            .map_err(|error| error.to_string())?;
-        audio
-            .configure_media_nonblocking()
-            .map_err(|error| error.to_string())?;
-        video
-            .configure_media_nonblocking()
-            .map_err(|error| error.to_string())?;
-        Ok(Self {
-            audio,
-            video,
-            peer_ip,
-            audio_port,
-            video_port,
-            stats: TransportStats::default(),
-            shutdown: false,
-            send_faults_since: None,
-        })
-    }
-
-    /// A transient fault is a per-datagram drop until it has persisted for
-    /// `SUSTAINED_SEND_FAULT_LIMIT` without a single successful send; a path
-    /// that stays down (firewall deny, dead route) then fails the session
-    /// instead of silently dropping all media.
-    fn classify_send_error(&mut self, error: io::Error) -> TransportError {
-        let classified = TransportError::from_io(error);
-        let TransportError::Transient(detail) = &classified else {
-            return classified;
-        };
-        let since = *self.send_faults_since.get_or_insert_with(Instant::now);
-        if since.elapsed() >= SUSTAINED_SEND_FAULT_LIMIT {
-            return TransportError::Io(format!(
-                "media sends have failed for {:?}: {detail}",
-                SUSTAINED_SEND_FAULT_LIMIT
-            ));
-        }
-        classified
     }
 
     fn socket(&self, kind: MediaKind) -> (&Udp, u16) {
@@ -169,11 +109,7 @@ impl UdpMediaTransport {
             }
             Err(error) => return Err(TransportError::from_io(error)),
         };
-        self.stats.received_datagrams += observed.received_datagrams;
-        self.stats.received_bytes += observed.received_bytes;
-        self.stats.malformed_drops += observed.malformed_drops;
-        self.stats.wrong_peer_drops += observed.wrong_peer_drops;
-        self.stats.wrong_port_drops += observed.wrong_port_drops;
+        self.stats.merge_received(observed);
         Ok(poll)
     }
 
@@ -229,11 +165,13 @@ impl MediaTransport for UdpMediaTransport {
             let destination = SocketAddr::new(self.peer_ip, port);
             let sent = match socket.send_to(payload, destination) {
                 Ok(sent) => sent,
-                Err(error) => return Err(self.classify_send_error(error)),
+                Err(error) => {
+                    return Err(self.send_faults.classify(TransportError::from_io(error)))
+                }
             };
             (sent, payload.len())
         };
-        self.send_faults_since = None;
+        self.send_faults.clear();
         if sent != expected {
             self.stats.backpressure_drops += 1;
             return Err(TransportError::Backpressure(format!(

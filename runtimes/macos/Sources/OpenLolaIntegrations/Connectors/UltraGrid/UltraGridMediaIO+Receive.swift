@@ -86,7 +86,7 @@ struct UltraGridFullDuplexReceiveLoop {
                     audioSocket: audioSocket,
                     videoSocket: videoSocket
                 ),
-                ledger: &ledger, buffers: &buffers, packetLimit: packetLimit(ledger)
+                ledger: &ledger, buffers: &buffers, packetLimit: ultraGridSocketPerStreamDrainPacketLimit
             )
             let afterDrain = state.snapshot()
             if let outcome = completedOutcome(status: afterDrain, ledger: ledger) { return outcome }
@@ -132,10 +132,6 @@ struct UltraGridFullDuplexReceiveLoop {
         ledger: UltraGridSocketReceiveEvidenceLedger
     ) -> UltraGridConcurrentReceiveOutcome {
         UltraGridConcurrentReceiveOutcome(ledger: ledger, transmitResult: status.transmitResult)
-    }
-
-    private func packetLimit(_ ledger: UltraGridSocketReceiveEvidenceLedger) -> Int {
-        ultraGridSocketReceiveEvidencePacketLimit(receivedCount: ledger.receivedDatagramCount)
     }
 
     private func wait(status: UltraGridConcurrentReceiveState.Snapshot) throws {

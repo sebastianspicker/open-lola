@@ -145,12 +145,13 @@ private func receiveParsedLoLaTcpControlMessage(
     if let failure = message.failure {
         return .failure(failure)
     }
-    let parsed = parseLoLaControlMessage(
+    var opaqueControlDatagrams: [LoLaOpaqueControlDatagram] = []
+    let parsed = parseReceivedLoLaControlMessage(
         message,
         sentMessages: sentMessages,
         receivedMessages: &receivedMessages,
         bytesTransferred: &bytesTransferred,
-        transferredBytes: message.bytesTransferred,
+        opaqueControlDatagrams: &opaqueControlDatagrams,
         parsedMessageName: parsedMessageName,
         fields: fields
     )

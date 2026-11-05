@@ -220,16 +220,6 @@ impl LiveStationService {
         Ok(())
     }
 
-    /// Request shutdown and wait for the worker when called by non-UI code.
-    /// Egui uses `request_stop` and polls `get_report` instead.
-    pub fn stop(&self, _join_timeout_sec: f64) -> Value {
-        if let Some(handle) = lock_unpoison(&self.handle).as_ref().cloned() {
-            handle.stop();
-            handle.wait();
-        }
-        self.get_report()
-    }
-
     /// Stop the worker and wait at most `timeout` for the session to end.
     /// Returns true when it ended in time.
     pub fn stop_within(&self, timeout: std::time::Duration) -> bool {

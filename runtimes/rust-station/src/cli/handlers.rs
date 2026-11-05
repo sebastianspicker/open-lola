@@ -16,7 +16,7 @@ use crate::station::{
     run_session, save_session_profile, SessionOptions, SessionProfile, SessionRuntimeControl,
 };
 use crate::ui::{run_interactive_ui, StationUIController};
-use crate::video::{convert_path, BayerPattern, ConvertMode};
+use crate::video::{convert_path, BayerPattern, ConvertMode, JPEG_QUALITY_RANGE};
 use crate::IDENTITY;
 use crate::VERSION;
 use std::path::PathBuf;
@@ -382,15 +382,17 @@ fn convert_command(command: Commands) -> i32 {
         eprintln!("unknown mode {mode}; use debayer|bgr2rgb|bmp2jpeg");
         return 2;
     };
-    let pattern =
-        BayerPattern::parse(bayer.as_deref().unwrap_or(&pattern)).unwrap_or(BayerPattern::Bggr);
-    match convert_path(
-        &input,
-        &output,
-        mode,
-        pattern,
-        jpeg_quality.unwrap_or(quality),
-    ) {
+    let pattern = bayer.unwrap_or(pattern);
+    let Some(pattern) = BayerPattern::parse(&pattern) else {
+        eprintln!("unknown bayer pattern {pattern}; use BGGR|GBRG|RGGB|GRBG");
+        return 2;
+    };
+    let quality = jpeg_quality.unwrap_or(quality);
+    if !JPEG_QUALITY_RANGE.contains(&quality) {
+        eprintln!("JPEG quality {quality} must be {JPEG_QUALITY_RANGE:?}");
+        return 2;
+    }
+    match convert_path(&input, &output, mode, pattern, quality) {
         Ok(paths) => {
             for path in paths {
                 println!("{}", path.display());

@@ -1,6 +1,7 @@
 use super::super::control::{
     build_session_control, protocol_media_settings, recv_valid_control_until,
-    send_control_datagram, verify_quickconn_ack_audio, QUICKCONN_REPLY_KINDS, STATUS_REPLY_KINDS,
+    send_control_datagram_or_drop, verify_quickconn_ack_audio, QUICKCONN_REPLY_KINDS,
+    STATUS_REPLY_KINDS,
 };
 use super::super::{SessionOptions, SessionPhase, SessionResult};
 use crate::config::StationSettings;
@@ -152,8 +153,10 @@ pub(super) fn send_control_with_retries(
                 "no reply to {message_name} before the negotiation deadline"
             )));
         }
-        send_control_datagram(control_socket, datagram, peer_addr)?;
-        messages_sent.push(message_name.into());
+        // A transient send fault is a lost datagram; the next retry resends it.
+        if send_control_datagram_or_drop(control_socket, datagram, peer_addr)? {
+            messages_sent.push(message_name.into());
+        }
         let attempt_deadline = deadline.min(now + HANDSHAKE_RETRY_INTERVAL);
         match recv_valid_control_until(
             control_socket,

@@ -205,6 +205,7 @@ public enum RecordingSessionRunner {
     ) throws -> RecordingSessionArtifactReport {
         // Refuse an unusable output folder before capturing, so a take is never recorded and then lost.
         try requireReplaceableRecordingOutput(at: URL(fileURLWithPath: configuration.outputDirectory, isDirectory: true))
+        try requireRecordingAudioTakeFitsMemory(configuration)
         return try run(
             configuration: configuration,
             integratedBaseline: integratedBaseline,
@@ -238,10 +239,12 @@ public enum RecordingSessionRunner {
                 capturedAt: ISO8601DateFormatter().string(from: Date()),
                 runMode: .measured,
                 durationSeconds: Double(configuration.durationSeconds),
-                notes: "Recording side-lane wrote opted-in raw media artifacts without realtime file I/O."
+                notes: "Recording side-lane wrote opted-in raw media artifacts without realtime file I/O. "
+                    + "Media is held in memory and written after capture ends; writerPressure counts those "
+                    + "file writes, not a queue drained during capture."
             ),
             evidence: RecordingSessionArtifactReportEvidence(
-                session: recordingSessionMetadata(),
+                session: recordingSessionMetadata(capturedMedia),
                 sideLane: recordingSideLanePolicy(),
                 capture: configuration.capture,
                 writerPressure: written.writerPressure,
@@ -288,14 +291,15 @@ private func recordingAudioCallbackMetrics(
     )
 }
 
-private func recordingSessionMetadata() -> RecordingSessionMetadata {
+private func recordingSessionMetadata(_ capturedMedia: RecordingCapturedMedia) -> RecordingSessionMetadata {
     let formatter = ISO8601DateFormatter()
+    let now = Date()
     return RecordingSessionMetadata(
         sessionId: "m14-recording-session-run",
         profileName: "headless-side-lane",
         configuredBy: "open-lola",
-        startedAt: formatter.string(from: Date()),
-        endedAt: formatter.string(from: Date())
+        startedAt: formatter.string(from: capturedMedia.startedAt ?? now),
+        endedAt: formatter.string(from: capturedMedia.endedAt ?? now)
     )
 }
 
