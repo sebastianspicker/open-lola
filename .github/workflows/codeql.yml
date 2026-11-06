@@ -26,7 +26,7 @@ jobs:
         with:
           languages: python
       # github/codeql-action v4.39.1
-      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+      - uses: github/codeql-action/analyze@1fc58d04a4d4374f921bdac573c3811c240f9c26
         with:
           category: "/language:python"
 
@@ -47,6 +47,6 @@ jobs:
           swift build --disable-sandbox --scratch-path
           "$RUNNER_TEMP/open-lola-codeql-swiftpm-build"
       # github/codeql-action v4.39.1
-      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+      - uses: github/codeql-action/analyze@1fc58d04a4d4374f921bdac573c3811c240f9c26
         with:
           category: "/language:swift"
