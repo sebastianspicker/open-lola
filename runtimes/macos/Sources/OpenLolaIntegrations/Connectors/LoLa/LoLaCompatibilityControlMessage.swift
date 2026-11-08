@@ -439,6 +439,8 @@ public enum LoLaControlDatagramDecoder {
         guard textBytes.allSatisfy({ $0 <= 0x7f }) else {
             throw LoLaControlDatagramDecodingError(category: .nonASCII)
         }
+        // Checked ASCII above, so nothing can be replaced.
+        // swiftlint:disable:next optional_data_string_conversion
         let message = String(decoding: textBytes, as: UTF8.self)
         return try LoLaCompatibilityControlMessage.parseASCIIControlMessage(message)
     }

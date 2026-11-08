@@ -202,6 +202,8 @@ func receiveExternalConnectorTcp(
 }
 
 private func decodeExternalConnectorTcpMessage(_ messageBytes: [UInt8]) -> String {
+    // Evidence text only: parsing uses the raw datagram bytes.
+    // swiftlint:disable:next optional_data_string_conversion
     String(decoding: messageBytes, as: UTF8.self)
 }
 

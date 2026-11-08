@@ -3,6 +3,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+release_candidate_path="${OPEN_LOLA_RELEASE_CANDIDATE:-}"
+# Resolve a relative candidate against the caller's directory before the cd.
+[[ -z "$release_candidate_path" || "$release_candidate_path" == /* ]] || release_candidate_path="$PWD/$release_candidate_path"
 cd "$repo_root"
 export PYTHONDONTWRITEBYTECODE=1
 
@@ -10,7 +13,6 @@ export PYTHONDONTWRITEBYTECODE=1
 . "$repo_root/tools/lib/common.sh"
 
 tmp_dir="$(mktemp -d)"
-release_candidate_path="${OPEN_LOLA_RELEASE_CANDIDATE:-}"
 unset OPEN_LOLA_RELEASE_CANDIDATE
 OPEN_LOLA_SWIFT_BUILD_PATH="$(open_lola_swift_build_path)"
 OPEN_LOLA_TEST_OPEN_LOLA_CLI="${OPEN_LOLA_TEST_OPEN_LOLA_CLI:-}"

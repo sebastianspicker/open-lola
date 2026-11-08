@@ -52,10 +52,14 @@ impl QuickconnAckCache {
     /// A failed re-send is not a session failure: the initiator repeats its
     /// request and the next attempt answers it.
     pub(crate) fn resend_into(&self, socket: &Udp, peer: SocketAddr, result: &mut SessionResult) {
-        if !self.claim_resend() || send_control_datagram(socket, &self.bytes, peer).is_err() {
-            return;
+        if self.resend(socket, peer) {
+            push_bounded(&mut result.messages_sent, "/MESG_QUICKCONN_ACK".into());
         }
-        push_bounded(&mut result.messages_sent, "/MESG_QUICKCONN_ACK".into());
+    }
+
+    /// Resends the cached ACK when allowed; true when it went out.
+    pub(crate) fn resend(&self, socket: &Udp, peer: SocketAddr) -> bool {
+        self.claim_resend() && send_control_datagram(socket, &self.bytes, peer).is_ok()
     }
 }
 pub(super) const QUICKCONN_REPLY_KINDS: &[&str] = &["/MESG_QUICKCONN_ACK", "/MESG_REJECT"];

@@ -457,7 +457,7 @@ package func receiveDatagramWithSourceIfAvailable(socket: Int32, byteCount: Int)
 package func receiveDatagramWithSourceIfAvailable(
     socket: Int32,
     byteCount: Int,
-    buffer: inout [UInt8]
+    buffer: inout [UInt8], skippedEmpty: Int = 0
 ) throws -> UdpDatagramWithSource? {
     try validateUdpReceiveByteCount(byteCount)
     if buffer.count <= byteCount {
@@ -478,7 +478,9 @@ package func receiveDatagramWithSourceIfAvailable(
         throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
     }
     guard received > 0 else {
-        return nil
+        // Empty is not "queue empty": read on, bounded so a flood of empty datagrams cannot hold the caller.
+        return skippedEmpty < 64 ? try receiveDatagramWithSourceIfAvailable(
+            socket: socket, byteCount: byteCount, buffer: &buffer, skippedEmpty: skippedEmpty + 1) : nil
     }
     guard addressLength == socklen_t(MemoryLayout<sockaddr_in>.size) else {
         throw UdpPcmRouteProbeError.receiveFailed(EINVAL)

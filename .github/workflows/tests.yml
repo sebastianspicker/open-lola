@@ -25,6 +25,8 @@ jobs:
         run: exit 1
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Set up cached Python dependencies
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
@@ -41,6 +43,7 @@ jobs:
         run: make python-mypy
     env:
       UV_PYTHON: ${{ matrix.python-version }}
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.venv
 
   quality:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
@@ -49,6 +52,8 @@ jobs:
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Set up cached Python dependencies
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
@@ -80,6 +85,7 @@ jobs:
         run: make architecture
     env:
       UV_PYTHON: "3.13"
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.venv
 
   swift:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.user.login == 'dependabot[bot]'
@@ -89,6 +95,8 @@ jobs:
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Reject Swift compiler warnings
         run: make swift-build OPEN_LOLA_SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
       - name: Build Swift package (tests run only where test sources are present)
@@ -101,6 +109,8 @@ jobs:
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Export a source candidate and run the release hygiene scan
         run: |
           mkdir -p "$RUNNER_TEMP/open-lola-release"
@@ -114,6 +124,8 @@ jobs:
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Install Rust validation components
         run: rustup component add rustfmt clippy
       - name: Check Rust formatting, Clippy, and tests
@@ -132,6 +144,8 @@ jobs:
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Install Rust validation components
         shell: pwsh
         run: rustup component add rustfmt clippy

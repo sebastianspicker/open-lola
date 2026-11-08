@@ -2,7 +2,8 @@
 # Export a filtered release tree that excludes local-only and prohibited material.
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Physical path: the guard below compares it with `pwd -P` output.
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 caller_dir="$PWD"
 cd "$repo_root"
 
@@ -282,4 +283,8 @@ echo "source revision: $source_revision"
 echo "SOURCE_PROVENANCE_VERDICT: $source_provenance"
 OPEN_LOLA_RELEASE_CANDIDATE="$candidate" bash tools/verify-release-hygiene.sh
 echo "product release readiness remains PARTIAL until license, notices, reviewer, signing, clean-Mac, hardware, and benchmark gates close."
-echo "RELEASE_CANDIDATE_EXPORT_VERDICT: PASS"
+if [[ "$source_provenance" == "CLEAN_COMMIT" ]]; then
+  echo "RELEASE_CANDIDATE_EXPORT_VERDICT: PASS"
+else
+  echo "RELEASE_CANDIDATE_EXPORT_VERDICT: PARTIAL"
+fi

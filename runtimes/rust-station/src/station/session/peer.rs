@@ -428,7 +428,13 @@ fn receive_peer_control_extras(
         } else {
             Duration::ZERO
         };
-    while Instant::now() < deadline {
+    let cancelled = || {
+        options
+            .runtime_control
+            .as_ref()
+            .is_some_and(|control| control.is_cancelled())
+    };
+    while Instant::now() < deadline && !cancelled() {
         if pump_peer_control(control_socket, ack, peer, settings, options, shared)? {
             return Ok(true);
         }

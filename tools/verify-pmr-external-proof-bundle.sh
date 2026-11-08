@@ -157,6 +157,10 @@ validate_sanitizer_result() {
   local sanitizer_result="$bundle_dir/pmr-04/sanitizer-result.txt"
 
   require_file "$sanitizer_result"
+  # An explicit failure outranks a blocked runtime.
+  if grep -Eq '^(ASAN|TSAN): FAIL' "$sanitizer_result"; then
+    fail "$sanitizer_result reports a sanitizer failure"
+  fi
   if grep -Eq '^SANITIZER_RUNTIME_BLOCKED: .+$' "$sanitizer_result"; then
     echo "PMR-04 sanitizer-result.txt -> runtime blocked"
     sanitizer_blocked=1
@@ -472,10 +476,11 @@ validate_report_with_output_match \
 validate_report "PMR-23" "pmr-23/recording-session.json" "validate-recording-session-report" "PASS"
 validate_pmr23_runtime_contract
 
-echo "PMR external proof bundle verified"
 # A blocked sanitizer run is not sanitizer evidence, so the bundle cannot be a full pass.
 if [[ "$sanitizer_blocked" == "1" ]]; then
+  echo "PMR external proof bundle structure verified; sanitizer evidence missing"
   echo "VERDICT: PARTIAL"
 else
+  echo "PMR external proof bundle verified"
   echo "VERDICT: PASS"
 fi

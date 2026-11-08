@@ -3,6 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+caller_dir="$PWD"
 cd "$repo_root"
 
 # shellcheck disable=SC1091
@@ -542,6 +543,8 @@ main() {
 
   local candidate="${1:-${OPEN_LOLA_RELEASE_CANDIDATE:-}}"
   if [[ -n "$candidate" ]]; then
+    # The cd above moved us; resolve a relative path against the caller's directory.
+    [[ "$candidate" == /* ]] || candidate="$caller_dir/$candidate"
     verify_release_candidate "$candidate"
     echo "RELEASE_HYGIENE_VERDICT: PASS"
   elif [[ "${OPEN_LOLA_SKIP_LIVE_RESIDUE:-0}" == "1" ]]; then

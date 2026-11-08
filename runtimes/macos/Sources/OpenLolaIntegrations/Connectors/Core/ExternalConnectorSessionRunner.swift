@@ -361,12 +361,13 @@ runtimeError: runtimeError
 // A Python `uv` earlier on PATH must fail the run before the audio session starts, not after it.
 private func jackTripAuxiliaryVideoIdentityError(_ plan: ExternalConnectorLaunchPlan) -> String? {
     for auxiliary in plan.auxiliaryProcesses {
-        let identity = detectedExternalConnectorExecutableIdentity(
-            runExternalConnectorExecutableProbe(executable: auxiliary.executable, arguments: ["-h"])
-        )
+        let probe = runExternalConnectorExecutableProbe(executable: auxiliary.executable, arguments: ["-h"])
+        let identity = detectedExternalConnectorExecutableIdentity(probe)
         if identity != .ultraGrid {
+            let detected = probe.terminatedAfterDuration
+                ? "no answer to -h within the probe timeout" : "detected \(identity.rawValue)"
             return "auxiliary video executable \(auxiliary.executable) is not UltraGrid uv "
-                + "(detected \(identity.rawValue)); pass the absolute UltraGrid uv path with --video-executable"
+                + "(\(detected)); pass the absolute UltraGrid uv path with --video-executable"
         }
     }
     return nil

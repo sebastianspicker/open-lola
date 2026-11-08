@@ -89,11 +89,20 @@ pub(super) fn pump_peer_control_from(
     shared: &Arc<Mutex<SessionResult>>,
 ) -> Result<bool, SessionError> {
     pump_control_from(receive, expected_sender, settings, true, |message| {
-        let mut result = lock_unpoison(shared);
         if message.name == "/MESG_QUICKCONN" {
-            ack.resend_into(socket, expected_sender, &mut result);
+            // Send without the result lock, so report readers never wait on the socket.
+            if ack.resend(socket, expected_sender) {
+                push_bounded(
+                    &mut lock_unpoison(shared).messages_sent,
+                    "/MESG_QUICKCONN_ACK".into(),
+                );
+            }
             return false;
         }
-        apply_stream_control(message, &mut result, options.runtime_control.as_ref())
+        apply_stream_control(
+            message,
+            &mut lock_unpoison(shared),
+            options.runtime_control.as_ref(),
+        )
     })
 }

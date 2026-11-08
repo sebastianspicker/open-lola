@@ -21,20 +21,10 @@ import CoreVideo
 
 enum RecordingSessionLiveMediaCapture {
     /// Records audio and video at the same time so both cover the same window.
-    static func capture(configuration: RecordingSessionRunConfiguration) -> RecordingCapturedMedia {
+    /// The caller owns the stop monitor, so it also covers the artifact write after capture.
+    static func capture(configuration: RecordingSessionRunConfiguration, stop: DispatchSemaphore) -> RecordingCapturedMedia {
         let result = RecordingConcurrentCaptureResult()
         let group = DispatchGroup()
-        let stop = DispatchSemaphore(value: 0)
-        let capturesMedia = configuration.capture.audio.mode == .on || configuration.capture.video.mode == .on
-        // The first SIGINT/SIGTERM ends both capture waits so the take so far is still written; a second one exits.
-        let stopMonitor = capturesMedia ? ManagedProcessStopMonitor { number, isRepeat in
-            if isRepeat {
-                _exit(128 + number)
-            }
-            stop.signal()
-            stop.signal()
-        } : nil
-        defer { stopMonitor?.invalidate() }
         let startedAt = Date()
         if configuration.capture.audio.mode == .on {
             DispatchQueue.global(qos: .userInitiated).async(group: group) {
@@ -69,8 +59,7 @@ enum RecordingSessionLiveMediaCapture {
             video: result.video,
             videoBlockers: result.videoBlockers,
             startedAt: startedAt,
-            endedAt: Date(),
-            stopSignalName: stopMonitor?.receivedSignalName
+            endedAt: Date()
         )
     }
 }

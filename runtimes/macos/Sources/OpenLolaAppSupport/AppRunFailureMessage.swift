@@ -44,6 +44,8 @@ enum AppRunFailureMessage {
             let offset = size > UInt64(maximumTailBytes) ? size - UInt64(maximumTailBytes) : 0
             try handle.seek(toOffset: offset)
             let data = try handle.readToEnd() ?? Data()
+            // Operator-facing stderr tail: lossy is better than no message.
+            // swiftlint:disable:next optional_data_string_conversion
             var text = String(decoding: data, as: UTF8.self)
             if offset > 0, let firstNewline = text.firstIndex(of: "\n") {
                 // The window starts mid-line; drop the partial first line.

@@ -53,6 +53,8 @@ package final class BoundedPipeCapture: @unchecked Sendable {
         let data = prefixData
         let readFailure = failure
         lock.unlock()
+        // Evidence text: a lossy decode keeps the output instead of dropping it on one bad byte.
+        // swiftlint:disable:next optional_data_string_conversion
         let text = String(decoding: data, as: UTF8.self)
         let bounded = mode == .characters ? String(text.prefix(limit)) : text
         guard let readFailure else {

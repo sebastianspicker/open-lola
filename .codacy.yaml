@@ -17,3 +17,12 @@ exclude_paths:
   - "**/*.pyo"
   - "third_party/opus/**"
   - "third_party/jpeg-xs/**"
+  # generated lockfiles
+  - "Cargo.lock"
+  - "**/Cargo.lock"
+  # Rust unit tests and test-only support (cfg(test))
+  - "runtimes/rust-station/src/**/tests.rs"
+  - "runtimes/rust-station/src/**/*_tests.rs"
+  - "runtimes/rust-station/src/test_alloc.rs"
+  # CI verification scripts
+  - "tools/verify_*.py"

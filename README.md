@@ -64,8 +64,8 @@ not confused with a field measurement.
   <img src=".github/assets/open-lola-signal-desk-light.png" alt="Open LoLa Signal Desk showing a validated session: worst-peer audio p99 of 4.7 ms, packet loss 0.0%, jitter p99 0.3 ms, and a four-stage evidence chain from source to validated.">
 </picture>
 
-*Offline render of the real SwiftUI views with synthetic data. It is not a live
-measurement.*
+_Offline render of the real SwiftUI views with synthetic data. It is not a live
+measurement._
 
 The app has four workspaces:
 

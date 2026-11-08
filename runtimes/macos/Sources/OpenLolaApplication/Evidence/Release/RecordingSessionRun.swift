@@ -3,6 +3,7 @@ import OpenLolaSessionDomain
 import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
+import OpenLolaIntegrations
 // Coordinates release-readiness execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
 /// Simulates bounded recording-writer pressure and reports queue, drop, and stall metrics.
@@ -206,10 +207,24 @@ public enum RecordingSessionRunner {
         // Refuse an unusable output folder before capturing, so a take is never recorded and then lost.
         try requireReplaceableRecordingOutput(at: URL(fileURLWithPath: configuration.outputDirectory, isDirectory: true))
         try requireRecordingAudioTakeFitsMemory(configuration)
+        let stop = DispatchSemaphore(value: 0)
+        let capturesMedia = configuration.capture.audio.mode == .on || configuration.capture.video.mode == .on
+        // The first SIGINT/SIGTERM ends both capture waits so the take so far is still written; a second one exits.
+        // Kept until the artifacts are written: the take lives only in memory until then.
+        let stopMonitor = capturesMedia ? ManagedProcessStopMonitor { number, isRepeat in
+            if isRepeat {
+                _exit(128 + number)
+            }
+            stop.signal()
+            stop.signal()
+        } : nil
+        defer { stopMonitor?.invalidate() }
+        var capturedMedia = RecordingSessionLiveMediaCapture.capture(configuration: configuration, stop: stop)
+        capturedMedia.stopSignalName = stopMonitor?.receivedSignalName
         return try run(
             configuration: configuration,
             integratedBaseline: integratedBaseline,
-            capturedMedia: RecordingSessionLiveMediaCapture.capture(configuration: configuration)
+            capturedMedia: capturedMedia
         )
     }
     public static func run(

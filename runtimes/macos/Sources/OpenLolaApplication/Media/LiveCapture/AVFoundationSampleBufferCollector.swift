@@ -201,7 +201,9 @@ extension AVFoundationSampleBufferCollector {
         }
         let retainedDataStart = min(rawFrameDataBaseOffset, rawFrameData.count)
         return RecordingCapturedVideo(
-            rawFrameData: rawFrameData.subdata(in: retainedDataStart..<rawFrameData.count),
+            // Share the buffer when nothing was dropped: a copy would double the take's peak memory.
+            rawFrameData: retainedDataStart == 0
+                ? rawFrameData : rawFrameData.subdata(in: retainedDataStart..<rawFrameData.count),
             frameIndex: rawFrameIndex.map(normalizedRawFrameIndexEntry),
             framesCaptured: rawPayloadsCaptured
         )

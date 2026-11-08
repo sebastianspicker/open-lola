@@ -116,7 +116,8 @@ impl WavStreamWriter {
         }
         // Keeps the file readable if the process dies before `finish`.
         if self.data_len - self.patched_len >= u64::from(self.byte_rate.max(1)) {
-            self.write_sizes(0)?;
+            // A failed patch is retried next interval and by `finish`; the PCM is already on disk.
+            let _ = self.write_sizes(0);
             self.file.seek(SeekFrom::End(0))?;
         }
         Ok(())
@@ -178,7 +179,10 @@ fn write_header(
 fn write_pcm(file: &mut File, pcm: &[u8], data_len: &mut u64) -> Result<(), WavError> {
     let mut remaining = pcm;
     while !remaining.is_empty() {
-        let written = file.write(remaining)?;
+        let written = match file.write(remaining) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
         if written == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WriteZero,

@@ -153,11 +153,10 @@ impl AudioOutput {
         let Some(writer) = self.writer.take() else {
             return Ok(());
         };
-        let data_len = writer.data_len();
-        writer.finish()?;
-        self.completed_bytes += data_len;
+        // Record the segment first: its data is on disk even when `finish` fails.
+        self.completed_bytes += writer.data_len();
         self.completed.push(self.path.clone());
-        Ok(())
+        writer.finish()
     }
 
     fn bytes(&self) -> usize {

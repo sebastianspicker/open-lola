@@ -8,6 +8,7 @@ DEVELOPER_DIR ?= $(or $(firstword $(wildcard /Applications/Xcode-26.6.0.app/Cont
 OPEN_LOLA_SWIFT_BUILD_PATH ?= $(or $(SWIFT_BUILD_PATH),/private/tmp/open-lola-swiftpm-build)
 $(if $(SWIFT_BUILD_PATH),$(warning SWIFT_BUILD_PATH is deprecated; use OPEN_LOLA_SWIFT_BUILD_PATH))
 # Keep uv's environment out of the checkout: the release-hygiene scan rejects a repo-local .venv.
+# It follows the Swift path, so a per-checkout OPEN_LOLA_SWIFT_BUILD_PATH also separates uv environments.
 UV_PROJECT_ENVIRONMENT ?= $(OPEN_LOLA_SWIFT_BUILD_PATH)-uv
 export UV_PROJECT_ENVIRONMENT
 PYTHON_RUN := $(UV) run --locked --extra dev

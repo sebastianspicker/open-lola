@@ -14,7 +14,8 @@ pub struct UdpMediaTransport {
     video_port: u16,
     stats: TransportStats,
     shutdown: bool,
-    send_faults: SendFaultTimer,
+    // One timer per stream: audio successes must not hide a failing video path.
+    send_faults: [SendFaultTimer; 2],
 }
 
 impl UdpMediaTransport {
@@ -58,7 +59,7 @@ impl UdpMediaTransport {
             video_port,
             stats: TransportStats::default(),
             shutdown: false,
-            send_faults: SendFaultTimer::default(),
+            send_faults: Default::default(),
         })
     }
 
@@ -166,12 +167,14 @@ impl MediaTransport for UdpMediaTransport {
             let sent = match socket.send_to(payload, destination) {
                 Ok(sent) => sent,
                 Err(error) => {
-                    return Err(self.send_faults.classify(TransportError::from_io(error)))
+                    return Err(
+                        self.send_faults[kind as usize].classify(TransportError::from_io(error))
+                    )
                 }
             };
             (sent, payload.len())
         };
-        self.send_faults.clear();
+        self.send_faults[kind as usize].clear();
         if sent != expected {
             self.stats.backpressure_drops += 1;
             return Err(TransportError::Backpressure(format!(

@@ -39,6 +39,8 @@ fn is_network_path(path: &Path) -> bool {
 
 /// The executable's directory, unless it is on a network path.
 fn executable_dir() -> Option<PathBuf> {
+    // OS-supplied path, searched last for allowlisted DLL names only; see SECURITY.md.
+    // nosemgrep
     std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(Path::to_path_buf))

@@ -39,6 +39,8 @@ public struct DirectPeerSessionHostIdentity: Codable, Equatable, Sendable {
         guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else {
             return nil
         }
+        // ASCII sysctl report text, never compared or parsed.
+        // swiftlint:disable:next optional_data_string_conversion
         let text = String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
         return text.isEmpty ? nil : text
     }

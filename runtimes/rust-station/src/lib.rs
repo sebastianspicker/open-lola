@@ -31,6 +31,8 @@ const PT_GREY_INI: &[u8] = include_bytes!("../data/camera_modes/PtGrey.ini");
 /// in the platform temporary directory, so moving a built binary never leaves
 /// it dependent on its former source checkout.
 pub fn crate_root() -> PathBuf {
+    // Selects data catalogs only (never code); see SECURITY.md.
+    // nosemgrep
     std::env::current_exe()
         .ok()
         .as_deref()
@@ -77,25 +79,30 @@ fn bundled_resource_root() -> PathBuf {
     let mut slot = BUNDLED_ROOT
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    slot.get_or_insert_with(|| {
-        let root = tempfile::Builder::new()
-            .prefix(&format!("rusty-lola-{VERSION}-resources-"))
-            .tempdir()
-            .expect("create private bundled-resource directory");
-        let camera_modes = root.path().join("data").join("camera_modes");
-        std::fs::create_dir_all(&camera_modes).expect("create bundled camera catalog directory");
-        for (name, contents) in [
-            ("Ximea.ini", XIMEA_INI),
-            ("XimeaColors.ini", XIMEA_COLORS_INI),
-            ("PtGrey.ini", PT_GREY_INI),
-        ] {
-            let path = camera_modes.join(name);
-            std::fs::write(path, contents).expect("materialize bundled camera catalog");
-        }
-        root
-    })
-    .path()
-    .to_path_buf()
+    if let Some(root) = slot.as_ref() {
+        return root.path().to_path_buf();
+    }
+    match materialize_bundled_resources() {
+        Ok(root) => slot.insert(root).path().to_path_buf(),
+        // A path that holds no catalog: callers report a missing file instead of panicking.
+        Err(error) => PathBuf::from(format!("<bundled resources unavailable: {error}>")),
+    }
+}
+
+fn materialize_bundled_resources() -> std::io::Result<tempfile::TempDir> {
+    let root = tempfile::Builder::new()
+        .prefix(&format!("rusty-lola-{VERSION}-resources-"))
+        .tempdir()?;
+    let camera_modes = root.path().join("data").join("camera_modes");
+    std::fs::create_dir_all(&camera_modes)?;
+    for (name, contents) in [
+        ("Ximea.ini", XIMEA_INI),
+        ("XimeaColors.ini", XIMEA_COLORS_INI),
+        ("PtGrey.ini", PT_GREY_INI),
+    ] {
+        std::fs::write(camera_modes.join(name), contents)?;
+    }
+    Ok(root)
 }
 
 /// Remove the temporary bundled camera catalogs, if this run created them. Call before
