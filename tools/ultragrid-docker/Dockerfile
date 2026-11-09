@@ -1,5 +1,5 @@
 # Build a pinned UltraGrid `uv` image for repeatable Open LoLa transport checks.
-FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3 AS build
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS build
 
 ARG ULTRAGRID_VERSION=1.10.4
 ARG ULTRAGRID_SOURCE_URL=https://github.com/CESNET/UltraGrid/archive/v${ULTRAGRID_VERSION}.tar.gz
@@ -26,7 +26,7 @@ RUN ./autogen.sh --enable-all=no --disable-dependency-tracking --prefix=/opt/ult
     && make -j"$(nproc)" bin/uv \
     && install -Dm755 bin/uv /opt/ultragrid/bin/uv
 
-FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 
 # hadolint ignore=DL3008
 RUN apt-get update \
